@@ -1,0 +1,91 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model SalesRep {
+  id     String  @id @default(cuid())
+  email  String  @unique
+  name   String
+  stores Store[]
+}
+
+model Store {
+  id         String      @id @default(cuid())
+  code       String      @unique
+  name       String
+  salesRepId String?
+  salesRep   SalesRep?   @relation(fields: [salesRepId], references: [id])
+  stockItems StockItem[]
+  orders     Order[]
+}
+
+model Sku {
+  id         String      @id @default(cuid())
+  code       String      @unique
+  name       String
+  stockItems StockItem[]
+  promoTiers PromoTier[]
+  orderItems OrderItem[]
+}
+
+model StockItem {
+  storeId  String
+  skuId    String
+  stock    Float
+  avgSales Float
+  minDays  Int    @default(7)
+  maxDays  Int    @default(15)
+  store    Store  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  sku      Sku    @relation(fields: [skuId], references: [id], onDelete: Cascade)
+
+  @@id([storeId, skuId])
+}
+
+model PromoTier {
+  id        String @id @default(cuid())
+  skuId     String
+  minQty    Int
+  discount  String
+  sortOrder Int
+  sku       Sku    @relation(fields: [skuId], references: [id], onDelete: Cascade)
+}
+
+model Order {
+  id           String      @id @default(cuid())
+  storeId      String
+  status       String      @default("pending_approval")
+  rejectReason String?
+  createdAt    DateTime    @default(now())
+  approvedAt   DateTime?
+  store        Store       @relation(fields: [storeId], references: [id])
+  items        OrderItem[]
+}
+
+model OrderItem {
+  id           String @id @default(cuid())
+  orderId      String
+  skuId        String
+  suggestedQty Int
+  finalQty     Int
+  cvdEstimate  Float?
+  order        Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sku          Sku    @relation(fields: [skuId], references: [id])
+}
+
+model AllowedSalesCode {
+  code      String   @id
+  createdAt DateTime @default(now())
+}
+
+/// ผู้ดูแลระบบ — bootstrap จาก ADMIN_EMAILS / APP_ADMINS แล้วเพิ่มผ่าน UI ได้
+model Admin {
+  email   String   @id
+  fromEnv Boolean  @default(false)
+  addedBy String   @default("")
+  addedAt DateTime @default(now())
+}
