@@ -14,7 +14,7 @@ export function PageShell({
     <div
       className={cn(
         "min-h-screen vmi-mesh-bg",
-        customerNav && "pb-20 md:pb-0",
+        customerNav && "pb-[calc(4.5rem+env(safe-area-inset-bottom))] xl:pb-0",
         className
       )}
     >

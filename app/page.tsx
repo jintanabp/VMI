@@ -27,7 +27,7 @@ export default async function HomePage() {
   const salesSession = await getRawSalesSession();
 
   if (storeId) redirect("/stock");
-  if (salesSession?.role === "admin") redirect("/admin/dev");
+  if (salesSession?.role === "admin") redirect("/admin");
   if (salesSession?.role === "sales") redirect("/sales/orders");
   return (
     <div className="relative min-h-screen overflow-hidden vmi-mesh-bg">

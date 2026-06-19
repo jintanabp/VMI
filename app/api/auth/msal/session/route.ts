@@ -49,7 +49,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: message }, { status: 403 });
   }
   const token = signSalesSession(session);
-  const redirectTo = session.role === "admin" ? "/admin/dev" : "/sales/orders";
+  const redirectTo = session.role === "admin" ? "/admin" : "/sales/orders";
   const contentType = request.headers.get("content-type") ?? "";
 
   if (contentType.includes("application/json")) {

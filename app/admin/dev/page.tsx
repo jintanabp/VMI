@@ -1,5 +1,5 @@
-import { AdminDevClient } from "@/components/admin/admin-dev-client";
+import { redirect } from "next/navigation";
 
-export default function AdminDevPage() {
-  return <AdminDevClient />;
+export default function AdminDevRedirectPage() {
+  redirect("/admin");
 }

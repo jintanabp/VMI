@@ -1,10 +1,14 @@
 import { hasAnyOnelakeTargets } from "./env";
+import { sendMasterRefreshAlert } from "./alert-email";
 import {
   buildCustomerSpec,
   buildSalesmanSpec,
   refreshAllMasters,
 } from "./onelake-refresh";
 import { reloadFabricMasters } from "./index";
+import {
+  writeMasterRefreshStatus,
+} from "./refresh-status";
 import { syncFabricSalesReps } from "./sync-sales-reps";
 import { getCustomerCsvPath, getSalesmanCsvPath } from "./paths";
 
@@ -43,6 +47,13 @@ export function isSchedulerEnabled(): boolean {
 }
 
 async function runRefreshWithRetry(maxRetries = 3): Promise<boolean> {
+  writeMasterRefreshStatus({
+    lastAttemptAt: new Date().toISOString(),
+    schedulerEnabled: isSchedulerEnabled(),
+  });
+
+  let lastError = "unknown error";
+
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       const result = await refreshAllMasters({ allowInteractive: false });
@@ -58,18 +69,44 @@ async function runRefreshWithRetry(maxRetries = 3): Promise<boolean> {
       }
       reloadFabricMasters();
       await syncFabricSalesReps();
+      writeMasterRefreshStatus({
+        lastSuccessAt: new Date().toISOString(),
+        lastResult: result,
+        lastError: undefined,
+      });
+      try {
+        const { execFile } = await import("child_process");
+        const { promisify } = await import("util");
+        const execFileAsync = promisify(execFile);
+        await execFileAsync("node", ["scripts/backup-db.mjs"], {
+          cwd: process.cwd(),
+        });
+      } catch (backupErr) {
+        console.warn("[VMI scheduler] Post-refresh backup skipped:", backupErr);
+      }
       console.info(
         `[VMI scheduler] Master refresh OK (attempt ${attempt + 1}):`,
         result
       );
       return true;
     } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
       const isLast = attempt >= maxRetries;
       console.error(
         `[VMI scheduler] Refresh failed (attempt ${attempt + 1}/${maxRetries + 1}):`,
         err
       );
-      if (isLast) return false;
+      if (isLast) {
+        writeMasterRefreshStatus({
+          lastFailureAt: new Date().toISOString(),
+          lastError,
+        });
+        await sendMasterRefreshAlert(
+          "[VMI] Fabric master refresh failed",
+          `Scheduled master refresh failed after ${maxRetries + 1} attempt(s).\n\nError: ${lastError}\n\nTime: ${new Date().toISOString()}`
+        );
+        return false;
+      }
       const delay = RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)];
       await new Promise((r) => setTimeout(r, delay));
     }
@@ -108,6 +145,13 @@ export async function runMasterRefreshNow(): Promise<{
     result.promotion ||
     result.skuMaster ||
     result.vdaAos;
+  if (ok) {
+    writeMasterRefreshStatus({
+      lastSuccessAt: new Date().toISOString(),
+      lastResult: result,
+      lastError: undefined,
+    });
+  }
   return { ok, ...result };
 }
 

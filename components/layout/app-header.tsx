@@ -49,9 +49,9 @@ export function AppHeader({
   const isCustomerRoute =
     pathname.startsWith("/stock") || pathname.startsWith("/order");
   const isAdminHub = pathname.startsWith("/admin");
-  const showCustomerNav = role === "customer";
-  const showSalesNav =
-    (role === "sales" || role === "admin") && !isCustomerRoute;
+
+  const customerCompactHeader = compact && isCustomerRoute;
+  const salesCompactHeader = compact && !isCustomerRoute;
 
   const showPreviewBanner = adminPreview || salesPreview;
 
@@ -61,7 +61,7 @@ export function AppHeader({
     } else if (adminPreview) {
       await fetch("/api/auth/admin/exit-preview", { method: "POST" });
     }
-    window.location.href = "/admin/dev";
+    window.location.href = "/admin";
   }
 
   type BackNav =
@@ -87,7 +87,7 @@ export function AppHeader({
     if (session?.role === "admin" && !isAdminHub) {
       return {
         kind: "link",
-        href: "/admin/dev",
+        href: "/admin",
         label: "กลับศูนย์ Admin",
       };
     }
@@ -121,28 +121,6 @@ export function AppHeader({
     <div className="flex w-full flex-wrap items-center gap-1.5 sm:gap-2 md:w-auto md:flex-nowrap md:justify-end">
       <ThemeToggle />
       {actions}
-      {showCustomerNav && (
-        <div className="hidden gap-1 md:flex">
-          <NavLink href="/stock" active={pathname === "/stock"}>
-            สต็อก
-          </NavLink>
-          <NavLink href="/order" active={pathname === "/order"}>
-            สั่งสินค้า
-          </NavLink>
-        </div>
-      )}
-      {showSalesNav && (
-        <>
-          <NavLink href="/sales/orders" active={pathname.startsWith("/sales")}>
-            ออเดอร์
-          </NavLink>
-          {role === "admin" && !pathname.startsWith("/admin") && (
-            <NavLink href="/admin/dev" active={pathname.startsWith("/admin")}>
-              ทดสอบ
-            </NavLink>
-          )}
-        </>
-      )}
       {(session || role === "customer") && (
         <Button
           variant="ghost"
@@ -237,16 +215,31 @@ export function AppHeader({
               )}
             </div>
           )}
-          <div className="flex flex-col gap-2.5 md:flex-row md:items-start md:justify-between md:gap-4">
-            <div className="flex min-w-0 flex-1 items-start gap-2.5 sm:gap-4">
+          <div
+            className={cn(
+              "flex gap-2",
+              customerCompactHeader
+                ? "flex-row items-center justify-between"
+                : salesCompactHeader
+                  ? "flex-row items-center justify-between"
+                  : "flex-col gap-2.5 md:flex-row md:items-start md:justify-between md:gap-4"
+            )}
+          >
+            <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-2.5">
               <Link
-                href={session?.role === "admin" ? "/admin/dev" : "/"}
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl vmi-gradient-brand text-white shadow-md sm:h-11 sm:w-11"
+                href={session?.role === "admin" ? "/admin" : "/"}
+                className={cn(
+                  "flex shrink-0 items-center justify-center rounded-xl vmi-gradient-brand text-white shadow-md",
+                  customerCompactHeader || salesCompactHeader
+                    ? "h-9 w-9"
+                    : "h-10 w-10 sm:h-11 sm:w-11"
+                )}
               >
                 <Package className="h-5 w-5" />
               </Link>
               <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">
+                {!customerCompactHeader && !salesCompactHeader && (
+                  <div className="flex flex-wrap items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">
                   <span className="font-bold text-teal-700 dark:text-teal-400">
                     VMI
                   </span>
@@ -262,11 +255,12 @@ export function AppHeader({
                     </span>
                   )}
                 </div>
+                )}
                 <h1
                   className={cn(
                     "font-bold leading-snug tracking-tight text-slate-900 dark:text-slate-50",
                     compact
-                      ? "text-sm sm:text-base"
+                      ? "text-xs xl:text-sm"
                       : "text-base sm:text-xl xl:text-2xl"
                   )}
                 >
@@ -303,36 +297,19 @@ export function AppHeader({
               </div>
             </div>
 
-            <div className="shrink-0 border-t border-slate-100 pt-2.5 dark:border-slate-800 max-md:w-full md:border-0 md:pt-1">
+            <div
+              className={cn(
+                "shrink-0",
+                customerCompactHeader || salesCompactHeader
+                  ? ""
+                  : "border-t border-slate-100 pt-2.5 dark:border-slate-800 max-md:w-full md:border-0 md:pt-1"
+              )}
+            >
               {toolbar}
             </div>
           </div>
         </div>
       </header>
     </>
-  );
-}
-
-function NavLink({
-  href,
-  active,
-  children,
-}: {
-  href: string;
-  active: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <Link
-      href={href}
-      className={cn(
-        "shrink-0 rounded-xl px-3 py-2 text-sm font-semibold transition-all sm:px-4",
-        active
-          ? "bg-[#0f4c75] text-white shadow-sm dark:bg-[#1a6b9a]"
-          : "text-slate-600 hover:bg-white hover:shadow-sm dark:text-slate-300 dark:hover:bg-slate-800"
-      )}
-    >
-      {children}
-    </Link>
   );
 }

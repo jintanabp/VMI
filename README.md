@@ -6,7 +6,7 @@
 
 - **ร้านค้าทั้งหมด** — เลือกรหัสร้านค้า, ดูสต็อก, แก้ MIN/MAX, รับคำแนะนำการสั่ง, ส่งคำสั่งซื้อ
 - **เซลล์** — เข้าด้วย Microsoft Azure AD, อนุมัติ/ปฏิเสธออเดอร์, ส่ง PO (stub)
-- **Admin/Dev** — ทดสอบ flow ลูกค้าและเซลล์, debug panel
+- **Admin** — ศูนย์ควบคุม: ทดสอบมุมมอง VDA/เซลล์, sync Fabric, จัดการ admin
 
 ## Tech Stack
 
@@ -103,9 +103,9 @@ http://localhost:3000/auth/callback
 #### 3. Login
 หน้าแรก → **เซลล์** → Sign in with Microsoft → เข้าหน้าอนุมัติออเดอร์
 
-### Admin Dev
-- อีเมลที่อยู่ใน `ADMIN_EMAILS` จะได้ role `admin`
-- เข้า `/admin/dev` เพื่อทดสอบทั้งสองฝั่ง
+### Admin
+- อีเมลที่อยู่ใน `ADMIN_EMAILS` / `APP_ADMINS` จะได้ role `admin`
+- เข้า `/admin` เพื่อทดสอบมุมมอง VDA / เซลล์ และตั้งค่าระบบ
 
 ## สูตรคำนวณ
 
@@ -131,7 +131,7 @@ npm run sync:masters
 
 ไฟล์ cache อยู่ที่ `data/cache/` — แอปอ่านจากที่นี่ ไม่ต้อง sync ทุกครั้งที่เปิด
 
-### ตั้งเวลารายวัน (แบบ ocr-po-matching)
+### ตั้งเวลารายวัน
 
 **วิธีที่ 1 — ในแอป (server รันค้าง 24/7)**
 
@@ -141,9 +141,10 @@ npm run sync:masters
 MASTER_REFRESH_ENABLED=true
 MASTER_REFRESH_HOUR=3
 MASTER_REFRESH_MINUTE=30
+ALERT_EMAIL=you@company.com
 ```
 
-รัน `npm run build` แล้ว `npm run start` — scheduler จะดึงทุกวันเวลา **03:30 น. (Asia/Bangkok)** อัตโนมัติ (retry 3 ครั้งถ้าล้มเหลว)
+รัน `npm run build` แล้ว `npm run start` — scheduler จะดึงทุกวันเวลา **03:30 น. (Asia/Bangkok)** อัตโนมัติ (retry 3 ครั้งถ้าล้มเหลว, ส่งแจ้ง `ALERT_EMAIL` เมื่อล้มหมด)
 
 > `npm run dev` ไม่เปิด scheduler โดย default (กัน sync ซ้ำตอนพัฒนา)
 
@@ -154,7 +155,66 @@ MASTER_REFRESH_MINUTE=30
 3. Action: Start a program → `scripts\sync-masters-daily.bat`
 4. Start in: โฟลเดอร์โปรเจกต VMI
 
-**ดึงมือจากหน้า Admin:** `/admin/dev` → ปุ่ม "ดึงข้อมูล master ตอนนี้"
+**ดึงมือจากหน้า Admin:** `/admin` → ตั้งค่าระบบ → ปุ่ม "ดึงข้อมูล master ตอนนี้"
+
+## Production Deploy (Docker + Linux)
+
+### 1. เตรียม `.env`
+
+```bash
+cp .env.example .env
+# ใส่ ONELAKE_*, NEXTAUTH_SECRET, ADMIN_EMAILS, ALERT_EMAIL
+# ตั้ง NEXT_PUBLIC_AZURE_AD_* และ redirect URI สำหรับ production
+```
+
+### 2. Build และรัน
+
+```bash
+docker compose up -d --build
+curl http://127.0.0.1:3001/api/health
+```
+
+แอปรันที่ **port 3001** (localhost)
+
+Volumes ที่ persist:
+- `vmi_data` — SQLite (`/app/data/vmi.db`) + Fabric cache
+- `vmi_backups` — backup DB หลัง sync สำเร็จ
+- `vmi_logs` — PO export stub
+
+### 3. nginx reverse proxy (ตัวอย่าง)
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name vmi.yourcompany.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+เพิ่ม Redirect URI ใน Azure Portal:
+
+```
+https://vmi.yourcompany.com/auth/callback
+```
+
+และตั้งใน `.env`:
+
+```env
+NEXT_PUBLIC_AZURE_REDIRECT_URI=https://vmi.yourcompany.com/auth/callback
+```
+
+### 4. Backup มือ
+
+```bash
+docker compose exec vmi node scripts/backup-db.mjs
+# หรือ local: npm run backup:db
+```
 
 ## Fabric Lakehouse (Phase 2 — stock/SKU)
 

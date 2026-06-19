@@ -11,6 +11,14 @@ import { Button } from "@/components/ui/button";
 import { StatCard } from "@/components/ui/stat-card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import {
+  MobileRow,
+  MobileRowExtra,
+  MobileRowList,
+  MobileRowStats,
+  MobileRowTop,
+  MobileStat,
+} from "@/components/ui/mobile-row";
 import { cn } from "@/lib/utils";
 import { formatDays, formatNumber } from "@/lib/calculations";
 import type { StockRowComputed } from "@/lib/repositories/types";
@@ -178,7 +186,7 @@ export function StockPageClient({
   }
 
   return (
-    <PageShell customerNav className="vmi-stock-page pb-28 md:pb-20">
+    <PageShell className="vmi-stock-page pb-20">
       <AppHeader
         compact
         title={`สต็อก · ${activeVda.toUpperCase()}`}
@@ -190,34 +198,49 @@ export function StockPageClient({
       />
 
       <main className="vmi-stock-main mx-auto w-full min-w-0 max-w-7xl px-3 sm:px-4">
-        <div className="grid shrink-0 grid-cols-3 gap-2 py-3 sm:gap-3">
-          <StatCard
-            icon={<Package className="h-4 w-4 sm:h-5 sm:w-5" />}
-            value={stats.total}
-            label="SKU"
-            className="!gap-2 !p-2.5 sm:!p-3"
-          />
-          <StatCard
-            icon={<AlertTriangle className="h-4 w-4 sm:h-5 sm:w-5" />}
-            value={stats.needsOrder}
-            label="ควรสั่ง"
-            tone="amber"
-            className="!gap-2 !p-2.5 sm:!p-3"
-          />
-          <StatCard
-            icon={<TrendingDown className="h-4 w-4 sm:h-5 sm:w-5" />}
-            value={stats.lowStock}
-            label="CVD ต่ำ"
-            tone="red"
-            className="!gap-2 !p-2.5 sm:!p-3"
-          />
+        <div className="vmi-stock-stats shrink-0 py-2 xl:py-3">
+          <div className="flex gap-1.5 xl:hidden">
+            <StockStatChip label="SKU" value={stats.total} />
+            <StockStatChip
+              label="ควรสั่ง"
+              value={stats.needsOrder}
+              tone="amber"
+            />
+            <StockStatChip
+              label="CVDต่ำ"
+              value={stats.lowStock}
+              tone="red"
+            />
+          </div>
+          <div className="hidden grid-cols-3 gap-2 xl:grid">
+            <StatCard
+              icon={<Package className="h-4 w-4 sm:h-5 sm:w-5" />}
+              value={stats.total}
+              label="SKU"
+              className="!gap-2 !p-2.5 sm:!p-3"
+            />
+            <StatCard
+              icon={<AlertTriangle className="h-4 w-4 sm:h-5 sm:w-5" />}
+              value={stats.needsOrder}
+              label="ควรสั่ง"
+              tone="amber"
+              className="!gap-2 !p-2.5 sm:!p-3"
+            />
+            <StatCard
+              icon={<TrendingDown className="h-4 w-4 sm:h-5 sm:w-5" />}
+              value={stats.lowStock}
+              label="CVD ต่ำ"
+              tone="red"
+              className="!gap-2 !p-2.5 sm:!p-3"
+            />
+          </div>
         </div>
 
         <div className="vmi-stock-toolbar shrink-0 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
           <div className="relative min-w-0 flex-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
             <Input
-              className="h-9 pl-9"
+              className="h-8 pl-9 text-xs xl:h-9 xl:text-sm"
               placeholder="ค้นหา SKU หรือชื่อสินค้า..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -246,12 +269,31 @@ export function StockPageClient({
           </p>
         )}
 
-        <div className="vmi-table-wrap vmi-stock-table-wrap min-h-0 flex-1">
-          <div className="vmi-table-scroll vmi-stock-table-scroll">
-          <table className="w-full min-w-[1020px] text-left text-sm">
-            <thead className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
+        <div className="vmi-table-wrap vmi-stock-table-wrap min-h-0 flex-1 max-xl:flex-none">
+          <div className="vmi-table-scroll vmi-stock-table-scroll overflow-x-hidden xl:overflow-x-auto">
+            <div className="xl:hidden">
+              {isLoading ? (
+                <p className="px-3 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                  กำลังโหลด...
+                </p>
+              ) : (
+                <MobileRowList>
+                  {filtered.map((row) => (
+                    <StockMobileRow
+                      key={row.skuId}
+                      row={row}
+                      selected={selected.has(row.skuId)}
+                      onToggle={() => toggleRow(row.skuId)}
+                    />
+                  ))}
+                </MobileRowList>
+              )}
+            </div>
+
+            <table className="vmi-data-table hidden w-full min-w-0 text-left xl:table xl:min-w-[1020px]">
+            <thead className="font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
               <tr>
-                <th className="w-10 px-3 py-3">
+                <th className="w-9 px-2 py-2 xl:w-10 xl:px-3 xl:py-3">
                   <Checkbox
                     checked={
                       allNeedsSelected
@@ -265,15 +307,15 @@ export function StockPageClient({
                     title="เลือกรายการที่ควรสั่ง (ตามตัวกรอง)"
                   />
                 </th>
-                <th className="px-3 py-3">SKU</th>
-                <th className="min-w-[140px] px-3 py-3">ชื่อสินค้า</th>
-                <th className="px-3 py-3 text-right">สต็อก</th>
-                <th className="px-3 py-3 text-right">ยอดขายเฉลี่ย</th>
-                <th className="px-3 py-3 text-right">CVD</th>
-                <th className="px-3 py-3 text-right">MIN</th>
-                <th className="px-3 py-3 text-right">MAX</th>
-                <th className="px-3 py-3 text-right">แนะนำ</th>
-                <th className="px-3 py-3 text-right">ราคา/หีบ</th>
+                <th className="whitespace-nowrap px-2 py-2 xl:px-3 xl:py-3">SKU</th>
+                <th className="px-2 py-2 xl:min-w-[140px] xl:px-3 xl:py-3">ชื่อ</th>
+                <th className="whitespace-nowrap px-3 py-3 text-right">สต็อก</th>
+                <th className="whitespace-nowrap px-3 py-3 text-right">ยอดขายเฉลี่ย</th>
+                <th className="whitespace-nowrap px-3 py-3 text-right">CVD</th>
+                <th className="whitespace-nowrap px-3 py-3 text-right">MIN</th>
+                <th className="whitespace-nowrap px-3 py-3 text-right">MAX</th>
+                <th className="whitespace-nowrap px-3 py-3 text-right">แนะนำ</th>
+                <th className="whitespace-nowrap px-3 py-3 text-right">ราคา/หีบ</th>
                 <th className="min-w-[200px] px-3 py-3">โปรโมชัน</th>
               </tr>
             </thead>
@@ -305,15 +347,19 @@ export function StockPageClient({
                           onCheckedChange={() => toggleRow(row.skuId)}
                         />
                       </td>
-                      <td className="px-3 py-2 font-medium text-slate-900 dark:text-slate-100">{row.skuCode}</td>
-                      <td className="px-3 py-2 text-slate-700 dark:text-slate-300">{row.skuName}</td>
-                      <td className="px-3 py-2 text-right">
+                      <td className="whitespace-nowrap px-3 py-2 font-medium text-slate-900 dark:text-slate-100">
+                        {row.skuCode}
+                      </td>
+                      <td className="px-3 py-2 text-slate-700 dark:text-slate-300">
+                        {row.skuName}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
                         {formatNumber(row.stock, 0)}
                       </td>
                       <td className="px-3 py-2 text-right">
                         {formatNumber(row.avgSales, 2)}
                       </td>
-                      <td className="px-3 py-2 text-right">
+                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
                         {formatDays(row.stockCvd)}
                       </td>
                       <td className="px-3 py-2 text-right">
@@ -350,7 +396,7 @@ export function StockPageClient({
                           </button>
                         )}
                       </td>
-                      <td className="px-3 py-2 text-right">
+                      <td className="whitespace-nowrap px-3 py-2 text-right">
                         {row.suggestOrder > 0 ? (
                           <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-800 ring-1 ring-amber-200 dark:bg-amber-900/50 dark:text-amber-300 dark:ring-amber-700/60">
                             {row.suggestOrder} หีบ
@@ -359,7 +405,7 @@ export function StockPageClient({
                           "-"
                         )}
                       </td>
-                      <td className="px-3 py-2 text-right text-xs tabular-nums">
+                      <td className="whitespace-nowrap px-3 py-2 text-right text-xs tabular-nums">
                         <StockPriceCell
                           unitPrice={row.unitPrice}
                           netUnitPrice={row.netUnitPrice}
@@ -433,14 +479,121 @@ export function StockPageClient({
   );
 }
 
+function StockMobileRow({
+  row,
+  selected,
+  onToggle,
+}: {
+  row: StockRowComputed;
+  selected: boolean;
+  onToggle: () => void;
+}) {
+  const lowStock =
+    row.needsOrder || (row.stockCvd !== null && row.stockCvd < 7);
+  const hasPromo =
+    row.currentPromo ||
+    row.nextPromo ||
+    row.hasPromoLadder;
+
+  return (
+    <MobileRow selected={selected} warn={lowStock}>
+      <MobileRowTop>
+        <Checkbox checked={selected} onCheckedChange={onToggle} />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-bold leading-snug text-slate-900 dark:text-slate-100">
+            <span className="text-teal-700 dark:text-teal-400">{row.skuCode}</span>
+            <span className="mx-1.5 font-normal text-slate-300 dark:text-slate-600">
+              ·
+            </span>
+            <span className="font-medium text-slate-800 dark:text-slate-200">
+              {row.skuName}
+            </span>
+          </p>
+        </div>
+      </MobileRowTop>
+      <MobileRowStats className="pl-7">
+        <MobileStat label="สต็อก" value={formatNumber(row.stock, 0)} />
+        <MobileStat label="CVD" value={formatDays(row.stockCvd)} />
+        {row.suggestOrder > 0 && (
+          <MobileStat
+            label="แนะนำ"
+            value={`${row.suggestOrder} หีบ`}
+            warn
+          />
+        )}
+        <MobileStat label="ราคา">
+          <StockPriceCell
+            unitPrice={row.unitPrice}
+            netUnitPrice={row.netUnitPrice}
+            expired={row.priceExpired}
+            compact
+          />
+        </MobileStat>
+      </MobileRowStats>
+      {hasPromo && (
+        <MobileRowExtra className="pl-7">
+          <PromoDetailCell
+            variant="embedded"
+            currentPromo={row.currentPromo}
+            currentKind={row.currentPromoKind}
+            nextPromo={row.nextPromo}
+            qtyToNext={row.qtyToNext}
+            nextPromoQty={row.nextPromoQty}
+            nextKind={row.nextPromoKind}
+            hasPromoLadder={row.hasPromoLadder}
+          />
+        </MobileRowExtra>
+      )}
+    </MobileRow>
+  );
+}
+
+function StockStatChip({
+  label,
+  value,
+  tone = "default",
+}: {
+  label: string;
+  value: number;
+  tone?: "default" | "amber" | "red";
+}) {
+  return (
+    <div
+      className={cn(
+        "flex min-w-0 flex-1 items-center justify-center gap-1 rounded-lg border px-1.5 py-1 text-[11px] xl:gap-1.5 xl:px-2 xl:py-1.5 xl:text-xs",
+        tone === "amber" &&
+          "border-amber-200/80 bg-amber-50/80 dark:border-amber-800/50 dark:bg-amber-950/30",
+        tone === "red" &&
+          "border-red-200/80 bg-red-50/80 dark:border-red-900/50 dark:bg-red-950/30",
+        tone === "default" &&
+          "border-slate-200/80 bg-white dark:border-slate-700/80 dark:bg-slate-900/80"
+      )}
+    >
+      <span className="truncate text-slate-500 dark:text-slate-400">{label}</span>
+      <span
+        className={cn(
+          "shrink-0 font-bold tabular-nums",
+          tone === "amber" && "text-amber-700 dark:text-amber-400",
+          tone === "red" && "text-red-600 dark:text-red-400",
+          tone === "default" && "text-slate-900 dark:text-slate-50"
+        )}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
 function StockPriceCell({
   unitPrice,
   netUnitPrice,
   expired,
+  compact = false,
 }: {
   unitPrice?: number | null;
   netUnitPrice?: number | null;
   expired?: boolean;
+  compact?: boolean;
 }) {
   if (unitPrice == null) return <span className="text-slate-400">-</span>;
   const hasDiscount =
@@ -448,14 +601,23 @@ function StockPriceCell({
   return (
     <span className={cn(expired && "text-amber-600 dark:text-amber-400")}>
       {hasDiscount ? (
-        <>
-          <span className="text-slate-400 line-through">
-            {formatNumber(unitPrice, 0)}
-          </span>{" "}
-          <span className="font-semibold text-teal-700 dark:text-teal-400">
+        compact ? (
+          <span
+            className="font-semibold text-teal-700 dark:text-teal-400"
+            title={`${formatNumber(unitPrice, 0)} → ${formatNumber(netUnitPrice!, 0)}`}
+          >
             {formatNumber(netUnitPrice!, 0)}
           </span>
-        </>
+        ) : (
+          <>
+            <span className="text-slate-400 line-through">
+              {formatNumber(unitPrice, 0)}
+            </span>{" "}
+            <span className="font-semibold text-teal-700 dark:text-teal-400">
+              {formatNumber(netUnitPrice!, 0)}
+            </span>
+          </>
+        )
       ) : (
         formatNumber(unitPrice, 0)
       )}

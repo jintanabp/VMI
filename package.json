@@ -16,6 +16,7 @@
     "db:setup": "prisma migrate dev && tsx prisma/seed.ts",
     "sync:masters": "tsx --env-file=.env scripts/sync-fabric-masters.ts",
     "sync:masters:daily": "scripts\\sync-masters-daily.bat",
+    "backup:db": "node scripts/backup-db.mjs",
     "probe:stock-onelake": "tsx --env-file=.env scripts/probe-stock-onelake.ts",
     "postinstall": "prisma generate"
   },

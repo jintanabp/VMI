@@ -1,5 +1,6 @@
 import fs from "fs";
 import { readCsvFile } from "./csv";
+import { getVdaAosCsvPath } from "./paths";
 
 const VDA_KEYS = ["vda1", "vda2", "vda3", "vda4", "vda5"] as const;
 
@@ -131,7 +132,6 @@ export function getVdaAosBillRegistry(): VdaAosBillRegistry {
 }
 
 export function reloadVdaAosBillRegistry(): void {
-  const { getVdaAosCsvPath } = require("./paths") as typeof import("./paths");
   registry = new VdaAosBillRegistry();
 
   for (const vda of getVdaKeys()) {

@@ -1,0 +1,30 @@
+services:
+  vmi:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: "file:/app/data/vmi.db"
+      FABRIC_CACHE_DIR: /app/data/cache
+      BACKUP_DIR: /app/backups
+      MASTER_REFRESH_ENABLED: "true"
+    ports:
+      - "127.0.0.1:3001:3000"
+    volumes:
+      - vmi_data:/app/data
+      - vmi_backups:/app/backups
+      - vmi_logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+volumes:
+  vmi_data:
+  vmi_backups:
+  vmi_logs:

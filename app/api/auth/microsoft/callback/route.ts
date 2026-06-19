@@ -55,7 +55,7 @@ export async function GET(request: Request) {
     const session = await buildSalesSessionWithAccess(email, name);
     const token = signSalesSession(session);
     const nextPath =
-      session.role === "admin" ? "/admin/dev" : "/sales/orders";
+      session.role === "admin" ? "/admin" : "/sales/orders";
 
     const response = NextResponse.redirect(new URL(nextPath, request.url));
     response.cookies.set(SALES_SESSION_COOKIE, token, {

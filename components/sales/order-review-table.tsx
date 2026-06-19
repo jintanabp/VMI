@@ -5,6 +5,14 @@ import { useQuery } from "@tanstack/react-query";
 import { Filter, Sparkles } from "lucide-react";
 import { PromoDetailCell } from "@/components/promo/promo-detail-cell";
 import { FlagBadge } from "@/components/ui/badge";
+import {
+  MobileRow,
+  MobileRowExtra,
+  MobileRowList,
+  MobileRowStats,
+  MobileRowTop,
+  MobileStat,
+} from "@/components/ui/mobile-row";
 import { formatNumber, getCvdFlag } from "@/lib/calculations";
 import type { PromoTierKind } from "@/lib/calculations";
 import {
@@ -249,8 +257,92 @@ export function OrderReviewTable({ storeCode, items }: OrderReviewTableProps) {
       )}
 
       <div className="vmi-table-wrap flex min-h-0 min-w-0 flex-1 flex-col">
-        <div className="vmi-table-scroll vmi-sales-review-scroll min-h-0 flex-1">
-          <table className="w-full text-left text-sm">
+        <div className="vmi-table-scroll vmi-sales-review-scroll min-h-0 flex-1 overflow-x-hidden xl:overflow-x-auto">
+          {!promoLoading && visibleItems.length === 0 && (
+            <p className="px-4 py-10 text-center text-sm text-slate-500 dark:text-slate-400 xl:hidden">
+              {promoOnly
+                ? "ไม่มีรายการที่ได้โปร"
+                : "ไม่มีรายการสินค้า"}
+            </p>
+          )}
+          <div className="xl:hidden">
+            {!promoLoading && visibleItems.length > 0 && (
+              <MobileRowList>
+                {visibleItems.map((item, index) => {
+                  const api = promoBySku.get(item.sku.code);
+                  const flag = getCvdFlag(item.cvdEstimate);
+                  const rowNum = promoOnly
+                    ? index + 1
+                    : items.findIndex((i) => i.id === item.id) + 1;
+                  const hasPromo =
+                    api?.currentPromo ||
+                    api?.nextPromo ||
+                    api?.hasPromoLadder ||
+                    api?.freeGood;
+
+                  return (
+                    <MobileRow key={item.id} warn={flag === "red"}>
+                      <MobileRowTop>
+                        <span className="w-5 shrink-0 text-xs text-slate-400">
+                          {rowNum}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="font-mono text-sm font-bold text-teal-700 dark:text-teal-400">
+                              {item.sku.code}
+                            </span>
+                            <FlagBadge flag={flag} />
+                          </div>
+                          <p className="mt-0.5 line-clamp-2 text-sm font-medium leading-snug text-slate-800 dark:text-slate-100">
+                            {item.sku.name}
+                          </p>
+                        </div>
+                      </MobileRowTop>
+                      <MobileRowStats className="pl-7">
+                        <MobileStat
+                          label="หีบ"
+                          value={formatQtyPair(
+                            item.suggestedQty,
+                            item.finalQty
+                          )}
+                          title={`แนะนำ ${item.suggestedQty} · สั่ง ${item.finalQty}`}
+                        />
+                        <MobileStat label="มูลค่า">
+                          {promoLoading ? (
+                            <span className="text-slate-400">...</span>
+                          ) : (
+                            <PriceBlock
+                              unitPrice={api?.unitPrice ?? null}
+                              netUnitPrice={api?.netUnitPrice ?? null}
+                              lineTotal={api?.lineTotal ?? null}
+                              expired={api?.priceExpired}
+                            />
+                          )}
+                        </MobileStat>
+                      </MobileRowStats>
+                      {!promoLoading && hasPromo && (
+                        <MobileRowExtra className="pl-7">
+                          <PromoDetailCell
+                            variant="embedded"
+                            currentPromo={api?.currentPromo}
+                            currentKind={api?.currentKind}
+                            nextPromo={api?.nextPromo}
+                            qtyToNext={api?.qtyToNext}
+                            nextPromoQty={api?.nextPromoQty}
+                            nextKind={api?.nextKind}
+                            hasPromoLadder={api?.hasPromoLadder}
+                            freeGood={api?.freeGood}
+                          />
+                        </MobileRowExtra>
+                      )}
+                    </MobileRow>
+                  );
+                })}
+              </MobileRowList>
+            )}
+          </div>
+
+          <table className="vmi-data-table hidden w-full min-w-0 text-left xl:table">
             <thead>
               <tr className="text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
                 <th className="w-9 px-2 py-2.5">#</th>

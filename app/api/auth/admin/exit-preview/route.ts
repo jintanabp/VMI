@@ -9,5 +9,5 @@ export async function POST(request: Request) {
   }
 
   await exitAdminPreview();
-  return NextResponse.redirect(new URL("/admin/dev", request.url), 303);
+  return NextResponse.redirect(new URL("/admin", request.url), 303);
 }

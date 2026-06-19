@@ -49,4 +49,10 @@ next-env.d.ts
 
 # po stub logs
 /logs/
+
+# fabric master cache
 /data/cache/
+
+# backups
+/backups/
+/data/logs/

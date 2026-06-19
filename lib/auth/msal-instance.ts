@@ -157,7 +157,7 @@ export async function createServerSession(email: string, name?: string) {
     typeof data.redirectTo === "string"
       ? data.redirectTo
       : data.user?.role === "admin"
-        ? "/admin/dev"
+        ? "/admin"
         : "/sales/orders";
 
   window.location.href = redirectTo;

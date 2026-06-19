@@ -20,6 +20,13 @@ import { PageShell } from "@/components/layout/page-shell";
 import { PromoDetailCell } from "@/components/promo/promo-detail-cell";
 import { FlagBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  MobileRow,
+  MobileRowExtra,
+  MobileRowList,
+  MobileRowStats,
+  MobileStat,
+} from "@/components/ui/mobile-row";
 import type { StockRowComputed } from "@/lib/repositories/types";
 import {
   calcCvdEstimate,
@@ -109,7 +116,9 @@ export function OrderPageClient({
 
   useEffect(() => {
     const saved = sessionStorage.getItem(VIEW_KEY);
-    if (saved === "cards" || saved === "table") setViewMode(saved);
+    if (saved === "cards" || saved === "table") {
+      setViewMode(saved);
+    }
   }, []);
 
   useEffect(() => {
@@ -316,7 +325,7 @@ export function OrderPageClient({
   }
 
   return (
-    <PageShell customerNav className="vmi-order-page pb-28 md:pb-20">
+    <PageShell className="vmi-order-page pb-20">
       <AppHeader
         compact
         title={`สั่งสินค้า · ${storeCode.toUpperCase()}`}
@@ -328,7 +337,7 @@ export function OrderPageClient({
       />
 
       <main className="vmi-order-main mx-auto w-full min-w-0 max-w-7xl px-3 sm:px-4">
-        <div className="grid shrink-0 grid-cols-2 gap-2 py-3 sm:grid-cols-3 sm:gap-3 lg:grid-cols-5">
+        <div className="vmi-order-stats grid shrink-0 grid-cols-2 gap-1.5 py-2 sm:grid-cols-3 sm:gap-2 lg:grid-cols-5 xl:py-3">
           <SummaryChip
             label="รายการ"
             value={`${stats.skuCount} SKU`}
@@ -367,7 +376,7 @@ export function OrderPageClient({
           <p className="text-sm text-slate-500 dark:text-slate-400">
             {enriched.length} รายการ
           </p>
-          <div className="flex shrink-0 rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">
+          <div className="flex shrink-0 rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900 max-xl:hidden">
             <button
               type="button"
               onClick={() => switchView("cards")}
@@ -397,20 +406,18 @@ export function OrderPageClient({
           </div>
         </div>
 
-        <div
-          className={cn(
-            "min-h-0 flex-1",
-            viewMode === "table" && "vmi-table-wrap vmi-order-list-wrap"
-          )}
-        >
-          <div
-            className={cn(
-              "vmi-order-list-scroll",
-              viewMode === "table" && "vmi-table-scroll"
-            )}
-          >
+        <div className="vmi-table-wrap vmi-order-list-wrap min-h-0 flex-1">
+          <div className="vmi-order-list-scroll vmi-table-scroll">
+            <div className="xl:hidden">
+              <OrderLineMobileList
+                lines={enriched}
+                onDelta={updateQty}
+                onApplySuggest={applySuggest}
+                onApplyPromo={setQty}
+              />
+            </div>
             {viewMode === "cards" ? (
-              <div className="mx-auto w-full max-w-3xl space-y-4">
+              <div className="mx-auto hidden w-full max-w-3xl space-y-4 xl:block">
                 {enriched.map((line, index) => (
                   <OrderLineCard
                     key={line.row.skuId}
@@ -425,17 +432,14 @@ export function OrderPageClient({
                 ))}
               </div>
             ) : (
-              <>
-                <p className="mb-2 text-xs text-slate-400 dark:text-slate-500 lg:hidden">
-                  เลื่อนตารางซ้าย-ขวาเพื่อดูคอลัมน์ทั้งหมด
-                </p>
+              <div className="hidden xl:block">
                 <OrderLineTable
                   lines={enriched}
                   onDelta={updateQty}
                   onApplySuggest={applySuggest}
                   onApplyPromo={setQty}
                 />
-              </>
+              </div>
             )}
           </div>
         </div>
@@ -471,13 +475,13 @@ export function OrderPageClient({
       </div>
 
       {confirmOpen && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/50 p-4 backdrop-blur-sm sm:items-center">
-          <div className="vmi-card-elevated w-full max-w-md rounded-2xl p-6">
-            <h3 className="text-lg font-bold">ยืนยันส่งคำสั่งซื้อ?</h3>
-            <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
+          <div className="vmi-card-elevated flex max-h-[min(32rem,calc(100dvh-5rem))] w-full max-w-md flex-col rounded-2xl p-5 sm:max-h-[min(36rem,calc(100dvh-4rem))] sm:p-6">
+            <h3 className="shrink-0 text-lg font-bold">ยืนยันส่งคำสั่งซื้อ?</h3>
+            <p className="mt-1 shrink-0 text-sm text-slate-600 dark:text-slate-400">
               {stats.skuCount} รายการ · รวม {stats.totalQty} หีบ
             </p>
-            <ul className="vmi-scroll mt-4 max-h-48 space-y-2 overflow-y-auto pr-3 text-sm">
+            <ul className="vmi-scroll mt-4 min-h-0 flex-1 space-y-2 overflow-y-auto pr-2 text-sm sm:pr-3">
               {enriched.map((l) => (
                 <li
                   key={l.row.skuId}
@@ -497,7 +501,7 @@ export function OrderPageClient({
                 </li>
               ))}
             </ul>
-            <div className="mt-6 flex gap-2">
+            <div className="mt-4 flex shrink-0 gap-2 sm:mt-6">
               <Button
                 variant="outline"
                 className="flex-1"
@@ -536,18 +540,18 @@ function SummaryChip({
   return (
     <div
       className={cn(
-        "vmi-stat-card !p-3",
+        "vmi-stat-card !p-2.5 xl:!p-3",
         highlight && "ring-1 ring-teal-500/30",
         warn && "ring-1 ring-red-500/40"
       )}
     >
-      <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+      <div className="flex items-center gap-1.5 text-[11px] text-slate-500 xl:text-xs dark:text-slate-400">
         {icon}
         {label}
       </div>
       <p
         className={cn(
-          "mt-1 text-lg font-bold",
+          "mt-0.5 text-sm font-bold xl:mt-1 xl:text-lg",
           warn
             ? "text-red-600 dark:text-red-400"
             : "text-slate-900 dark:text-slate-100"
@@ -555,6 +559,69 @@ function SummaryChip({
       >
         {value}
       </p>
+    </div>
+  );
+}
+
+function OrderQtyControl({
+  qty,
+  onMinus,
+  onPlus,
+  showSuggest,
+  onApplySuggest,
+  size = "md",
+}: {
+  qty: number;
+  onMinus: () => void;
+  onPlus: () => void;
+  showSuggest?: boolean;
+  onApplySuggest?: () => void;
+  size?: "md" | "lg";
+}) {
+  const btn = size === "lg" ? "h-10 w-10 rounded-xl" : "h-8 w-8";
+  const qtyClass =
+    size === "lg"
+      ? "min-w-[3rem] text-center text-2xl font-bold tabular-nums"
+      : "w-7 text-center text-sm font-bold tabular-nums";
+
+  return (
+    <div className="flex w-[6.75rem] shrink-0 flex-col items-end gap-0.5">
+      <div className="flex items-center justify-end gap-0.5">
+        {showSuggest && onApplySuggest && (
+          <button
+            type="button"
+            onClick={onApplySuggest}
+            title="ใช้จำนวนแนะนำ"
+            className="mr-0.5 rounded-lg p-1 text-teal-700 hover:bg-teal-50 dark:text-teal-400 dark:hover:bg-teal-950/50"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+          </button>
+        )}
+        <Button
+          size="icon"
+          variant="outline"
+          className={btn}
+          onClick={onMinus}
+          aria-label="ลดจำนวน"
+        >
+          <Minus className="h-3.5 w-3.5" />
+        </Button>
+        <span className={cn(qtyClass, "text-slate-900 dark:text-white")}>
+          {qty}
+        </span>
+        <Button
+          size="icon"
+          variant="outline"
+          className={btn}
+          onClick={onPlus}
+          aria-label="เพิ่มจำนวน"
+        >
+          <Plus className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+      <span className="pr-1 text-[10px] font-medium text-slate-500 dark:text-slate-400">
+        หีบ
+      </span>
     </div>
   );
 }
@@ -620,41 +687,14 @@ function OrderLineCard({
         <span className="text-sm font-medium text-slate-600 dark:text-slate-400">
           จำนวนสั่ง
         </span>
-        <div className="flex items-center gap-3">
-          {showSuggestBtn && (
-            <button
-              type="button"
-              onClick={onApplySuggest}
-              className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-teal-700 hover:bg-teal-50 dark:text-teal-400 dark:hover:bg-teal-950/50"
-              title="ใช้จำนวนแนะนำ"
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-              แนะนำ
-            </button>
-          )}
-          <Button
-            size="icon"
-            variant="outline"
-            className="h-10 w-10 rounded-xl"
-            onClick={() => onDelta(-1)}
-            aria-label="ลดจำนวน"
-          >
-            <Minus className="h-4 w-4" />
-          </Button>
-          <span className="min-w-[3rem] text-center text-2xl font-bold tabular-nums text-slate-900 dark:text-white">
-            {line.qty}
-          </span>
-          <Button
-            size="icon"
-            variant="outline"
-            className="h-10 w-10 rounded-xl"
-            onClick={() => onDelta(1)}
-            aria-label="เพิ่มจำนวน"
-          >
-            <Plus className="h-4 w-4" />
-          </Button>
-          <span className="text-sm text-slate-500 dark:text-slate-400">หีบ</span>
-        </div>
+        <OrderQtyControl
+          qty={line.qty}
+          size="lg"
+          onMinus={() => onDelta(-1)}
+          onPlus={() => onDelta(1)}
+          showSuggest={showSuggestBtn}
+          onApplySuggest={onApplySuggest}
+        />
       </div>
 
       <PromoDetailCell
@@ -673,6 +713,99 @@ function OrderLineCard({
   );
 }
 
+function OrderLineMobileList({
+  lines,
+  onDelta,
+  onApplySuggest,
+  onApplyPromo,
+}: {
+  lines: EnrichedLine[];
+  onDelta: (skuId: string, delta: number) => void;
+  onApplySuggest: (skuId: string, suggest: number) => void;
+  onApplyPromo: (skuId: string, qty: number) => void;
+}) {
+  return (
+    <MobileRowList>
+      {lines.map((line, index) => {
+        const showSuggest =
+          line.row.suggestOrder > 0 && line.qty !== line.row.suggestOrder;
+        const hasPromo =
+          line.promo.currentPromo ||
+          line.promo.nextPromo ||
+          line.promo.hasPromoLadder ||
+          line.freeGood;
+
+        return (
+          <MobileRow key={line.row.skuId} warn={line.flag === "red"}>
+            <div className="flex items-start gap-2">
+              <span className="w-5 shrink-0 pt-0.5 text-xs text-slate-400">
+                {index + 1}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="font-bold text-teal-700 dark:text-teal-400">
+                    {line.row.skuCode}
+                  </span>
+                  <FlagBadge flag={line.flag} />
+                </div>
+                <p className="mt-0.5 line-clamp-2 text-sm leading-snug text-slate-800 dark:text-slate-200">
+                  {line.row.skuName}
+                </p>
+              </div>
+              <OrderQtyControl
+                qty={line.qty}
+                onMinus={() => onDelta(line.row.skuId, -1)}
+                onPlus={() => onDelta(line.row.skuId, 1)}
+                showSuggest={showSuggest}
+                onApplySuggest={() =>
+                  onApplySuggest(line.row.skuId, line.row.suggestOrder)
+                }
+              />
+            </div>
+            <MobileRowStats className="pl-7">
+              {line.unitPrice != null ? (
+                <MobileStat label="ราคา">
+                  <PriceCell
+                    unitPrice={line.unitPrice}
+                    netUnitPrice={line.netUnitPrice}
+                    expired={line.priceExpired}
+                  />
+                </MobileStat>
+              ) : (
+                <MobileStat label="ราคา" value="-" />
+              )}
+              <MobileStat label="รวม" value={formatBaht(line.lineTotal)} />
+              <MobileStat label="CVD" value={formatDays(line.cvdEst)} />
+              {line.row.suggestOrder > 0 && (
+                <MobileStat
+                  label="แนะนำ"
+                  value={`${line.row.suggestOrder} หีบ`}
+                />
+              )}
+            </MobileRowStats>
+            {hasPromo && (
+              <MobileRowExtra className="pl-7">
+                <PromoDetailCell
+                  variant="embedded"
+                  currentPromo={line.promo.currentPromo}
+                  currentKind={line.promo.currentKind}
+                  nextPromo={line.promo.nextPromo}
+                  qtyToNext={line.promo.qtyToNext}
+                  nextPromoQty={line.promo.nextPromoQty}
+                  nextKind={line.promo.nextKind}
+                  hasPromoLadder={line.promo.hasPromoLadder}
+                  freeGood={line.freeGood}
+                  onApplyNext={(qty) => onApplyPromo(line.row.skuId, qty)}
+                />
+              </MobileRowExtra>
+            )}
+          </MobileRow>
+        );
+      })}
+    </MobileRowList>
+  );
+}
+
 function OrderLineTable({
   lines,
   onDelta,
@@ -685,7 +818,7 @@ function OrderLineTable({
   onApplyPromo: (skuId: string, qty: number) => void;
 }) {
   return (
-    <table className="w-full min-w-[1100px] text-left text-sm">
+    <table className="vmi-data-table w-full min-w-0 text-left">
             <thead className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
               <tr>
                 <th className="px-3 py-3">#</th>

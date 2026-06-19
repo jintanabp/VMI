@@ -7,9 +7,10 @@ import {
   getSalesmanCsvPath,
   getSkuMasterCsvPath,
 } from "./paths";
-import { PromotionCredit, reloadPromotionCredit } from "./promotion-credit";
+import { PromotionCredit } from "./promotion-credit";
 import { SalesmanRegistry } from "./salesman-registry";
-import { SkuMasterDirectory, reloadSkuMaster } from "./sku-master";
+import { SkuMasterDirectory } from "./sku-master";
+import { reloadVdaAosBillRegistry } from "./vda-aos-bill";
 import { fabricMastersEnabled } from "./env";
 
 let customerDir: CustomerDirectory | null = null;
@@ -95,7 +96,6 @@ export function reloadFabricMasters(): void {
     skuMaster.load(getSkuMasterCsvPath());
   }
   reloadStockCover();
-  const { reloadVdaAosBillRegistry } = require("./vda-aos-bill") as typeof import("./vda-aos-bill");
   reloadVdaAosBillRegistry();
 }
 

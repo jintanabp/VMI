@@ -26,7 +26,7 @@ interface PromoDetailCellProps {
   /** มีแถวโปรใน C4 แต่ไม่มีสิทธิประโยชน์เลย */
   hasPromoLadder?: boolean;
   onApplyNext?: (qty: number) => void;
-  variant?: "table" | "card" | "embedded";
+  variant?: "table" | "card" | "embedded" | "compact";
 }
 
 function kindMeta(kind?: PromoTierKind | null) {
@@ -79,6 +79,46 @@ export function PromoDetailCell({
     (currentKind === "premium" || isPremiumPromoText(currentPromo));
 
   const showCurrentPromo = hasCurrent && !hideCurrentForFreeGood;
+
+  if (variant === "compact") {
+    if (!showCurrentPromo && !hasNext && !showFreeGood) {
+      return (
+        <span className="text-[10px] text-slate-400 dark:text-slate-500">
+          {hasPromoLadder ? "—" : "-"}
+        </span>
+      );
+    }
+
+    const kind = showFreeGood
+      ? ("premium" as const)
+      : showCurrentPromo
+        ? currentKind
+        : nextKind;
+    const meta = kindMeta(kind);
+    const Icon = meta?.icon ?? Percent;
+    const text = showFreeGood
+      ? `แถม ${freeGood!.premiumName}`
+      : showCurrentPromo
+        ? currentPromo
+        : hasNext
+          ? `+${qtyToNext} → ${nextPromo}`
+          : null;
+
+    return (
+      <span
+        className={cn(
+          "inline-flex max-w-[5.5rem] items-center gap-0.5 sm:max-w-[7rem]",
+          meta?.text ?? "text-slate-700 dark:text-slate-300"
+        )}
+        title={text ?? undefined}
+      >
+        <Icon className="h-3 w-3 shrink-0 opacity-80" />
+        <span className="truncate text-[10px] font-medium leading-tight">
+          {text}
+        </span>
+      </span>
+    );
+  }
 
   if (!showCurrentPromo && !hasNext && !showFreeGood) {
     return (

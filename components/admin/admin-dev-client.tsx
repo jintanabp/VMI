@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
-  Bug,
   Eye,
   RefreshCw,
   Search,
@@ -70,6 +69,53 @@ function filterPreviewPeople(rows: SalesPreviewPerson[], query: string) {
           c.code.toLowerCase().includes(q) ||
           c.vdas.some((v) => v.includes(q))
       )
+  );
+}
+
+function FabricSyncStatus() {
+  const [data, setData] = useState<{
+    schedulerEnabled?: boolean;
+    status?: {
+      lastSuccessAt?: string;
+      lastFailureAt?: string;
+      lastError?: string;
+    };
+    cacheFiles?: Record<string, string | null>;
+  } | null>(null);
+
+  useEffect(() => {
+    fetch("/api/admin/refresh-status")
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setData);
+  }, []);
+
+  const fmt = (iso?: string) =>
+    iso
+      ? new Date(iso).toLocaleString("th-TH", {
+          dateStyle: "short",
+          timeStyle: "short",
+        })
+      : "—";
+
+  return (
+    <div className="mb-3 space-y-1 rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-800/50">
+      <p>
+        <span className="text-slate-500">Scheduler:</span>{" "}
+        <span className="font-semibold">
+          {data?.schedulerEnabled ? "เปิด (03:30 น.)" : "ปิด"}
+        </span>
+      </p>
+      <p>
+        <span className="text-slate-500">Sync สำเร็จล่าสุด:</span>{" "}
+        {fmt(data?.status?.lastSuccessAt)}
+      </p>
+      {data?.status?.lastFailureAt && (
+        <p className="text-amber-700 dark:text-amber-400">
+          ล้มเหลวล่าสุด: {fmt(data.status.lastFailureAt)}
+          {data.status.lastError ? ` — ${data.status.lastError}` : ""}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -374,7 +420,7 @@ export function AdminDevClient() {
                   ตั้งค่าระบบ
                 </h3>
                 <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                  เซลล์↔VDA, ดึงข้อมูล Fabric, debug
+                  เซลล์↔VDA, ดึงข้อมูล Fabric, จัดการ admin
                 </p>
                 <span className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-slate-700 dark:text-slate-300">
                   จัดการ <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
@@ -636,21 +682,8 @@ export function AdminDevClient() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
+                <FabricSyncStatus />
                 <RefreshMastersButton />
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Bug className="h-5 w-5" />
-                  Debug
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <pre className="max-h-48 overflow-auto rounded-xl bg-slate-100 p-4 text-xs dark:bg-slate-900">
-                  {JSON.stringify(session, null, 2)}
-                </pre>
               </CardContent>
             </Card>
           </div>

@@ -31,7 +31,7 @@ export default async function LoginPage({
     redirect("/sales/orders");
   }
   if (mode === "sales" && salesSession?.role === "admin") {
-    redirect("/admin/dev");
+    redirect("/admin");
   }
   if (mode === "customer" && customerStore && !salesSession) {
     redirect("/stock");
@@ -121,7 +121,7 @@ export default async function LoginPage({
                   <CustomerLoginForm adminPreview={salesSession?.role === "admin"} />
                   {salesSession?.role === "admin" && (
                     <Link
-                      href="/admin/dev"
+                      href="/admin"
                       className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-teal-700 transition-colors hover:text-teal-900 dark:text-teal-400 dark:hover:text-teal-300"
                     >
                       <ArrowLeft className="h-4 w-4" />
