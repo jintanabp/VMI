@@ -1,111 +1,108 @@
 # VMI - Vendor Managed Inventory
 
-เว็บแอปสำหรับจัดการสต็อกและคำสั่งซื้อระหว่างร้านค้า (ลูกค้า) กับเซลล์
+เว็บแอปจัดการสต็อก แนะนำการสั่งสินค้า และอนุมัติคำสั่งซื้อ สำหรับคลัง **VDA** และทีมเซลล์
 
 ## ฟีเจอร์หลัก
 
-- **ร้านค้าทั้งหมด** — เลือกรหัสร้านค้า, ดูสต็อก, แก้ MIN/MAX, รับคำแนะนำการสั่ง, ส่งคำสั่งซื้อ
-- **เซลล์** — เข้าด้วย Microsoft Azure AD, อนุมัติ/ปฏิเสธออเดอร์, ส่ง PO (stub)
-- **Admin** — ศูนย์ควบคุม: ทดสอบมุมมอง VDA/เซลล์, sync Fabric, จัดการ admin
+- **คลัง VDA** — เลือก VDA, ดูสต็อก/CVD, แก้ MIN/MAX, ดูราคา/โปร C4, เลือกสินค้าแล้วส่งคำสั่ง
+- **เซลล์** — เข้าด้วย Microsoft Azure AD, ตรวจ/อนุมัติ/ปฏิเสธออเดอร์, ดูโปรและมูลค่ารวม
+- **Admin** — ศูนย์ควบคุมที่ `/admin`: ทดสอบมุมมอง VDA/เซลล์, sync Fabric, จัดการ admin
+
+รองรับจอ desktop และจอแคบ (iPad / ครึ่งจอ) — ตารางแสดงเป็นรายการ 2 บรรทัดโดยไม่ต้องเลื่อนซ้าย-ขวา
 
 ## Tech Stack
 
 - Next.js 15 + TypeScript
 - Tailwind CSS + shadcn-style components
-- Prisma + SQLite (dev)
-- MSAL (Microsoft Authentication Library) — Public Client ไม่ต้องใช้ Client Secret
+- Prisma + SQLite
+- Microsoft Entra ID (OAuth ฝั่ง server)
+- Microsoft Fabric OneLake (ข้อมูล master / stock / โปร)
 - TanStack Query
 
-## เริ่มต้นใช้งาน
+## เริ่มต้นใช้งาน (Local)
 
 ```bash
-# 1. ติดตั้ง dependencies
 npm install
-
-# 2. คัดลอก env
 cp .env.example .env
+# แก้ .env ตามต้องการ (ดูด้านล่าง)
 
-# 3. สร้าง database และ seed ข้อมูลทดสอบ
-npm run db:setup
-
-# 4. รัน dev server (ต้องใช้ port 3000)
-npm run dev
+npm run db:setup    # สร้าง DB + seed (โหมด dummy)
+npm run dev         # ต้องใช้ port 3000
 ```
 
 เปิด [http://localhost:3000](http://localhost:3000)
+
+### โหมดข้อมูล
+
+| `DATA_SOURCE` | ใช้เมื่อ | หมายเหตุ |
+|---------------|---------|----------|
+| `dummy` (default) | พัฒนา UI / ทดลองสูตร | ใช้ seed จาก `npm run db:setup` |
+| `fabric` | ใช้งานจริง | ตั้ง `ONELAKE_*`, `STOCK_ONELAKE_*`, โปร C4 ฯลฯ ใน `.env` แล้วรัน `npm run sync:masters` |
+
+รายละเอียดตัวแปรทั้งหมดอยู่ใน `.env.example`
+
+### สร้าง `NEXTAUTH_SECRET`
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
 
 ### ถ้า `npm run dev` ไม่ได้
 
 | อาการ | วิธีแก้ |
 |--------|--------|
-| `Port 3000 ถูกใช้อยู่` | รัน `npm run dev:stop` แล้ว `npm run dev` อีกครั้ง |
-| `ไม่พบ database` | รัน `npm run db:setup` |
-| หน้าเปิดแต่ login Microsoft ไม่ได้ | ต้องรันที่ **port 3000** เท่านั้น (ไม่ใช่ 3001) |
-| ตรวจสอบระบบ | เปิด `http://localhost:3000/api/health` ต้องได้ `{"ok":true}` |
-| `Cannot find module './331.js'` หรือ chunk หาย | รัน `npm run clean` แล้ว `npm run dev` |
-
-```bash
-# หา process ที่ใช้ port 3000 (Windows)
-netstat -ano | findstr :3000
-```
+| `Port 3000 ถูกใช้อยู่` | `npm run dev:stop` แล้ว `npm run dev` |
+| `ไม่พบ database` | `npm run db:setup` |
+| Login Microsoft ไม่ได้ | รันที่ **port 3000** และตรวจ Redirect URI ใน Azure |
+| ตรวจสอบระบบ | `http://localhost:3000/api/health` → `{"ok":true}` |
+| chunk หาย / build แปลก | `npm run clean` แล้ว `npm run dev` |
 
 ## ทดสอบการใช้งาน
 
-### ร้านค้าทั้งหมด (ไม่ต้องใช้ Azure)
-1. หน้าแรก → **ร้านค้าทั้งหมด**
-2. เลือกร้าน เช่น `ST001 - ร้านสมชาย การค้า`
-3. ดูหน้าสต็อก → เลือกสินค้า → สั่งสินค้า
+### คลัง VDA (ไม่ต้องใช้ Azure)
 
-### เซลล์ (Azure AD — OAuth ฝั่ง Server)
+1. หน้าแรก → **คลัง VDA**
+2. เลือกรหัส VDA (เช่น `vda1`)
+3. หน้าสต็อก → เลือกสินค้า → **สั่งสินค้า** → ส่งคำสั่ง
 
-ใช้ **Authorization Code Flow ฝั่ง server** — เสถียรกว่า MSAL redirect ใน browser
+> โหมด `fabric`: รายการ VDA มาจาก OneLake (`stock_cover_day`) — ถ้าว่างให้ sync ก่อน
+
+### เซลล์ (Microsoft Entra ID)
 
 #### 1. ตั้งค่า `.env`
 
 ```env
 NEXT_PUBLIC_AZURE_AD_CLIENT_ID=<จาก Azure Portal>
 NEXT_PUBLIC_AZURE_AD_TENANT_ID=<จาก Azure Portal>
-NEXTAUTH_SECRET=<random string>
+NEXTAUTH_SECRET=<random hex>
 ADMIN_EMAILS=<อีเมลของคุณ>
 ```
 
-**ถ้าใช้ platform Web (confidential client) เพิ่ม:**
-```env
-AZURE_AD_CLIENT_SECRET=<จาก Certificates & secrets>
-AZURE_AD_USE_CLIENT_SECRET=true
-```
+ถ้าใช้ confidential client (Web platform) เพิ่ม `AZURE_AD_CLIENT_SECRET` และ `AZURE_AD_USE_CLIENT_SECRET=true`
 
-**ถ้าใช้ platform SPA (public client)** — ไม่ต้องใส่ client secret (ใช้ PKCE อย่างเดียว)
+#### 2. Redirect URI ใน Azure Portal
 
-#### 2. ตั้ง Redirect URI ใน Azure Portal (สำคัญมาก)
-
-1. เปิด [Azure Portal](https://portal.azure.com) → **Microsoft Entra ID** → **App registrations**
-2. เลือกแอป Client ID ของคุณ
-3. **Authentication** → **Add a platform** → **Single-page application**
-4. ใส่ Redirect URI **ตรงทุกตัวอักษร**:
+**Authentication** → **Single-page application** → เพิ่ม:
 
 ```
 http://localhost:3000/auth/callback
 ```
 
-5. **Save**
-
 | ถูก | ผิด |
 |-----|-----|
-| `http://localhost:3000/auth/callback` | `https://...` |
-| ไม่มี `/` ท้าย | `http://localhost:3000/auth/callback/` |
+| `http://localhost:3000/auth/callback` | มี `/` ท้าย URL |
 | อยู่ใต้ **SPA** | อยู่ใต้ Web เท่านั้น |
 
-ลบ URI เก่าที่ไม่ใช้แล้ว (เช่น `/auth/microsoft/callback`, `/api/auth/...`)
-
-> ถ้า port ไม่ใช่ 3000 ให้ตั้ง `NEXT_PUBLIC_AZURE_REDIRECT_URI` ใน `.env` ให้ตรงกับ Azure
+Production: ตั้ง `NEXT_PUBLIC_AZURE_REDIRECT_URI=https://<domain>/auth/callback` ให้ตรงกับ Azure
 
 #### 3. Login
-หน้าแรก → **เซลล์** → Sign in with Microsoft → เข้าหน้าอนุมัติออเดอร์
+
+หน้าแรก → **เซลล์ / Admin** → Sign in with Microsoft → `/sales/orders`
 
 ### Admin
-- อีเมลที่อยู่ใน `ADMIN_EMAILS` / `APP_ADMINS` จะได้ role `admin`
-- เข้า `/admin` เพื่อทดสอบมุมมอง VDA / เซลล์ และตั้งค่าระบบ
+
+- อีเมลใน `ADMIN_EMAILS` / `APP_ADMINS` ได้ role `admin`
+- `/admin` — ทดสอบมุมมอง VDA/เซลล์, ดึง master, ดูสถานะ sync
 
 ## สูตรคำนวณ
 
@@ -119,23 +116,28 @@ http://localhost:3000/auth/callback
 
 ## PO Integration (Stub)
 
-เมื่อเซลล์อนุมัติ ระบบจะบันทึก JSON ที่ `logs/po-export/{orderId}.json`
+เมื่อเซลล์อนุมัติ ระบบบันทึก JSON ที่ `logs/po-export/{orderId}.json`
 
-## Fabric Master Data (ร้านค้า + เซลล์)
+## Fabric / OneLake
 
-### ดึงครั้งเดียว (มือ)
+### ดึงข้อมูล (มือ)
 
 ```bash
 npm run sync:masters
 ```
 
-ไฟล์ cache อยู่ที่ `data/cache/` — แอปอ่านจากที่นี่ ไม่ต้อง sync ทุกครั้งที่เปิด
+Cache อยู่ที่ `data/cache/` (Docker: volume `vmi_data`)
 
-### ตั้งเวลารายวัน
+ข้อมูลที่ sync:
+- ร้านค้า / เซลล์ (master)
+- สต็อก / CVD (`stock_cover_day`)
+- ราคา SKU (`item_barcode_map_v2`)
+- โปร C4 (`cft_promotion_credit`)
+- แมป VDA → เซลล์ (`vda*_aos_bill`)
 
-**วิธีที่ 1 — ในแอป (server รันค้าง 24/7)**
+### ตั้งเวลารายวัน (03:30 น. Bangkok)
 
-เพิ่มใน `.env`:
+ใน `.env`:
 
 ```env
 MASTER_REFRESH_ENABLED=true
@@ -144,28 +146,25 @@ MASTER_REFRESH_MINUTE=30
 ALERT_EMAIL=you@company.com
 ```
 
-รัน `npm run build` แล้ว `npm run start` — scheduler จะดึงทุกวันเวลา **03:30 น. (Asia/Bangkok)** อัตโนมัติ (retry 3 ครั้งถ้าล้มเหลว, ส่งแจ้ง `ALERT_EMAIL` เมื่อล้มหมด)
+- Production (`npm run start` / Docker): scheduler เปิดอัตโนมัติ — retry 3 ครั้ง, แจ้ง `ALERT_EMAIL` เมื่อล้มหมด
+- `npm run dev`: ไม่เปิด scheduler (กัน sync ซ้ำตอนพัฒนา)
 
-> `npm run dev` ไม่เปิด scheduler โดย default (กัน sync ซ้ำตอนพัฒนา)
+**ทางเลือก Windows:** Task Scheduler รัน `scripts\sync-masters-daily.bat` ทุกวัน 03:30
 
-**วิธีที่ 2 — Windows Task Scheduler (ไม่ต้องเปิดแอปค้าง)**
-
-1. เปิด **Task Scheduler** → Create Basic Task
-2. Trigger: Daily เวลา 03:30
-3. Action: Start a program → `scripts\sync-masters-daily.bat`
-4. Start in: โฟลเดอร์โปรเจกต VMI
-
-**ดึงมือจากหน้า Admin:** `/admin` → ตั้งค่าระบบ → ปุ่ม "ดึงข้อมูล master ตอนนี้"
+**จาก Admin UI:** `/admin` → ตั้งค่าระบบ → ดึงข้อมูล master ตอนนี้
 
 ## Production Deploy (Docker + Linux)
 
-### 1. เตรียม `.env`
+### 1. เตรียม `.env` บน server
 
 ```bash
 cp .env.example .env
-# ใส่ ONELAKE_*, NEXTAUTH_SECRET, ADMIN_EMAILS, ALERT_EMAIL
-# ตั้ง NEXT_PUBLIC_AZURE_AD_* และ redirect URI สำหรับ production
+# ใส่ค่าจริง: ONELAKE_*, STOCK_ONELAKE_*, NEXTAUTH_SECRET,
+# ADMIN_EMAILS, ALERT_EMAIL, NEXT_PUBLIC_AZURE_AD_*,
+# NEXT_PUBLIC_AZURE_REDIRECT_URI (production domain)
 ```
+
+> **สำคัญ:** ต้องมี `.env` ครบ **ก่อน** `docker compose build` — ค่า `NEXT_PUBLIC_*` ถูก bake ตอน build
 
 ### 2. Build และรัน
 
@@ -174,14 +173,16 @@ docker compose up -d --build
 curl http://127.0.0.1:3001/api/health
 ```
 
-แอปรันที่ **port 3001** (localhost)
+แอปรันที่ **port 3001** (bind localhost)
 
-Volumes ที่ persist:
-- `vmi_data` — SQLite (`/app/data/vmi.db`) + Fabric cache
+Container ทำ `prisma migrate deploy` อัตโนมัติตอน start
+
+**Volumes:**
+- `vmi_data` — SQLite + Fabric cache
 - `vmi_backups` — backup DB หลัง sync สำเร็จ
 - `vmi_logs` — PO export stub
 
-### 3. nginx reverse proxy (ตัวอย่าง)
+### 3. nginx (ตัวอย่าง)
 
 ```nginx
 server {
@@ -197,34 +198,33 @@ server {
 }
 ```
 
-เพิ่ม Redirect URI ใน Azure Portal:
-
-```
-https://vmi.yourcompany.com/auth/callback
-```
-
-และตั้งใน `.env`:
-
-```env
-NEXT_PUBLIC_AZURE_REDIRECT_URI=https://vmi.yourcompany.com/auth/callback
-```
+เพิ่ม Redirect URI ใน Azure: `https://vmi.yourcompany.com/auth/callback`
 
 ### 4. Backup มือ
 
 ```bash
 docker compose exec vmi node scripts/backup-db.mjs
-# หรือ local: npm run backup:db
+# local: npm run backup:db
 ```
 
-## Fabric Lakehouse (Phase 2 — stock/SKU)
+## คำสั่งที่ใช้บ่อย
 
-ตั้ง `DATA_SOURCE=fabric` และ implement `FabricStockRepository` ใน `lib/repositories/`
+| คำสั่ง | ความหมาย |
+|--------|----------|
+| `npm run dev` | Dev server (port 3000) |
+| `npm run build` / `npm start` | Production local |
+| `npm run db:setup` | migrate + seed |
+| `npm run sync:masters` | ดึง Fabric → cache |
+| `npm run backup:db` | backup SQLite |
+| `docker compose up -d --build` | Deploy production |
 
 ## โครงสร้างหลัก
 
 ```
-app/           # Pages & API routes
-components/    # UI components
-lib/           # Business logic, auth, repositories
-prisma/        # Database schema & seed
+app/              # Pages & API routes
+components/       # UI
+lib/              # Business logic, auth, Fabric, repositories
+prisma/           # Schema & seed
+docker/           # Dockerfile, entrypoint
+scripts/          # sync, backup
 ```
