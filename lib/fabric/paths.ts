@@ -38,3 +38,10 @@ export function getSkuMasterCsvPath() {
     path.join(getFabricCacheDir(), "item_barcode_map_v2.csv")
   );
 }
+
+export function getVdaAosCsvPath(vdaKey: string) {
+  const key = vdaKey.trim().toLowerCase();
+  const fromEnv = process.env[`VDA_AOS_CSV_${key.toUpperCase()}`]?.trim();
+  if (fromEnv) return fromEnv;
+  return path.join(getFabricCacheDir(), `${key}_aos_bill.csv`);
+}

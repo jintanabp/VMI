@@ -6,6 +6,7 @@ import {
   getMastersOnelakeConfig,
   getMinRows,
   getStockOnelakeConfig,
+  getVdaAosOnelakeConfig,
   type OnelakeAuthProfile,
 } from "./env";
 import { getOnelakeToken } from "./onelake-credential";
@@ -291,6 +292,31 @@ export function buildSkuMasterSpec(localPath: string): RefreshSpec | null {
   };
 }
 
+export function buildVdaAosSpec(
+  vdaKey: string,
+  localPath: string
+): RefreshSpec | null {
+  const cfg = getVdaAosOnelakeConfig();
+  if (!cfg) return null;
+
+  const key = vdaKey.trim().toLowerCase();
+  const envPath = process.env[`VDA_AOS_ONELAKE_${key.toUpperCase()}`]?.trim();
+  const defaultPath = `${cfg.scanDir.replace(/\/$/, "")}/${key}_aos_bill.csv`;
+
+  return {
+    name: `${key}_aos_bill`,
+    localPath,
+    workspaceId: cfg.workspaceId,
+    onelakeItemId: cfg.exportItemId,
+    scanDir: cfg.scanDir,
+    onelakePath: envPath || defaultPath,
+    columnSignature: ["salesmancode"],
+    requiredColumns: ["salesmancode"],
+    minRows: Number(process.env.VDA_AOS_MIN_ROWS ?? "1"),
+    authProfile: "stock",
+  };
+}
+
 export function bootstrapIfMissing(spec: RefreshSpec | null): Promise<boolean> {
   if (!spec) return Promise.resolve(false);
   if (fs.existsSync(spec.localPath) && fs.statSync(spec.localPath).size > 100) {
@@ -308,6 +334,7 @@ export async function refreshAllMasters(
   stockCover: boolean;
   promotion: boolean;
   skuMaster: boolean;
+  vdaAos: boolean;
 }> {
   const {
     getCustomerCsvPath,
@@ -339,6 +366,7 @@ export async function refreshAllMasters(
   }
 
   let stockCover = false;
+  let vdaAos = false;
   if (fabricStockEnabled()) {
     const stockSpec = buildStockCoverSpec(getStockCoverCsvPath());
     if (stockSpec) {
@@ -350,7 +378,10 @@ export async function refreshAllMasters(
     }
   }
 
-  return { customer, salesman, stockCover, promotion, skuMaster };
+  const { syncVdaAosBills } = await import("./sync-vda-aos-bills");
+  vdaAos = await syncVdaAosBills(options);
+
+  return { customer, salesman, stockCover, promotion, skuMaster, vdaAos };
 }
 
 export function localFileStats(filePath: string) {

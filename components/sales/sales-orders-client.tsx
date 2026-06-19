@@ -1,16 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSalesSession } from "@/hooks/use-sales-session";
 import { useSalesPreview } from "@/hooks/use-sales-preview";
 import { AppHeader } from "@/components/layout/app-header";
 import { PageShell } from "@/components/layout/page-shell";
-import { FlagBadge, StatusBadge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SalesRepFilter } from "@/components/sales/sales-rep-filter";
-import { formatDays } from "@/lib/calculations";
-import { getCvdFlag } from "@/lib/calculations";
+import { OrderReviewTable } from "@/components/sales/order-review-table";
+import { formatStoreLabel } from "@/lib/format-store-label";
 
 interface OrderItem {
   id: string;
@@ -47,8 +47,47 @@ export function SalesOrdersClient() {
   const isAdmin = session?.role === "admin";
   const [statusFilter, setStatusFilter] = useState("pending_approval");
   const [salesRepFilter, setSalesRepFilter] = useState("");
+  const [vdaFilter, setVdaFilter] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<"date" | "store">("date");
+  const [switchingCode, setSwitchingCode] = useState(false);
+  const [allPersonVdas, setAllPersonVdas] = useState(false);
+
+  const { data: vdaAccess } = useQuery<{
+    hasVdaAccess: boolean;
+    vdas: string[];
+    allPersonVdas?: string[];
+    hasAnyPersonVda?: boolean;
+    salesmanCode?: string;
+    salesmanName?: string;
+    isAdmin?: boolean;
+    vdaRegistryLoaded?: boolean;
+    multipleCodes?: boolean;
+    codes?: Array<{
+      code: string;
+      name: string;
+      vdas: string[];
+      hasVdaAccess: boolean;
+    }>;
+  }>({
+    queryKey: ["sales-vda-access"],
+    queryFn: () => fetch("/api/sales/vda-access").then((r) => r.json()),
+    enabled: !!session && session.role !== "admin",
+  });
+
+  const noVdaAccess =
+    !isAdmin &&
+    vdaAccess &&
+    !vdaAccess.isAdmin &&
+    vdaAccess.vdaRegistryLoaded &&
+    !vdaAccess.hasVdaAccess &&
+    !allPersonVdas;
+
+  const personAllVdas = vdaAccess?.allPersonVdas ?? [];
+  const canViewAllPersonVdas =
+    !isAdmin &&
+    personAllVdas.length > 0 &&
+    Boolean(vdaAccess?.multipleCodes);
 
   const { data: salesReps = [] } = useQuery<SalesRep[]>({
     queryKey: ["admin-salesmen"],
@@ -56,16 +95,60 @@ export function SalesOrdersClient() {
     enabled: isAdmin,
   });
 
+  const { data: vdaSources = [] } = useQuery<string[]>({
+    queryKey: ["vda-sources"],
+    queryFn: () =>
+      fetch("/api/vda")
+        .then((r) => r.json())
+        .then((d) => (Array.isArray(d.sources) ? d.sources : [])),
+    enabled: isAdmin,
+  });
+
+  const availableVdas = useMemo(() => {
+    if (isAdmin) return vdaSources;
+    return vdaAccess?.vdas ?? [];
+  }, [isAdmin, vdaSources, vdaAccess?.vdas]);
+
+  useEffect(() => {
+    if (isAdmin || availableVdas.length === 0 || vdaFilter) return;
+    setVdaFilter(availableVdas[0]);
+  }, [availableVdas, vdaFilter, isAdmin]);
+
+  async function handleSalesCodeChange(code: string) {
+    if (!code || code === vdaAccess?.salesmanCode || switchingCode) return;
+    setSwitchingCode(true);
+    try {
+      const res = await fetch("/api/sales/active-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "เปลี่ยนรหัสไม่สำเร็จ");
+      }
+      setVdaFilter("");
+      setAllPersonVdas(false);
+      queryClient.invalidateQueries({ queryKey: ["sales-vda-access"] });
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
+      window.location.reload();
+    } catch {
+      setSwitchingCode(false);
+    }
+  }
+
   const ordersUrl = useMemo(() => {
     const params = new URLSearchParams();
     if (statusFilter) params.set("status", statusFilter);
     if (isAdmin && salesRepFilter) params.set("salesRepId", salesRepFilter);
+    if (allPersonVdas) params.set("allPersonVdas", "true");
+    else if (vdaFilter) params.set("vdaCode", vdaFilter);
     const qs = params.toString();
     return `/api/orders${qs ? `?${qs}` : ""}`;
-  }, [statusFilter, salesRepFilter, isAdmin]);
+  }, [statusFilter, salesRepFilter, vdaFilter, allPersonVdas, isAdmin]);
 
   const { data: orders = [], isLoading } = useQuery<Order[]>({
-    queryKey: ["orders", statusFilter, salesRepFilter, isAdmin],
+    queryKey: ["orders", statusFilter, salesRepFilter, vdaFilter, allPersonVdas, isAdmin],
     queryFn: () => fetch(ordersUrl).then((r) => r.json()),
   });
 
@@ -104,24 +187,37 @@ export function SalesOrdersClient() {
   });
 
   return (
-    <PageShell>
+    <PageShell className="vmi-sales-orders-page overflow-x-hidden">
       <AppHeader
+        compact
         title="ตรวจสอบคำสั่งซื้อ"
         subtitle={
           salesPreview
-            ? `มุมมองทดสอบ — ${salesPreview.asCode} · ${salesPreview.asName}`
+            ? `${salesPreview.asCode} · ${salesPreview.asName}`
             : isAdmin
-              ? "Admin — ดูออเดอร์ทั้งหมดหรือกรองตามเซลล์"
-              : session?.salesmanCode
-                ? `${session.salesmanName ?? session.salesmanCode} · ${session.email}`
-                : session?.email ?? ""
+              ? "Admin · กรอง VDA / เซลล์"
+              : (session?.salesmanName ?? session?.salesmanCode ?? session?.email ?? "")
         }
         role={session?.role ?? "sales"}
       />
 
-      <main className="mx-auto grid max-w-7xl gap-4 px-3 py-4 sm:gap-6 sm:px-4 sm:py-6 lg:grid-cols-[320px_1fr]">
-        <aside className="vmi-card p-3 sm:p-4 lg:p-5">
-          <div className="mb-4 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+      <main className="vmi-sales-orders-main mx-auto w-full min-w-0 max-w-[min(100%,96rem)] px-2 py-2 sm:px-3 sm:py-2 xl:px-6 xl:py-3">
+        {noVdaAccess && (
+          <div className="mb-2 shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800/50 dark:bg-amber-950/30 dark:text-amber-200">
+            <p className="font-semibold">รหัสนี้ไม่มี VDA ที่ดูแล</p>
+            <p className="mt-1 text-amber-800 dark:text-amber-300/90">
+              รหัส {vdaAccess?.salesmanCode} ไม่มีใน vda_aos_bill
+              {canViewAllPersonVdas
+                ? " — กดปุ่มด้านล่างเพื่อดูออเดอร์ทุก VDA ของคุณ"
+                : " — ไม่มีออเดอร์ให้ตรวจสอบ"}
+            </p>
+          </div>
+        )}
+
+        <div className="vmi-sales-orders-grid">
+        <aside className="vmi-sales-orders-sidebar vmi-card min-w-0 p-2 sm:p-3">
+          <div className="shrink-0 space-y-2">
+          <div className="grid grid-cols-2 gap-1.5">
             {[
               { value: "pending_approval", label: "รออนุมัติ" },
               { value: "approved", label: "อนุมัติแล้ว" },
@@ -133,7 +229,7 @@ export function SalesOrdersClient() {
                 onClick={() => setStatusFilter(f.value)}
                 className={`rounded-xl px-3 py-2 text-xs font-semibold transition-all sm:px-3.5 ${
                   statusFilter === f.value
-                    ? "bg-gradient-to-r from-[#0f4c75] to-[#0e7490] text-white shadow-md"
+                    ? "bg-[#0f4c75] text-white dark:bg-[#1a6b9a]"
                     : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
                 }`}
               >
@@ -141,6 +237,74 @@ export function SalesOrdersClient() {
               </button>
             ))}
           </div>
+
+          {vdaAccess?.multipleCodes && vdaAccess.codes && vdaAccess.codes.length > 1 && (
+            <div>
+              <label className="text-xs text-slate-500 dark:text-slate-400">
+                รหัสเซลล์
+              </label>
+              <select
+                value={vdaAccess.salesmanCode ?? ""}
+                disabled={switchingCode}
+                onChange={(e) => void handleSalesCodeChange(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+              >
+                {vdaAccess.codes.map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.code}
+                    {c.vdas.length > 0
+                      ? ` · ${c.vdas.map((v) => v.toUpperCase()).join(", ")}`
+                      : " · ไม่มี VDA"}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
+                1 อีเมลมีหลายรหัส — เลือกรหัสเพื่อดู VDA ที่รหัสนั้นดูแล
+              </p>
+            </div>
+          )}
+
+          {canViewAllPersonVdas && (
+            <button
+              type="button"
+              onClick={() => {
+                setAllPersonVdas((v) => !v);
+                setVdaFilter("");
+              }}
+              className={`w-full rounded-xl border px-3 py-2.5 text-left text-xs font-semibold transition-all sm:text-sm ${
+                allPersonVdas
+                  ? "border-teal-300 bg-teal-50 text-teal-900 dark:border-teal-700 dark:bg-teal-950/40 dark:text-teal-200"
+                  : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-500"
+              }`}
+            >
+              {allPersonVdas
+                ? `กำลังดูทุก VDA (${personAllVdas.map((v) => v.toUpperCase()).join(", ")})`
+                : `ดูออเดอร์ทุก VDA ของฉัน (${personAllVdas.length})`}
+            </button>
+          )}
+
+          {availableVdas.length > 0 && !allPersonVdas && (
+            <div>
+              <label className="text-xs text-slate-500 dark:text-slate-400">
+                VDA
+              </label>
+              <select
+                value={vdaFilter}
+                onChange={(e) => setVdaFilter(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+              >
+                {!isAdmin && availableVdas.length > 1 && (
+                  <option value="">ทุก VDA ที่ดูแล</option>
+                )}
+                {isAdmin && <option value="">ทุก VDA</option>}
+                {availableVdas.map((vda) => (
+                  <option key={vda} value={vda}>
+                    {vda.toUpperCase()}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {isAdmin && (
             <SalesRepFilter
@@ -150,7 +314,7 @@ export function SalesOrdersClient() {
             />
           )}
 
-          <div className="mb-3">
+          <div>
             <label className="text-xs text-slate-500 dark:text-slate-400">เรียงตาม</label>
             <select
               value={sortBy}
@@ -158,130 +322,133 @@ export function SalesOrdersClient() {
               className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
             >
               <option value="date">วันที่</option>
-              <option value="store">ร้านค้า</option>
+              <option value="store">ร้าน</option>
             </select>
           </div>
+          </div>
 
-          <div className="space-y-2">
+          <div className="vmi-sales-orders-sidebar-scroll mt-3 space-y-2">
             {isLoading && (
               <p className="text-sm text-slate-500 dark:text-slate-400">กำลังโหลด...</p>
             )}
             {!isLoading && sorted.length === 0 && (
               <div className="rounded-xl border border-dashed border-slate-200 px-4 py-8 text-center dark:border-slate-700">
                 <p className="text-sm font-medium text-slate-600 dark:text-slate-400">
-                  ไม่มีออเดอร์ในสถานะนี้
+                  {noVdaAccess
+                    ? "ไม่มีออเดอร์ — รหัสนี้ไม่มี VDA"
+                    : allPersonVdas
+                      ? "ไม่มีออเดอร์ในสถานะนี้ (ทุก VDA)"
+                      : "ไม่มีออเดอร์ในสถานะนี้"}
                 </p>
               </div>
             )}
-            {sorted.map((order) => (
+            {sorted.map((order) => {
+              const label = formatStoreLabel(order.store.code, order.store.name);
+              const skuCount = order.items?.length ?? 0;
+              return (
               <button
                 key={order.id}
                 onClick={() => setSelectedId(order.id)}
-                className={`w-full rounded-xl border p-4 text-left transition-all ${
+                className={`w-full rounded-xl border p-3 text-left transition-all ${
                   selected?.id === order.id
                     ? "border-teal-300 bg-teal-50/50 shadow-sm dark:border-teal-600 dark:bg-teal-950/35"
-                    : "border-slate-200 hover:border-slate-300 hover:shadow-sm dark:border-slate-700 dark:hover:border-slate-600"
+                    : "border-slate-200 hover:border-slate-300 dark:border-slate-700 dark:hover:border-slate-600"
                 }`}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-medium text-slate-900 dark:text-slate-100">
-                    {order.store.code}
+                  <span className="font-semibold text-slate-900 dark:text-slate-100">
+                    {label}
                   </span>
                   <StatusBadge status={order.status} />
                 </div>
-                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{order.store.name}</p>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  {skuCount > 0 ? `${skuCount} SKU · ` : ""}
+                  {new Date(order.createdAt).toLocaleString("th-TH", {
+                    dateStyle: "short",
+                    timeStyle: "short",
+                  })}
+                </p>
                 {isAdmin && order.store.salesRep && (
-                  <p className="mt-1 text-xs font-medium text-teal-700 dark:text-teal-400">
-                    เซลล์: {order.store.salesRep.name}
+                  <p className="mt-0.5 truncate text-[11px] text-slate-400">
+                    {order.store.salesRep.name}
                   </p>
                 )}
-                <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
-                  {new Date(order.createdAt).toLocaleString("th-TH")}
-                </p>
               </button>
-            ))}
+            );
+            })}
           </div>
         </aside>
 
-        <section className="vmi-card-elevated p-4 sm:p-6">
+        <section className="vmi-sales-orders-detail vmi-card-elevated min-w-0 p-2 sm:p-3 xl:p-4">
           {!selected ? (
-            <p className="text-slate-500 dark:text-slate-400">เลือกออเดอร์เพื่อดูรายละเอียด</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">เลือกออเดอร์เพื่อดูรายละเอียด</p>
           ) : (
             <>
-              <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
-                <div>
-                  <h2 className="text-xl font-bold text-slate-900 dark:text-slate-50">
-                    {selected.store.code} - {selected.store.name}
-                  </h2>
+              <div className="vmi-sales-order-head mb-2 flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2 dark:border-slate-700">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                    <h2 className="text-base font-bold text-slate-900 dark:text-slate-50">
+                      {formatStoreLabel(selected.store.code, selected.store.name)}
+                    </h2>
+                    <span className="text-xs text-slate-500 dark:text-slate-400">
+                      {selected.items.length} SKU ·{" "}
+                      {new Date(selected.createdAt).toLocaleString("th-TH", {
+                        dateStyle: "short",
+                        timeStyle: "short",
+                      })}
+                    </span>
+                  </div>
                   {isAdmin && selected.store.salesRep && (
-                    <p className="mt-1 text-sm text-teal-700 dark:text-teal-400">
-                      เซลล์ดูแล: {selected.store.salesRep.name} ({selected.store.salesRep.email})
+                    <p className="mt-0.5 text-[11px] text-teal-700 dark:text-teal-400">
+                      เซลล์: {selected.store.salesRep.name}
                     </p>
                   )}
-                  <p className="text-sm text-slate-500 dark:text-slate-400">
-                    ส่งเมื่อ:{" "}
-                    {new Date(selected.createdAt).toLocaleString("th-TH")}
-                  </p>
                 </div>
                 <StatusBadge status={selected.status} />
               </div>
 
-              <div className="space-y-3">
-                {selected.items.map((item) => {
-                  const flag = getCvdFlag(item.cvdEstimate);
-                  return (
-                    <div
-                      key={item.id}
-                      className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50/80 px-4 py-3.5 dark:border-slate-700 dark:bg-slate-800/50"
-                    >
-                      <div>
-                        <p className="font-medium text-slate-900 dark:text-slate-100">
-                          {item.sku.code} - {item.sku.name}
-                        </p>
-                        <p className="text-sm text-slate-500 dark:text-slate-400">
-                          แนะนำ {item.suggestedQty} หีบ → สั่ง {item.finalQty}{" "}
-                          หีบ
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm text-slate-600 dark:text-slate-300">
-                          CVD Est. {formatDays(item.cvdEstimate)}
-                        </span>
-                        <FlagBadge flag={flag} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+              <OrderReviewTable
+                storeCode={selected.store.code}
+                items={selected.items}
+              />
 
               {selected.status === "pending_approval" && (
-                <div className="mt-6 flex flex-wrap gap-3">
-                  <Button
-                    variant="destructive"
-                    onClick={() => {
-                      const reason = prompt("เหตุผลในการปฏิเสธ (ถ้ามี)");
-                      actionMutation.mutate({
-                        orderId: selected.id,
-                        action: "reject",
-                        reason: reason ?? undefined,
-                      });
-                    }}
-                  >
-                    ปฏิเสธ
-                  </Button>
-                  <Button
-                    variant="success"
-                    onClick={() =>
-                      actionMutation.mutate({
-                        orderId: selected.id,
-                        action: "approve",
-                      })
-                    }
-                    disabled={actionMutation.isPending}
-                  >
-                    อนุมัติ → ส่ง PO
-                  </Button>
-                </div>
+                <>
+                  <div
+                    className="shrink-0 xl:hidden"
+                    style={{ height: "max(4.5rem, calc(3.5rem + env(safe-area-inset-bottom)))" }}
+                    aria-hidden
+                  />
+                  <div className="vmi-sales-action-bar flex gap-2 max-xl:fixed max-xl:inset-x-0 max-xl:bottom-0 max-xl:z-50 max-xl:border-t max-xl:border-slate-200 max-xl:p-3 max-xl:pb-[max(0.75rem,env(safe-area-inset-bottom))] max-xl:shadow-[0_-4px_20px_rgb(0_0_0/0.06)] dark:max-xl:border-slate-700 xl:mt-2 xl:flex-wrap xl:border-t xl:border-slate-200 xl:pt-2 dark:xl:border-slate-700">
+                    <Button
+                      variant="destructive"
+                      className="max-xl:flex-1"
+                      onClick={() => {
+                        const reason = prompt("เหตุผลในการปฏิเสธ (ถ้ามี)");
+                        actionMutation.mutate({
+                          orderId: selected.id,
+                          action: "reject",
+                          reason: reason ?? undefined,
+                        });
+                      }}
+                    >
+                      ปฏิเสธ
+                    </Button>
+                    <Button
+                      variant="success"
+                      className="max-xl:flex-1"
+                      onClick={() =>
+                        actionMutation.mutate({
+                          orderId: selected.id,
+                          action: "approve",
+                        })
+                      }
+                      disabled={actionMutation.isPending}
+                    >
+                      อนุมัติ → ส่ง PO
+                    </Button>
+                  </div>
+                </>
               )}
 
               {selected.status === "approved" && (
@@ -298,6 +465,7 @@ export function SalesOrdersClient() {
             </>
           )}
         </section>
+        </div>
       </main>
     </PageShell>
   );

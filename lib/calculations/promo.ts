@@ -2,7 +2,7 @@ export type PromoTierKind =
   | "discount_baht"
   | "discount_pct"
   | "premium"
-  | "other";
+  | "none";
 
 export interface PromoTierInput {
   minQty: number;
@@ -20,10 +20,22 @@ export interface PromoResult {
   qtyToNext: number | null;
   currentKind?: PromoTierKind | null;
   nextKind?: PromoTierKind | null;
+  /** มีแถวใน C4 แต่ทุก tier ไม่มีสิทธิประโยชน์ */
+  hasPromoLadder?: boolean;
+}
+
+/** tier ที่ให้ส่วนลดหรือของแถมจริง */
+export function isBenefitTier(tier: PromoTierInput): boolean {
+  const kind = tier.kind ?? "none";
+  return (
+    kind === "discount_baht" ||
+    kind === "discount_pct" ||
+    kind === "premium"
+  );
 }
 
 export function formatPromoTierLabel(tier: PromoTierInput): string {
-  const kind = tier.kind ?? "other";
+  const kind = tier.kind ?? "none";
   if (kind === "premium" && tier.premiumProduct) {
     const perStep = tier.premiumQty ? ` ×${tier.premiumQty}` : "";
     return `ซื้อครบ ${tier.minQty} หีบ/ขั้น แถม ${tier.premiumProduct}${perStep}`;
@@ -31,7 +43,7 @@ export function formatPromoTierLabel(tier: PromoTierInput): string {
   if (kind === "discount_baht" || kind === "discount_pct") {
     return `ซื้อ ${tier.minQty}+ หีบ ลด ${tier.discount}`;
   }
-  return `ซื้อ ${tier.minQty}+ หีบ — ${tier.discount}`;
+  return "";
 }
 
 export function formatPremiumEarnedLabel(
@@ -63,46 +75,46 @@ export function getPromoForQty(
   tiers: PromoTierInput[]
 ): PromoResult {
   const sorted = [...tiers].sort((a, b) => a.sortOrder - b.sortOrder);
+  const hasPromoLadder = sorted.length > 0;
+  const benefitTiers = sorted.filter(isBenefitTier);
 
-  let currentPromo: string | null = null;
-  let currentKind: PromoTierKind | null = null;
-  let currentTierIndex = -1;
-
-  for (let i = 0; i < sorted.length; i++) {
-    if (qty >= sorted[i].minQty) {
-      const tier = sorted[i];
-      currentPromo =
-        tier.kind === "premium"
-          ? formatPremiumEarnedLabel(tier, qty)
-          : formatPromoTierLabel(tier);
-      currentKind = tier.kind ?? "other";
-      currentTierIndex = i;
-    }
-  }
-
-  const nextTier =
-    currentTierIndex < sorted.length - 1
-      ? sorted[currentTierIndex + 1]
-      : sorted.find((t) => qty < t.minQty) ?? null;
-
-  if (!nextTier) {
+  if (benefitTiers.length === 0) {
     return {
-      currentPromo,
+      currentPromo: null,
       nextPromo: null,
       nextPromoQty: null,
       qtyToNext: null,
-      currentKind,
+      currentKind: null,
       nextKind: null,
+      hasPromoLadder,
     };
   }
 
+  let currentTier: PromoTierInput | null = null;
+  for (const tier of benefitTiers) {
+    if (qty >= tier.minQty) currentTier = tier;
+  }
+
+  const nextTier = benefitTiers.find((t) => t.minQty > qty) ?? null;
+
+  let currentPromo: string | null = null;
+  let currentKind: PromoTierKind | null = null;
+  if (currentTier) {
+    currentPromo =
+      currentTier.kind === "premium"
+        ? formatPremiumEarnedLabel(currentTier, qty)
+        : formatPromoTierLabel(currentTier);
+    currentKind = currentTier.kind ?? null;
+  }
+
   return {
-    currentPromo,
-    nextPromo: formatPromoTierLabel(nextTier),
-    nextPromoQty: nextTier.minQty,
-    qtyToNext: Math.max(0, nextTier.minQty - qty),
+    currentPromo: currentPromo || null,
+    nextPromo: nextTier ? formatPromoTierLabel(nextTier) : null,
+    nextPromoQty: nextTier?.minQty ?? null,
+    qtyToNext: nextTier ? Math.max(0, nextTier.minQty - qty) : null,
     currentKind,
-    nextKind: nextTier.kind ?? "other",
+    nextKind: nextTier?.kind ?? null,
+    hasPromoLadder,
   };
 }
 

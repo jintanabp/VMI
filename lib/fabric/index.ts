@@ -95,6 +95,8 @@ export function reloadFabricMasters(): void {
     skuMaster.load(getSkuMasterCsvPath());
   }
   reloadStockCover();
+  const { reloadVdaAosBillRegistry } = require("./vda-aos-bill") as typeof import("./vda-aos-bill");
+  reloadVdaAosBillRegistry();
 }
 
 export function fabricMastersReady(): boolean {
@@ -120,3 +122,5 @@ export * from "./promotion-credit";
 export * from "./promotion-lookup";
 export * from "./promotion-context";
 export * from "./sku-master";
+export * from "./vda-aos-bill";
+export * from "./ensure-vda-sales-rep";

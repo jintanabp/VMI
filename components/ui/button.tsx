@@ -9,17 +9,17 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "bg-gradient-to-r from-[#0f4c75] to-[#0e7490] text-white shadow-md shadow-teal-900/15 hover:shadow-lg hover:brightness-110",
+          "bg-[#0f4c75] text-white shadow-md hover:bg-[#0d3d5c] dark:bg-[#1a6b9a] dark:hover:bg-[#155a82]",
         secondary:
           "bg-slate-100 text-slate-800 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600",
         outline:
           "border border-slate-200 bg-white text-slate-700 hover:border-teal-300 hover:bg-teal-50/50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-teal-600 dark:hover:bg-teal-950/30",
         destructive:
-          "bg-gradient-to-r from-red-500 to-red-600 text-white shadow-md hover:brightness-110",
+          "bg-red-600 text-white shadow-md hover:bg-red-700",
         ghost:
           "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100",
         success:
-          "bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-md hover:brightness-110",
+          "bg-emerald-600 text-white shadow-md hover:bg-emerald-700",
       },
       size: {
         default: "h-11 px-5 py-2",

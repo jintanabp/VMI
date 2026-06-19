@@ -81,6 +81,11 @@ export class SalesmanRegistry {
 
       if (!byCode.has(code)) byCode.set(code, []);
       byCode.get(code)!.push(assignment);
+      const codeUpper = code.toUpperCase();
+      if (codeUpper !== code) {
+        if (!byCode.has(codeUpper)) byCode.set(codeUpper, []);
+        byCode.get(codeUpper)!.push(assignment);
+      }
     }
 
     for (const bucket of byEmail.values()) {
@@ -113,6 +118,30 @@ export class SalesmanRegistry {
   getCurrentByEmail(email: string): SalesmanAssignment | null {
     if (!email) return null;
     const list = this.byEmail.get(email.toLowerCase());
+    return list?.[0] ?? null;
+  }
+
+  /** รหัสเซลล์ทั้งหมดของอีเมล (ล่าสุดต่อรหัส) — 1 คนอาจมีหลาย Code */
+  getAssignmentsByEmail(email: string): SalesmanAssignment[] {
+    if (!email) return [];
+    const list = this.byEmail.get(email.toLowerCase()) ?? [];
+    const byCode = new Map<string, SalesmanAssignment>();
+    for (const a of list) {
+      const key = a.code.trim().toUpperCase();
+      const existing = byCode.get(key);
+      if (!existing || sortKey(a) > sortKey(existing)) {
+        byCode.set(key, a);
+      }
+    }
+    return [...byCode.values()].sort((a, b) =>
+      a.code.localeCompare(b.code, undefined, { numeric: true, sensitivity: "base" })
+    );
+  }
+
+  getCurrentByCode(code: string): SalesmanAssignment | null {
+    if (!code) return null;
+    const key = code.trim().toUpperCase();
+    const list = this.byCode.get(key);
     return list?.[0] ?? null;
   }
 

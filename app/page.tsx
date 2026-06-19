@@ -31,9 +31,6 @@ export default async function HomePage() {
   if (salesSession?.role === "sales") redirect("/sales/orders");
   return (
     <div className="relative min-h-screen overflow-hidden vmi-mesh-bg">
-      <div className="vmi-hero-glow -left-32 top-20 h-72 w-72 bg-teal-400/30" />
-      <div className="vmi-hero-glow -right-24 top-40 h-64 w-64 bg-cyan-500/20" />
-
       <PublicTopbar />
 
       <div className="relative mx-auto flex min-h-screen max-w-5xl flex-col items-center justify-center px-6 pb-16 pt-24 text-center">
@@ -44,7 +41,7 @@ export default async function HomePage() {
         <p className="text-sm font-semibold uppercase tracking-[0.2em] text-teal-600 dark:text-teal-400">
           Vendor Managed Inventory
         </p>
-        <h1 className="mt-3 bg-gradient-to-br from-slate-900 to-slate-600 bg-clip-text text-5xl font-bold tracking-tight text-transparent dark:from-white dark:to-slate-300 sm:text-6xl">
+        <h1 className="mt-3 text-5xl font-bold tracking-tight text-slate-900 dark:text-white sm:text-6xl">
           VMI
         </h1>
         <p className="mt-4 max-w-lg text-lg leading-relaxed text-slate-600 dark:text-slate-400">

@@ -218,7 +218,11 @@ export function formatPromoDiscount(row: PromoRow): string {
   if (hasPremium(row)) {
     return `แถม ${row.premiumProduct} ×${row.premiumQty}`;
   }
-  return "โปรโมชัน";
+  return "";
+}
+
+export function isEmptyBenefitRow(row: PromoRow): boolean {
+  return row.discAmt <= 0 && row.discPct <= 0 && !hasPremium(row);
 }
 
 export function filterCandidateRows(
@@ -241,7 +245,7 @@ export function tierKind(row: PromoRow): PromoTierKind {
   if (isStepTier(row) && hasPremium(row)) return "premium";
   if (row.discAmt > 0) return "discount_baht";
   if (row.discPct > 0) return "discount_pct";
-  return "other";
+  return "none";
 }
 
 export function promoRowsToTiers(rows: PromoRow[]): PromoTierInput[] {

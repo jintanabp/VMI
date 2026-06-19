@@ -86,6 +86,7 @@ export function mapStockRow(
     qtyToNext: promo.qtyToNext,
     currentPromoKind: promo.currentKind,
     nextPromoKind: promo.nextKind,
+    hasPromoLadder: promo.hasPromoLadder,
     promoTiers: item.sku.promoTiers,
     unitPrice: item.unitPrice ?? null,
     netUnitPrice,

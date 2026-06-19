@@ -48,9 +48,7 @@ export default async function LoginPage({
   return (
     <div className="grid min-h-svh lg:grid-cols-2">
       <aside className="relative hidden flex-col justify-between overflow-hidden p-10 lg:flex">
-        <div className="absolute inset-0 vmi-gradient-brand opacity-95" />
-        <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-white/10 blur-3xl" />
-        <div className="absolute -bottom-16 -left-16 h-48 w-48 rounded-full bg-teal-300/20 blur-2xl" />
+        <div className="absolute inset-0 vmi-gradient-brand" />
         <div className="relative z-10">
           <div className="flex items-center gap-3 text-white">
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/20 backdrop-blur">

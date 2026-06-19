@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { getRawSalesSession } from "@/lib/auth/sales-session";
 import { setSalesPreviewCookie } from "@/lib/auth/sales-preview";
 import { getSalesmanRegistry } from "@/lib/fabric";
+import { pickDefaultSalesmanAssignment } from "@/lib/admin/vda-sales-directory";
+
+function normCode(code: string) {
+  return code.trim().toUpperCase();
+}
 
 export async function POST(request: Request) {
   const session = await getRawSalesSession();
@@ -11,14 +16,26 @@ export async function POST(request: Request) {
 
   const body = await request.json();
   const email = (body.email as string)?.trim().toLowerCase();
+  const requestedCode = (body.code as string | undefined)?.trim();
   if (!email) {
     return NextResponse.json({ error: "กรุณาเลือกเซลล์" }, { status: 400 });
   }
 
   const registry = getSalesmanRegistry();
-  const rep = registry.getCurrentByEmail(email);
-  if (!rep?.code) {
+  const assignments = registry.getAssignmentsByEmail(email);
+  if (assignments.length === 0) {
     return NextResponse.json({ error: "ไม่พบข้อมูลเซลล์ใน master" }, { status: 404 });
+  }
+
+  const rep = requestedCode
+    ? assignments.find((a) => normCode(a.code) === normCode(requestedCode))
+    : pickDefaultSalesmanAssignment(email) ?? assignments[0];
+
+  if (!rep?.code) {
+    return NextResponse.json(
+      { error: requestedCode ? "ไม่พบรหัสเซลล์นี้สำหรับอีเมลที่เลือก" : "ไม่พบข้อมูลเซลล์" },
+      { status: 404 }
+    );
   }
 
   await setSalesPreviewCookie({

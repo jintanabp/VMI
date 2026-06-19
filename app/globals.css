@@ -47,17 +47,10 @@ body {
 
 .vmi-mesh-bg {
   background-color: var(--color-background);
-  background-image:
-    radial-gradient(at 0% 0%, rgb(20 184 166 / 0.12) 0, transparent 50%),
-    radial-gradient(at 100% 0%, rgb(15 76 117 / 0.1) 0, transparent 50%),
-    radial-gradient(at 50% 100%, rgb(99 102 241 / 0.06) 0, transparent 50%);
 }
 
 .dark .vmi-mesh-bg {
-  background-image:
-    radial-gradient(at 0% 0%, rgb(20 184 166 / 0.08) 0, transparent 45%),
-    radial-gradient(at 100% 0%, rgb(15 76 117 / 0.12) 0, transparent 45%),
-    radial-gradient(at 50% 100%, rgb(99 102 241 / 0.05) 0, transparent 50%);
+  background-color: var(--color-background);
 }
 
 .vmi-glass {
@@ -86,7 +79,11 @@ body {
 }
 
 .vmi-gradient-brand {
-  background: linear-gradient(135deg, #0f4c75 0%, #0e7490 50%, #14b8a6 100%);
+  background-color: var(--color-primary);
+}
+
+.dark .vmi-gradient-brand {
+  background-color: #1a6b9a;
 }
 
 .vmi-stat-card {
@@ -132,14 +129,19 @@ body {
 }
 
 .vmi-role-card--primary {
-  background: linear-gradient(145deg, #0f4c75 0%, #0e7490 55%, #14b8a6 100%);
+  background-color: var(--color-primary);
   border-color: transparent;
   color: white;
 }
 
 .vmi-role-card--primary:hover {
   border-color: transparent;
-  box-shadow: 0 12px 40px rgb(15 76 117 / 0.45);
+  background-color: #0d3d5c;
+  box-shadow: var(--shadow-elevated);
+}
+
+.dark .vmi-role-card--primary:hover {
+  background-color: #1a6b9a;
 }
 
 .vmi-feature-pill {
@@ -177,6 +179,7 @@ body {
   background: var(--color-card);
   box-shadow: var(--shadow-card);
   max-width: 100%;
+  overflow: hidden;
 }
 
 .vmi-table-scroll {
@@ -268,6 +271,15 @@ body {
   border-top: 1px solid var(--color-border);
 }
 
+.vmi-sales-action-bar {
+  background: rgb(255 255 255 / 0.95);
+  backdrop-filter: blur(12px);
+}
+
+.dark .vmi-sales-action-bar {
+  background: rgb(15 23 42 / 0.95);
+}
+
 .dark .vmi-sticky-bar {
   background: rgb(15 23 42 / 0.92);
 }
@@ -320,4 +332,260 @@ body {
 
 .vmi-vda-card {
   min-height: 7rem;
+}
+
+/* Fixed viewport pages: header + stats + toolbar fixed; only list scrolls */
+.vmi-stock-page,
+.vmi-order-page {
+  display: flex;
+  height: 100dvh;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Fixed viewport on wide screens; vertical page scroll on iPad / half-width */
+.vmi-sales-orders-page {
+  display: flex;
+  min-height: 100dvh;
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.vmi-sales-orders-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  overflow: visible;
+}
+
+.vmi-sales-orders-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  overflow: visible;
+}
+
+.vmi-sales-orders-sidebar {
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+}
+
+.vmi-sales-orders-sidebar-scroll {
+  max-height: min(40vh, 16rem);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.vmi-sales-orders-detail {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  overflow: visible;
+}
+
+.vmi-sales-orders-page .vmi-table-scroll {
+  max-height: none;
+  overflow: visible;
+}
+
+.vmi-sales-review-scroll {
+  overflow: visible;
+}
+
+@media (max-width: 1279px) {
+  .vmi-sales-orders-page {
+    --vmi-sales-sticky-top: 3.25rem;
+    --vmi-sales-order-head-height: 2.75rem;
+    --vmi-sales-toolbar-height: 4.25rem;
+    --vmi-sales-action-height: max(4.5rem, calc(3.5rem + env(safe-area-inset-bottom)));
+  }
+
+  .vmi-sales-order-head {
+    position: sticky;
+    top: var(--vmi-sales-sticky-top);
+    z-index: 30;
+    margin-inline: -0.5rem;
+    padding-inline: 0.5rem;
+    background: rgb(255 255 255 / 0.95);
+    backdrop-filter: blur(8px);
+  }
+
+  .dark .vmi-sales-order-head {
+    background: rgb(15 23 42 / 0.95);
+  }
+
+  .vmi-sales-review-toolbar {
+    position: sticky;
+    top: calc(var(--vmi-sales-sticky-top) + var(--vmi-sales-order-head-height));
+    z-index: 25;
+    padding-bottom: 0.25rem;
+    background: rgb(255 255 255 / 0.95);
+    backdrop-filter: blur(8px);
+  }
+
+  .dark .vmi-sales-review-toolbar {
+    background: rgb(15 23 42 / 0.95);
+  }
+
+  .vmi-sales-orders-page .vmi-sales-review-scroll {
+    max-height: min(
+      58dvh,
+      calc(
+        100dvh - var(--vmi-sales-sticky-top) - var(--vmi-sales-order-head-height) -
+          var(--vmi-sales-toolbar-height) - var(--vmi-sales-action-height) - 1.5rem
+      )
+    );
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .vmi-sales-review-scroll thead th {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: #f1f5f9;
+    box-shadow: 0 1px 0 rgb(226 232 240 / 0.95);
+  }
+
+  .dark .vmi-sales-review-scroll thead th {
+    background: #0f172a;
+    box-shadow: 0 1px 0 rgb(51 65 85 / 0.95);
+  }
+}
+
+@media (min-width: 1280px) {
+  .vmi-sales-orders-page {
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  .vmi-sales-orders-main {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .vmi-sales-orders-grid {
+    display: grid;
+    min-height: 0;
+    flex: 1;
+    grid-template-columns: minmax(0, 260px) minmax(0, 1fr);
+    gap: 1rem;
+    overflow: hidden;
+  }
+
+  .vmi-sales-orders-sidebar {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .vmi-sales-orders-sidebar-scroll {
+    min-height: 0;
+    max-height: none;
+    flex: 1;
+  }
+
+  .vmi-sales-orders-detail {
+    min-height: 0;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  .vmi-sales-orders-page .vmi-table-scroll {
+    max-height: min(76vh, calc(100dvh - 11rem));
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .vmi-sales-review-scroll {
+    min-height: 0;
+    flex: 1;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@media (min-width: 1536px) {
+  .vmi-sales-orders-grid {
+    grid-template-columns: minmax(0, 280px) minmax(0, 1fr);
+    gap: 1.25rem;
+  }
+}
+
+.vmi-stock-main,
+.vmi-order-main {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.vmi-stock-table-wrap,
+.vmi-order-list-wrap {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.vmi-stock-table-scroll,
+.vmi-order-list-scroll {
+  min-height: 0;
+  flex: 1;
+  max-height: none;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 4.5rem;
+}
+
+@media (min-width: 768px) {
+  .vmi-stock-table-scroll,
+  .vmi-order-list-scroll {
+    padding-bottom: 3.75rem;
+  }
+}
+
+.vmi-stock-toolbar {
+  z-index: 30;
+  margin-bottom: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 1rem;
+  background: rgb(255 255 255 / 0.96);
+  padding: 0.625rem 0.75rem;
+  backdrop-filter: blur(8px);
+  box-shadow: var(--shadow-card);
+}
+
+@media (min-width: 640px) {
+  .vmi-stock-toolbar {
+    padding: 0.75rem 1rem;
+  }
+}
+
+.dark .vmi-stock-toolbar {
+  background: rgb(10 15 26 / 0.96);
+}
+
+.vmi-action-bar {
+  position: fixed;
+  inset-inline: 0;
+  bottom: 3.5rem;
+  z-index: 55;
+  border-top: 1px solid var(--color-border);
+  background: rgb(255 255 255 / 0.96);
+  padding: 0.625rem 1rem;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 -4px 24px rgb(15 23 42 / 0.08);
+}
+
+@media (min-width: 768px) {
+  .vmi-action-bar {
+    bottom: 0;
+  }
+}
+
+.dark .vmi-action-bar {
+  background: rgb(10 15 26 / 0.96);
+  box-shadow: 0 -4px 24px rgb(0 0 0 / 0.35);
 }

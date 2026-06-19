@@ -2,8 +2,22 @@ import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
-/** ลบข้อมูล demo เก่า (ร้าน STxxx + ออเดอร์ตัวอย่าง) — ระบบใช้ Fabric/VDA จริง */
+/** ลบข้อมูล demo เก่า — ระบบใช้ Fabric/VDA จริง */
 async function main() {
+  const pendingOrders = await prisma.order.findMany({
+    where: { status: "pending_approval" },
+    select: { id: true },
+  });
+  if (pendingOrders.length > 0) {
+    await prisma.orderItem.deleteMany({
+      where: { orderId: { in: pendingOrders.map((o) => o.id) } },
+    });
+    await prisma.order.deleteMany({
+      where: { status: "pending_approval" },
+    });
+    console.log(`Removed ${pendingOrders.length} pending order(s)`);
+  }
+
   const dummyStores = await prisma.store.findMany({
     where: { code: { startsWith: "ST" } },
     select: { id: true },

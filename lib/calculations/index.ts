@@ -64,14 +64,7 @@ export interface PromoTierInput {
   premiumQty?: number;
 }
 
-export interface PromoResult {
-  currentPromo: string | null;
-  nextPromo: string | null;
-  nextPromoQty: number | null;
-  qtyToNext: number | null;
-  currentKind?: import("./promo").PromoTierKind | null;
-  nextKind?: import("./promo").PromoTierKind | null;
-}
+export type { PromoResult, PromoTierKind } from "./promo";
 
 export {
   formatPromoTierLabel,
@@ -79,7 +72,6 @@ export {
   calcNetUnitPrice,
   calcLineAmount,
 } from "./promo";
-export type { PromoTierKind } from "./promo";
 
 export function formatNumber(value: number, decimals = 1): string {
   return value.toLocaleString("th-TH", {

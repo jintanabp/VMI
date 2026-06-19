@@ -144,6 +144,29 @@ export function getStockOnelakeItemId() {
   return getStockOnelakeConfig()?.exportItemId ?? "";
 }
 
+/** Workspace สำหรับ vda{N}_aos_bill (salesmancode ต่อ VDA) */
+export function getVdaAosOnelakeConfig(): StockOnelakeTarget | null {
+  const workspaceId =
+    trimEnv("VDA_AOS_WORKSPACE_ID") || trimEnv("STOCK_ONELAKE_WORKSPACE_ID");
+  const exportItemId =
+    trimEnv("VDA_AOS_LAKEHOUSE_ID") ||
+    trimEnv("VDA_BILL_LAKEHOUSE_ID");
+  const scanDir =
+    process.env.VDA_AOS_SCAN_DIR ??
+    process.env.STOCK_ONELAKE_SCAN_DIR ??
+    "Files/exports/";
+
+  if (!workspaceId || !exportItemId) {
+    return null;
+  }
+
+  return {
+    workspaceId,
+    exportItemId,
+    scanDir: normalizeScanDir(scanDir),
+  };
+}
+
 /** True when stock_cover_day CSV should drive store stock (synced to SQLite). */
 export function fabricStockEnabled() {
   if (process.env.USE_FABRIC_STOCK === "false") return false;

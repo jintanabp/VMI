@@ -51,7 +51,8 @@ async function runRefreshWithRetry(maxRetries = 3): Promise<boolean> {
         !result.salesman &&
         !result.stockCover &&
         !result.promotion &&
-        !result.skuMaster
+        !result.skuMaster &&
+        !result.vdaAos
       ) {
         throw new Error("refresh returned no successful files");
       }
@@ -84,6 +85,7 @@ export async function runMasterRefreshNow(): Promise<{
   stockCover: boolean;
   promotion: boolean;
   skuMaster: boolean;
+  vdaAos: boolean;
 }> {
   if (!hasAnyOnelakeTargets()) {
     return {
@@ -93,6 +95,7 @@ export async function runMasterRefreshNow(): Promise<{
       stockCover: false,
       promotion: false,
       skuMaster: false,
+      vdaAos: false,
     };
   }
   const result = await refreshAllMasters({ allowInteractive: true });
@@ -103,7 +106,8 @@ export async function runMasterRefreshNow(): Promise<{
     result.salesman ||
     result.stockCover ||
     result.promotion ||
-    result.skuMaster;
+    result.skuMaster ||
+    result.vdaAos;
   return { ok, ...result };
 }
 

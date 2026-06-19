@@ -2,8 +2,8 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { cookies } from "next/headers";
 import { SALES_SESSION_COOKIE, isAdminEmail, type UserRole } from "./roles";
 import { getSalesmanRegistry } from "@/lib/fabric";
-import { prisma } from "@/lib/prisma";
 import { applySalesPreview, getSalesPreview } from "./sales-preview";
+import { pickDefaultSalesmanAssignment } from "@/lib/admin/vda-sales-directory";
 
 export interface SalesSession {
   email: string;
@@ -84,8 +84,9 @@ export function verifySalesSessionToken(
 }
 
 export function buildSalesSession(email: string, name?: string): SalesSession {
-  const assignment = getSalesmanRegistry().getCurrentByEmail(email);
   const registry = getSalesmanRegistry();
+  const assignment =
+    pickDefaultSalesmanAssignment(email) ?? registry.getCurrentByEmail(email);
 
   return {
     email,
@@ -106,18 +107,18 @@ function normalizeCode(code: string) {
 
 /**
  * Access control:
- * - Allow only salesmen codes in allowlist (admin can manage)
- * - Also allow their Supervisor/Manager codes (from master) to login
- * - Manager/Supervisor can view salesmen under them (scopeSalesmanCodes)
+ * - ต้องมีอีเมลใน cross_salesman master
+ * - สิทธิ์ดูออเดอร์ VDA มาจาก vda_aos_bill (ไม่ใช้ allowlist)
+ * - Manager/Supervisor ดูออเดอร์ VDA ของลูกทีม
  */
 export async function buildSalesSessionWithAccess(
   email: string,
   name?: string
 ): Promise<SalesSession> {
   const registry = getSalesmanRegistry();
-  const assignment = registry.getCurrentByEmail(email);
+  const assignment =
+    pickDefaultSalesmanAssignment(email) ?? registry.getCurrentByEmail(email);
 
-  // Admin bypasses allowlist (still requires Microsoft login)
   if (isAdminEmail(email)) {
     return {
       email,
@@ -133,34 +134,12 @@ export async function buildSalesSessionWithAccess(
   }
 
   if (!assignment?.code) {
-    throw new Error("ไม่พบข้อมูลสิทธิ์พนักงานใน master (cross_salesman)");
+    throw new Error("ไม่พบข้อมูลพนักงานใน master (cross_salesman) — อีเมลนี้ยังไม่มีในระบบ");
   }
 
-  // Load allowlist from DB
-  const allowedRows = await prisma.allowedSalesCode.findMany({
-    select: { code: true },
-  });
-  const allowedBase = new Set(allowedRows.map((r) => normalizeCode(r.code)));
-
-  if (allowedBase.size === 0) {
-    throw new Error("ยังไม่ได้กำหนดรายชื่อพนักงานที่เข้าใช้งานได้ (allowlist ว่าง)");
-  }
-
-  // Build closure: allowlisted salesman + their supervisor/manager codes
   const current = registry.listCurrentAssignments();
-  const allowClosure = new Set<string>(allowedBase);
-  for (const a of current) {
-    if (!allowedBase.has(normalizeCode(a.code))) continue;
-    if (a.superCode) allowClosure.add(normalizeCode(a.superCode));
-    if (a.managerCode) allowClosure.add(normalizeCode(a.managerCode));
-  }
-
   const myCode = normalizeCode(assignment.code);
-  if (!allowClosure.has(myCode)) {
-    throw new Error("รหัสพนักงานนี้ไม่ได้รับอนุญาตให้เข้าใช้งาน");
-  }
 
-  // Determine hierarchy role by whether my code is a supervisor/manager for someone
   const directs = current.filter(
     (a) =>
       normalizeCode(a.superCode || "") === myCode ||
@@ -176,7 +155,6 @@ export async function buildSalesSessionWithAccess(
       ? "supervisor"
       : "sales";
 
-  // Build scope salesman codes (BFS 2 levels)
   const scope = new Set<string>();
   scope.add(myCode);
   let frontier = new Set<string>([myCode]);

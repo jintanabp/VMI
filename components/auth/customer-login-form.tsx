@@ -96,7 +96,7 @@ export function CustomerLoginForm({
                   className={cn(
                     "vmi-vda-card group relative flex flex-col items-center justify-center gap-2 rounded-2xl border-2 p-5 transition-all",
                     selected
-                      ? "border-teal-500 bg-gradient-to-br from-teal-50 to-cyan-50 shadow-md ring-2 ring-teal-500/30 dark:from-teal-950/50 dark:to-cyan-950/30"
+                      ? "border-teal-500 bg-teal-50 shadow-md ring-2 ring-teal-500/30 dark:bg-teal-950/50"
                       : "border-slate-200 bg-white hover:border-teal-300 hover:shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:hover:border-teal-700"
                   )}
                 >

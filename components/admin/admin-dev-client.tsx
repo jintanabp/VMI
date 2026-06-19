@@ -7,6 +7,7 @@ import {
   Bug,
   Eye,
   RefreshCw,
+  Search,
   Shield,
   UserCircle,
   Users,
@@ -28,12 +29,48 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { VdaSalesAccessPanel } from "@/components/admin/vda-sales-access-panel";
 
-interface SalesRepOption {
-  id: string;
-  email: string;
+interface PersonCodeAssignment {
   code: string;
+  vdas: string[];
+}
+
+interface SalesPreviewPerson {
+  email: string;
   name: string;
+  codes: PersonCodeAssignment[];
+  allVdas: string[];
+  multipleCodes: boolean;
+  hasVdaAccess: boolean;
+}
+
+interface SalesPreviewDirectory {
+  people: SalesPreviewPerson[];
+  peopleWithVda?: SalesPreviewPerson[];
+  stats: {
+    totalPeople: number;
+    peopleWithVda: number;
+    withVdaAccess: number;
+  };
+}
+
+type SalesPreviewScope = "with_vda" | "all";
+
+function filterPreviewPeople(rows: SalesPreviewPerson[], query: string) {
+  const q = query.trim().toLowerCase();
+  if (!q) return rows;
+  return rows.filter(
+    (p) =>
+      p.name.toLowerCase().includes(q) ||
+      p.email.toLowerCase().includes(q) ||
+      p.allVdas.some((v) => v.includes(q)) ||
+      p.codes.some(
+        (c) =>
+          c.code.toLowerCase().includes(q) ||
+          c.vdas.some((v) => v.includes(q))
+      )
+  );
 }
 
 function RefreshMastersButton() {
@@ -48,7 +85,7 @@ function RefreshMastersButton() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "failed");
       setMsg(
-        `สำเร็จ — customer: ${data.customer ? "OK" : "-"}, salesman: ${data.salesman ? "OK" : "-"}, promo: ${data.promotion ? "OK" : "-"}, sku: ${data.skuMaster ? "OK" : "-"}, stock: ${data.stockCover ? "OK" : "-"}`
+        `สำเร็จ — customer: ${data.customer ? "OK" : "-"}, salesman: ${data.salesman ? "OK" : "-"}, promo: ${data.promotion ? "OK" : "-"}, sku: ${data.skuMaster ? "OK" : "-"}, stock: ${data.stockCover ? "OK" : "-"}, vdaBill: ${data.vdaAos ? "OK" : "-"}`
       );
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "ล้มเหลว");
@@ -181,35 +218,43 @@ export function AdminDevClient() {
   const salesPreview = useSalesPreview();
   const router = useRouter();
   const [activePanel, setActivePanel] = useState<"hub" | "vda" | "sales" | "settings">("hub");
-  const [salesReps, setSalesReps] = useState<SalesRepOption[]>([]);
+  const [salesDirectory, setSalesDirectory] = useState<SalesPreviewDirectory | null>(null);
+  const [salesDirectoryLoading, setSalesDirectoryLoading] = useState(false);
   const [repSearch, setRepSearch] = useState("");
-  const [accessCodes, setAccessCodes] = useState<{ code: string }[]>([]);
-  const [newCode, setNewCode] = useState("");
+  const [repScope, setRepScope] = useState<SalesPreviewScope>("with_vda");
 
   useEffect(() => {
     if (session?.role !== "admin") return;
-    fetch("/api/admin/salesmen")
-      .then((r) => r.json())
-      .then((data) => setSalesReps(Array.isArray(data) ? data : []))
-      .catch(() => setSalesReps([]));
-    fetch("/api/admin/access-codes")
-      .then((r) => r.json())
-      .then((data) => setAccessCodes(Array.isArray(data) ? data : []))
-      .catch(() => setAccessCodes([]));
+    setSalesDirectoryLoading(true);
+    fetch("/api/admin/vda-sales")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => setSalesDirectory(data))
+      .catch(() => setSalesDirectory(null))
+      .finally(() => setSalesDirectoryLoading(false));
   }, [session]);
 
+  const peopleWithVda = useMemo(() => {
+    if (!salesDirectory) return [];
+    if (Array.isArray(salesDirectory.peopleWithVda)) return salesDirectory.peopleWithVda;
+    return salesDirectory.people.filter((p) => p.hasVdaAccess);
+  }, [salesDirectory]);
+
   const filteredReps = useMemo(() => {
-    const q = repSearch.toLowerCase();
-    return salesReps
-      .filter(
-        (r) =>
-          !q ||
-          r.code.toLowerCase().includes(q) ||
-          r.name.toLowerCase().includes(q) ||
-          r.email.toLowerCase().includes(q)
-      )
-      .slice(0, 30);
-  }, [salesReps, repSearch]);
+    const base =
+      repScope === "with_vda" ? peopleWithVda : (salesDirectory?.people ?? []);
+    const filtered = filterPreviewPeople(base, repSearch);
+    if (repScope === "all" && !repSearch.trim()) return filtered.slice(0, 50);
+    return filtered;
+  }, [salesDirectory, repSearch, repScope, peopleWithVda]);
+
+  async function startSalesPreview(email: string, code?: string) {
+    await fetch("/api/auth/admin/preview-sales", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, code }),
+    });
+    router.push("/sales/orders");
+  }
 
   if (session?.role !== "admin") {
     return (
@@ -241,7 +286,7 @@ export function AdminDevClient() {
 
       <main className="mx-auto max-w-5xl space-y-6 px-3 py-4 sm:px-4 sm:py-6">
         {(adminPreview || salesPreview) && (
-          <div className="rounded-2xl border border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50 px-4 py-3 dark:border-amber-800/50 dark:from-amber-950/40 dark:to-orange-950/30">
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800/50 dark:bg-amber-950/40">
             <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
               กำลังดูในมุมมองทดสอบ
               {adminPreview && " · VDA/ร้านค้า"}
@@ -284,7 +329,7 @@ export function AdminDevClient() {
                 onClick={() => setActivePanel("vda")}
                 className="vmi-perspective-card group text-left"
               >
-                <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-teal-500 to-cyan-600 text-white shadow-md">
+                <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-teal-600 text-white shadow-md">
                   <Warehouse className="h-6 w-6" />
                 </div>
                 <h3 className="text-lg font-bold text-slate-900 dark:text-slate-50">
@@ -303,7 +348,7 @@ export function AdminDevClient() {
                 onClick={() => setActivePanel("sales")}
                 className="vmi-perspective-card group text-left"
               >
-                <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 text-white shadow-md">
+                <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-md">
                   <Users className="h-6 w-6" />
                 </div>
                 <h3 className="text-lg font-bold text-slate-900 dark:text-slate-50">
@@ -322,14 +367,14 @@ export function AdminDevClient() {
                 onClick={() => setActivePanel("settings")}
                 className="vmi-perspective-card group text-left"
               >
-                <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-600 to-slate-800 text-white shadow-md">
+                <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-700 text-white shadow-md">
                   <Shield className="h-6 w-6" />
                 </div>
                 <h3 className="text-lg font-bold text-slate-900 dark:text-slate-50">
                   ตั้งค่าระบบ
                 </h3>
                 <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                  Allowlist, ดึงข้อมูล Fabric, debug
+                  เซลล์↔VDA, ดึงข้อมูล Fabric, debug
                 </p>
                 <span className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-slate-700 dark:text-slate-300">
                   จัดการ <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
@@ -402,39 +447,163 @@ export function AdminDevClient() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <Input
-                placeholder="ค้นหารหัส / ชื่อ / อีเมลเซลล์..."
-                value={repSearch}
-                onChange={(e) => setRepSearch(e.target.value)}
-              />
-              <div className="vmi-scroll max-h-80 space-y-2 overflow-y-auto">
-                {filteredReps.map((rep) => (
-                  <button
-                    key={rep.id}
-                    type="button"
-                    className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left transition-colors hover:border-indigo-300 hover:bg-indigo-50/50 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-indigo-700 dark:hover:bg-indigo-950/30"
-                    onClick={async () => {
-                      await fetch("/api/auth/admin/preview-sales", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ email: rep.email }),
-                      });
-                      router.push("/sales/orders");
-                    }}
+              {salesDirectory && (
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  มี VDA {salesDirectory.stats.peopleWithVda} คน ·{" "}
+                  {salesDirectory.stats.withVdaAccess} รหัส — แสดงเฉพาะคนที่ดูแล VDA ก่อน
+                </p>
+              )}
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <div className="relative min-w-0 flex-1">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <Input
+                    className="pl-9"
+                    placeholder="ค้นหารหัส / ชื่อ / อีเมล / VDA..."
+                    value={repSearch}
+                    onChange={(e) => setRepSearch(e.target.value)}
+                  />
+                </div>
+                {salesDirectory && (
+                  <div
+                    role="group"
+                    aria-label="กรองเซลล์"
+                    className="flex shrink-0 rounded-xl border border-slate-200 p-1 dark:border-slate-700"
                   >
-                    <div>
-                      <p className="font-semibold text-slate-900 dark:text-slate-100">
-                        {rep.code} · {rep.name}
-                      </p>
-                      <p className="text-xs text-slate-500">{rep.email}</p>
-                    </div>
-                    <ArrowRight className="h-4 w-4 shrink-0 text-slate-400" />
-                  </button>
-                ))}
-                {filteredReps.length === 0 && (
-                  <p className="py-8 text-center text-sm text-slate-500">ไม่พบเซลล์</p>
+                    <button
+                      type="button"
+                      onClick={() => setRepScope("with_vda")}
+                      className={cn(
+                        "rounded-lg px-3 py-1.5 text-xs font-semibold whitespace-nowrap",
+                        repScope === "with_vda"
+                          ? "bg-violet-600 text-white shadow-sm dark:bg-violet-600"
+                          : "text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+                      )}
+                    >
+                      มี VDA ({salesDirectory.stats.peopleWithVda})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRepScope("all")}
+                      className={cn(
+                        "rounded-lg px-3 py-1.5 text-xs font-semibold whitespace-nowrap",
+                        repScope === "all"
+                          ? "bg-slate-700 text-white shadow-sm dark:bg-slate-600"
+                          : "text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+                      )}
+                    >
+                      ทั้งหมด ({salesDirectory.stats.totalPeople})
+                    </button>
+                  </div>
                 )}
               </div>
+              <div className="vmi-scroll max-h-80 space-y-2 overflow-y-auto">
+                {salesDirectoryLoading && (
+                  <p className="py-8 text-center text-sm text-slate-500">กำลังโหลด...</p>
+                )}
+                {!salesDirectoryLoading &&
+                  filteredReps.map((rep) => {
+                    const previewCodes =
+                      rep.codes.filter((c) => c.vdas.length > 0).length > 0
+                        ? rep.codes.filter((c) => c.vdas.length > 0)
+                        : rep.codes;
+
+                    return (
+                      <div
+                        key={rep.email}
+                        className="rounded-xl border border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-900"
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-semibold text-slate-900 dark:text-slate-100">
+                            {rep.name}
+                          </p>
+                          {rep.multipleCodes && (
+                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-950/50 dark:text-amber-300">
+                              หลายรหัส ({rep.codes.length})
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-500">{rep.email}</p>
+
+                        {rep.multipleCodes ? (
+                          <div className="mt-3 space-y-2">
+                            <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                              เลือกรหัสเพื่อดู VDA ที่รหัสนั้นดูแล
+                            </p>
+                            {previewCodes.map((c) => (
+                              <button
+                                key={c.code}
+                                type="button"
+                                className="flex w-full items-center justify-between gap-3 rounded-lg border border-indigo-200 bg-indigo-50/50 px-3 py-2.5 text-left transition-colors hover:border-indigo-300 hover:bg-indigo-50 dark:border-indigo-800 dark:bg-indigo-950/30 dark:hover:border-indigo-700"
+                                onClick={() => void startSalesPreview(rep.email, c.code)}
+                              >
+                                <div>
+                                  <span className="font-mono text-sm font-bold text-teal-700 dark:text-teal-400">
+                                    {c.code}
+                                  </span>
+                                  {c.vdas.length > 0 ? (
+                                    <div className="mt-1 flex flex-wrap gap-1">
+                                      {c.vdas.map((v) => (
+                                        <span
+                                          key={v}
+                                          className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-800 dark:bg-violet-950/50 dark:text-violet-300"
+                                        >
+                                          {v.toUpperCase()}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <p className="mt-0.5 text-xs text-slate-400">
+                                      ไม่มี VDA ใน vda_aos_bill
+                                    </p>
+                                  )}
+                                </div>
+                                <ArrowRight className="h-4 w-4 shrink-0 text-slate-400" />
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            className="mt-3 flex w-full items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2.5 text-left transition-colors hover:border-indigo-300 hover:bg-indigo-50/50 dark:border-slate-700 dark:hover:border-indigo-700 dark:hover:bg-indigo-950/30"
+                            onClick={() =>
+                              void startSalesPreview(
+                                rep.email,
+                                previewCodes[0]?.code
+                              )
+                            }
+                          >
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-mono text-sm font-semibold text-teal-700 dark:text-teal-400">
+                                {previewCodes[0]?.code ?? "—"}
+                              </span>
+                              {rep.allVdas.map((v) => (
+                                <span
+                                  key={v}
+                                  className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-800 dark:bg-violet-950/50 dark:text-violet-300"
+                                >
+                                  {v.toUpperCase()}
+                                </span>
+                              ))}
+                            </div>
+                            <ArrowRight className="h-4 w-4 shrink-0 text-slate-400" />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                {!salesDirectoryLoading && filteredReps.length === 0 && (
+                  <p className="py-8 text-center text-sm text-slate-500">
+                    {repScope === "with_vda" && !repSearch.trim()
+                      ? "ยังไม่มีเซลล์ที่ผูก VDA ใน vda_aos_bill"
+                      : "ไม่พบเซลล์"}
+                  </p>
+                )}
+              </div>
+              {repScope === "all" && !repSearch.trim() && salesDirectory && (
+                <p className="text-center text-xs text-slate-400">
+                  แสดง 50 คนแรก — ใช้ช่องค้นหาเพื่อหาเซลล์ที่ต้องการ
+                </p>
+              )}
               <Button
                 variant="outline"
                 className="w-full"
@@ -457,66 +626,7 @@ export function AdminDevClient() {
 
             <AdminEmailsSection />
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">สิทธิ์เข้าใช้งาน (Allowlist)</CardTitle>
-                <CardDescription>รหัสพนักงานที่อนุญาตให้ login เซลล์</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <Input
-                    className="flex-1"
-                    value={newCode}
-                    onChange={(e) => setNewCode(e.target.value)}
-                    placeholder="เพิ่มรหัส เช่น S091"
-                  />
-                  <Button
-                    onClick={async () => {
-                      const code = newCode.trim().toUpperCase();
-                      if (!code) return;
-                      await fetch("/api/admin/access-codes", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ code }),
-                      });
-                      setNewCode("");
-                      const list = await fetch("/api/admin/access-codes").then((r) =>
-                        r.json()
-                      );
-                      setAccessCodes(Array.isArray(list) ? list : []);
-                    }}
-                  >
-                    เพิ่ม
-                  </Button>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {accessCodes.map((c) => (
-                    <span
-                      key={c.code}
-                      className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold dark:border-slate-700 dark:bg-slate-900"
-                    >
-                      {c.code}
-                      <button
-                        type="button"
-                        className="text-xs text-slate-500 hover:text-red-600"
-                        onClick={async () => {
-                          await fetch(
-                            `/api/admin/access-codes?code=${encodeURIComponent(c.code)}`,
-                            { method: "DELETE" }
-                          );
-                          const list = await fetch("/api/admin/access-codes").then((r) =>
-                            r.json()
-                          );
-                          setAccessCodes(Array.isArray(list) ? list : []);
-                        }}
-                      >
-                        ลบ
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+            <VdaSalesAccessPanel />
 
             <Card>
               <CardHeader>

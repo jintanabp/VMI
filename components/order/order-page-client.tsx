@@ -6,7 +6,6 @@ import { useMutation } from "@tanstack/react-query";
 import {
   ArrowLeft,
   CheckCircle2,
-  Gift,
   LayoutGrid,
   Minus,
   Plus,
@@ -18,6 +17,7 @@ import {
 } from "lucide-react";
 import { AppHeader } from "@/components/layout/app-header";
 import { PageShell } from "@/components/layout/page-shell";
+import { PromoDetailCell } from "@/components/promo/promo-detail-cell";
 import { FlagBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { StockRowComputed } from "@/lib/repositories/types";
@@ -30,7 +30,6 @@ import {
   getCvdFlag,
   getPromoForQty,
   type PromoResult,
-  type PromoTierKind,
 } from "@/lib/calculations";
 import { cn } from "@/lib/utils";
 
@@ -185,6 +184,7 @@ export function OrderPageClient({
             qtyToNext: api.qtyToNext,
             currentKind: api.currentKind,
             nextKind: api.nextKind,
+            hasPromoLadder: api.hasPromoLadder ?? (line.row.promoTiers?.length ?? 0) > 0,
           }
         : fallbackPromo;
 
@@ -287,7 +287,7 @@ export function OrderPageClient({
       <PageShell>
         <div className="flex min-h-screen items-center justify-center px-4">
           <div className="vmi-card-elevated max-w-md p-10 text-center">
-            <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-100 to-teal-100 text-emerald-600 dark:from-emerald-900/40 dark:to-teal-900/40 dark:text-emerald-400">
+            <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400">
               <CheckCircle2 className="h-8 w-8" />
             </div>
             <h2 className="text-xl font-bold">ส่งคำสั่งซื้อแล้ว</h2>
@@ -316,10 +316,10 @@ export function OrderPageClient({
   }
 
   return (
-    <PageShell className="pb-44 md:pb-28" customerNav>
+    <PageShell customerNav className="vmi-order-page pb-28 md:pb-20">
       <AppHeader
-        title="สั่งสินค้า"
-        subtitle="ปรับจำนวนแล้วส่งให้เซลล์อนุมัติ"
+        compact
+        title={`สั่งสินค้า · ${storeCode.toUpperCase()}`}
         storeCode={storeCode}
         storeName={storeName}
         storeAddress={storeAddress}
@@ -327,13 +327,8 @@ export function OrderPageClient({
         role="customer"
       />
 
-      <main
-        className={cn(
-          "mx-auto w-full min-w-0 px-3 py-4 pb-10 sm:px-4 sm:py-5",
-          viewMode === "table" ? "max-w-7xl" : "max-w-3xl"
-        )}
-      >
-        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:mb-5 lg:grid-cols-5">
+      <main className="vmi-order-main mx-auto w-full min-w-0 max-w-7xl px-3 sm:px-4">
+        <div className="grid shrink-0 grid-cols-2 gap-2 py-3 sm:grid-cols-3 sm:gap-3 lg:grid-cols-5">
           <SummaryChip
             label="รายการ"
             value={`${stats.skuCount} SKU`}
@@ -363,23 +358,23 @@ export function OrderPageClient({
         </div>
 
         {hasRedFlag && (
-          <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
+          <div className="mb-2 shrink-0 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
             มีรายการ CVD ไม่เหมาะสม (สีแดง) — ปรับจำนวนก่อนส่ง
           </div>
         )}
 
-        <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="vmi-stock-toolbar shrink-0 flex items-center justify-between gap-3">
           <p className="text-sm text-slate-500 dark:text-slate-400">
             {enriched.length} รายการ
           </p>
-          <div className="flex rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">
+          <div className="flex shrink-0 rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">
             <button
               type="button"
               onClick={() => switchView("cards")}
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors sm:text-sm",
                 viewMode === "cards"
-                  ? "bg-gradient-to-r from-[#0f4c75] to-[#0e7490] text-white shadow-sm"
+                  ? "bg-[#0f4c75] text-white dark:bg-[#1a6b9a]"
                   : "text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800"
               )}
             >
@@ -392,7 +387,7 @@ export function OrderPageClient({
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors sm:text-sm",
                 viewMode === "table"
-                  ? "bg-gradient-to-r from-[#0f4c75] to-[#0e7490] text-white shadow-sm"
+                  ? "bg-[#0f4c75] text-white dark:bg-[#1a6b9a]"
                   : "text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800"
               )}
             >
@@ -402,39 +397,53 @@ export function OrderPageClient({
           </div>
         </div>
 
-        {viewMode === "cards" ? (
-          <div className="space-y-4 pb-6">
-            {enriched.map((line, index) => (
-              <OrderLineCard
-                key={line.row.skuId}
-                index={index + 1}
-                line={line}
-                onDelta={(d) => updateQty(line.row.skuId, d)}
-                onApplySuggest={() =>
-                  applySuggest(line.row.skuId, line.row.suggestOrder)
-                }
-                onApplyPromo={(qty) => setQty(line.row.skuId, qty)}
-              />
-            ))}
+        <div
+          className={cn(
+            "min-h-0 flex-1",
+            viewMode === "table" && "vmi-table-wrap vmi-order-list-wrap"
+          )}
+        >
+          <div
+            className={cn(
+              "vmi-order-list-scroll",
+              viewMode === "table" && "vmi-table-scroll"
+            )}
+          >
+            {viewMode === "cards" ? (
+              <div className="mx-auto w-full max-w-3xl space-y-4">
+                {enriched.map((line, index) => (
+                  <OrderLineCard
+                    key={line.row.skuId}
+                    index={index + 1}
+                    line={line}
+                    onDelta={(d) => updateQty(line.row.skuId, d)}
+                    onApplySuggest={() =>
+                      applySuggest(line.row.skuId, line.row.suggestOrder)
+                    }
+                    onApplyPromo={(qty) => setQty(line.row.skuId, qty)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <>
+                <p className="mb-2 text-xs text-slate-400 dark:text-slate-500 lg:hidden">
+                  เลื่อนตารางซ้าย-ขวาเพื่อดูคอลัมน์ทั้งหมด
+                </p>
+                <OrderLineTable
+                  lines={enriched}
+                  onDelta={updateQty}
+                  onApplySuggest={applySuggest}
+                  onApplyPromo={setQty}
+                />
+              </>
+            )}
           </div>
-        ) : (
-          <OrderLineTable
-            lines={enriched}
-            onDelta={updateQty}
-            onApplySuggest={applySuggest}
-            onApplyPromo={setQty}
-          />
-        )}
+        </div>
       </main>
 
       {/* แถบส่งด้านล่าง */}
-      <div className="vmi-sticky-bar fixed bottom-14 left-0 right-0 z-40 px-4 py-3 md:bottom-0">
-        <div
-          className={cn(
-            "mx-auto flex w-full items-center justify-between gap-3",
-            viewMode === "table" ? "max-w-7xl" : "max-w-3xl"
-          )}
-        >
+      <div className="vmi-action-bar">
+        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3">
           <Button
             variant="outline"
             size="sm"
@@ -648,8 +657,18 @@ function OrderLineCard({
         </div>
       </div>
 
-      <PromoOrderCell promo={line.promo} onApplyNext={onApplyPromo} />
-      {line.freeGood && <FreeGoodBlock freeGood={line.freeGood} />}
+      <PromoDetailCell
+        variant="card"
+        currentPromo={line.promo.currentPromo}
+        currentKind={line.promo.currentKind}
+        nextPromo={line.promo.nextPromo}
+        qtyToNext={line.promo.qtyToNext}
+        nextPromoQty={line.promo.nextPromoQty}
+        nextKind={line.promo.nextKind}
+        hasPromoLadder={line.promo.hasPromoLadder}
+        freeGood={line.freeGood}
+        onApplyNext={onApplyPromo}
+      />
     </article>
   );
 }
@@ -666,13 +685,7 @@ function OrderLineTable({
   onApplyPromo: (skuId: string, qty: number) => void;
 }) {
   return (
-    <div className="pb-6">
-      <p className="mb-2 text-xs text-slate-400 dark:text-slate-500 lg:hidden">
-        เลื่อนตารางซ้าย-ขวาเพื่อดูคอลัมน์ทั้งหมด
-      </p>
-      <div className="vmi-table-wrap">
-        <div className="vmi-table-scroll">
-          <table className="w-full min-w-[1040px] text-left text-sm">
+    <table className="w-full min-w-[1100px] text-left text-sm">
             <thead className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
               <tr>
                 <th className="px-3 py-3">#</th>
@@ -692,11 +705,6 @@ function OrderLineTable({
                 const showSuggest =
                   line.row.suggestOrder > 0 &&
                   line.qty !== line.row.suggestOrder;
-                const hasPromo = !!line.promo.currentPromo;
-                const hasNext =
-                  !!line.promo.nextPromo &&
-                  line.promo.nextPromoQty !== null &&
-                  (line.promo.qtyToNext ?? 0) > 0;
 
                 return (
                   <tr
@@ -777,93 +785,28 @@ function OrderLineTable({
                         )}
                       </div>
                     </td>
-                    <td className="max-w-[200px] px-3 py-2.5 text-xs">
-                      {hasPromo && (
-                        <p
-                          className={cn(
-                            "truncate font-medium",
-                            promoKindClass(line.promo.currentKind)
-                          )}
-                        >
-                          {line.promo.currentPromo}
-                        </p>
-                      )}
-                      {line.freeGood && (
-                        <FreeGoodInline freeGood={line.freeGood} />
-                      )}
-                      {hasNext && (
-                        <button
-                          type="button"
-                          className="mt-0.5 truncate text-left text-blue-700 hover:underline dark:text-blue-400"
-                          onClick={() =>
-                            onApplyPromo(
-                              line.row.skuId,
-                              line.promo.nextPromoQty!
-                            )
-                          }
-                        >
-                          +{line.promo.qtyToNext} → {line.promo.nextPromo}
-                        </button>
-                      )}
-                      {!hasPromo && !hasNext && (
-                        <span className="text-slate-400">-</span>
-                      )}
+                    <td className="min-w-[220px] px-3 py-2.5 align-top">
+                      <PromoDetailCell
+                        variant="table"
+                        currentPromo={line.promo.currentPromo}
+                        currentKind={line.promo.currentKind}
+                        nextPromo={line.promo.nextPromo}
+                        qtyToNext={line.promo.qtyToNext}
+                        nextPromoQty={line.promo.nextPromoQty}
+                        nextKind={line.promo.nextKind}
+                        hasPromoLadder={line.promo.hasPromoLadder}
+                        freeGood={line.freeGood}
+                        onApplyNext={(qty) =>
+                          onApplyPromo(line.row.skuId, qty)
+                        }
+                      />
                     </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
-        </div>
-      </div>
-    </div>
   );
-}
-
-function FreeGoodBlock({ freeGood }: { freeGood: LineFreeGood }) {
-  const pooled =
-    freeGood.pooledQty > freeGood.lineQty
-      ? `รวม ${freeGood.pooledQty} หีบในกลุ่มโปรเดียวกัน`
-      : null;
-  return (
-    <div className="mt-3 flex items-start gap-2.5 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2.5 dark:border-violet-800/60 dark:bg-violet-950/30">
-      <Gift className="mt-0.5 h-4 w-4 shrink-0 text-violet-600 dark:text-violet-400" />
-      <div className="min-w-0 text-sm">
-        <p className="font-semibold text-violet-900 dark:text-violet-200">
-          แถม {freeGood.premiumName}
-          {freeGood.premiumName !== freeGood.premiumProduct && (
-            <span className="ml-1 font-normal text-violet-700 dark:text-violet-300">
-              ({freeGood.premiumProduct})
-            </span>
-          )}
-        </p>
-        <p className="mt-0.5 text-xs text-violet-800 dark:text-violet-300">
-          {freeGood.qty} {freeGood.unitLabel}
-          {" · "}
-          โปรซื้อ {freeGood.tierFromQty} แถม {freeGood.tierPremiumQty}
-          {pooled ? ` · ${pooled}` : ""}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function FreeGoodInline({ freeGood }: { freeGood: LineFreeGood }) {
-  return (
-    <p className="truncate text-violet-700 dark:text-violet-400">
-      แถม {freeGood.premiumName} ×{freeGood.qty} {freeGood.unitLabel}
-    </p>
-  );
-}
-
-function promoKindClass(kind?: PromoTierKind | null): string {
-  if (kind === "premium") {
-    return "text-violet-700 dark:text-violet-400";
-  }
-  if (kind === "discount_baht" || kind === "discount_pct") {
-    return "text-emerald-700 dark:text-emerald-400";
-  }
-  return "text-emerald-700 dark:text-emerald-400";
 }
 
 function PriceCell({
@@ -931,49 +874,5 @@ function PriceChip({
         <span className="ml-1 font-semibold">· รวม {formatNumber(lineTotal, 0)}</span>
       )}
     </span>
-  );
-}
-
-function PromoOrderCell({
-  promo,
-  onApplyNext,
-}: {
-  promo: PromoResult;
-  onApplyNext: (qty: number) => void;
-}) {
-  const hasCurrent = !!promo.currentPromo;
-  const hasNext =
-    !!promo.nextPromo &&
-    promo.nextPromoQty !== null &&
-    (promo.qtyToNext ?? 0) > 0;
-
-  if (!hasCurrent && !hasNext) return null;
-
-  const currentClass = promoKindClass(promo.currentKind);
-
-  return (
-    <div className="mt-3 space-y-2 rounded-xl border border-dashed border-slate-200 p-3 dark:border-slate-700">
-      {hasCurrent && (
-        <p className={cn("flex items-start gap-2 text-sm font-medium", currentClass)}>
-          <Sparkles className="mt-0.5 h-4 w-4 shrink-0" />
-          {promo.currentKind === "premium" ? "ได้แถม: " : "ได้โปร: "}
-          {promo.currentPromo}
-        </p>
-      )}
-      {hasNext && (
-        <button
-          type="button"
-          onClick={() => onApplyNext(promo.nextPromoQty!)}
-          className="w-full rounded-lg bg-blue-50 px-3 py-2 text-left text-sm font-medium text-blue-800 transition-colors hover:bg-blue-100 dark:bg-blue-950/40 dark:text-blue-300 dark:hover:bg-blue-950/60"
-        >
-          แตะเพื่อซื้อเพิ่ม {promo.qtyToNext} หีบ → {promo.nextPromo}
-        </button>
-      )}
-      {hasCurrent && !hasNext && (
-        <p className="text-xs text-slate-500 dark:text-slate-400">
-          ถึงโปรสูงสุดแล้ว
-        </p>
-      )}
-    </div>
   );
 }

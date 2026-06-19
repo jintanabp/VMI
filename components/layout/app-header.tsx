@@ -19,6 +19,8 @@ interface AppHeaderProps {
   isVda?: boolean;
   role?: "customer" | "sales" | "supervisor" | "manager" | "admin";
   actions?: React.ReactNode;
+  /** หัวเพจกะทัดรัด — ใช้กับหน้าตารางยาว */
+  compact?: boolean;
   /** ปุ่มกลับชัดเจน (เช่น กลับ hub ย่อยของ admin) */
   backHref?: string;
   backLabel?: string;
@@ -34,6 +36,7 @@ export function AppHeader({
   isVda = false,
   role,
   actions,
+  compact = false,
   backHref,
   backLabel,
   onBack,
@@ -200,8 +203,18 @@ export function AppHeader({
           </div>
         </div>
       )}
-      <header className="sticky top-0 z-40 vmi-glass border-b border-slate-200/60 dark:border-slate-700/60">
-        <div className="mx-auto w-full min-w-0 max-w-7xl px-3 py-3 sm:px-4 sm:py-4">
+      <header
+        className={cn(
+          "sticky top-0 z-40 vmi-glass border-b border-slate-200/60 dark:border-slate-700/60",
+          compact && "vmi-header-compact"
+        )}
+      >
+        <div
+          className={cn(
+            "mx-auto w-full min-w-0 max-w-7xl px-3 sm:px-4",
+            compact ? "py-2" : "py-3 sm:py-4"
+          )}
+        >
           {backNav && (
             <div className="mb-2.5 flex">
               {backNav.kind === "link" ? (
@@ -249,15 +262,22 @@ export function AppHeader({
                     </span>
                   )}
                 </div>
-                <h1 className="text-base font-bold leading-snug tracking-tight text-slate-900 dark:text-slate-50 sm:text-xl xl:text-2xl">
+                <h1
+                  className={cn(
+                    "font-bold leading-snug tracking-tight text-slate-900 dark:text-slate-50",
+                    compact
+                      ? "text-sm sm:text-base"
+                      : "text-base sm:text-xl xl:text-2xl"
+                  )}
+                >
                   {title}
                 </h1>
-                {subtitle && (
+                {subtitle && !compact && (
                   <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
                     {subtitle}
                   </p>
                 )}
-                {storeCode && (
+                {storeCode && !compact && (
                   <div className="mt-1 space-y-0.5">
                     <p className="truncate text-sm text-slate-600 dark:text-slate-400">
                       {isVda ? (
@@ -308,7 +328,7 @@ function NavLink({
       className={cn(
         "shrink-0 rounded-xl px-3 py-2 text-sm font-semibold transition-all sm:px-4",
         active
-          ? "bg-gradient-to-r from-[#0f4c75] to-[#0e7490] text-white shadow-md"
+          ? "bg-[#0f4c75] text-white shadow-sm dark:bg-[#1a6b9a]"
           : "text-slate-600 hover:bg-white hover:shadow-sm dark:text-slate-300 dark:hover:bg-slate-800"
       )}
     >

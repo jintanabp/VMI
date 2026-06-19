@@ -42,9 +42,20 @@ export const prismaStockRepository: StockRepository = {
     const storeId = await resolveStoreId(storeIdOrCode);
     if (!storeId) throw new Error("store not found");
 
-    await prisma.stockItem.update({
+    const minDays = data.minDays ?? 7;
+    const maxDays = data.maxDays ?? 15;
+
+    await prisma.stockItem.upsert({
       where: { storeId_skuId: { storeId, skuId } },
-      data,
+      update: { minDays, maxDays },
+      create: {
+        storeId,
+        skuId,
+        stock: 0,
+        avgSales: 1,
+        minDays,
+        maxDays,
+      },
     });
   },
 };
@@ -72,25 +83,46 @@ export const prismaOrderRepository: OrderRepository = {
     const where: {
       status?: string;
       storeId?: string;
-      store?: { salesRepId?: string; salesRep?: { email?: { in: string[] } } };
+      store?: {
+        salesRepId?: string;
+        code?: string | { in: string[] };
+        salesRep?: { email?: { in: string[] } };
+      };
     } = {};
 
     if (filters.status) where.status = filters.status;
     if (filters.storeId) where.storeId = filters.storeId;
 
+    const storeWhere: NonNullable<(typeof where)["store"]> = {};
+
+    if (filters.storeCode) {
+      storeWhere.code = filters.storeCode.trim().toLowerCase();
+    }
+
+    if (filters.vdaCodes && filters.vdaCodes.length > 0) {
+      storeWhere.code = {
+        in: filters.vdaCodes.map((c) => c.trim().toLowerCase()),
+      };
+    }
+
     if (filters.salesRepId) {
-      where.store = { salesRepId: filters.salesRepId };
+      storeWhere.salesRepId = filters.salesRepId;
     } else if (filters.salesRepEmails && filters.salesRepEmails.length > 0) {
-      where.store = {
-        salesRep: { email: { in: filters.salesRepEmails.map((e: string) => e.toLowerCase()) } },
+      storeWhere.salesRep = {
+        email: { in: filters.salesRepEmails.map((e: string) => e.toLowerCase()) },
       };
     } else if (filters.salesRepEmail) {
       const rep = await prisma.salesRep.findUnique({
         where: { email: filters.salesRepEmail },
       });
-      if (rep) {
-        where.store = { salesRepId: rep.id };
+      if (!rep) {
+        return [];
       }
+      storeWhere.salesRepId = rep.id;
+    }
+
+    if (Object.keys(storeWhere).length > 0) {
+      where.store = storeWhere;
     }
 
     return prisma.order.findMany({

@@ -20,6 +20,7 @@ export interface StockRowComputed {
   qtyToNext: number | null;
   currentPromoKind?: PromoTierKind | null;
   nextPromoKind?: PromoTierKind | null;
+  hasPromoLadder?: boolean;
   promoTiers: PromoTierInput[];
   unitPrice?: number | null;
   netUnitPrice?: number | null;
@@ -57,6 +58,9 @@ export interface OrderRepository {
     salesRepEmail?: string;
     salesRepEmails?: string[];
     salesRepId?: string;
+    salesmanCodes?: string[];
+    vdaCodes?: string[];
+    storeCode?: string;
     status?: string;
     storeId?: string;
   }): Promise<unknown[]>;
