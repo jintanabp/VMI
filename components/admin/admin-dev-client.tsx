@@ -4,15 +4,18 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
-  Eye,
   RefreshCw,
   Search,
   Shield,
-  UserCircle,
   Users,
   Warehouse,
 } from "lucide-react";
 import { useSalesSession } from "@/hooks/use-sales-session";
+import {
+  getPeopleWithVda,
+  useVdaSalesDirectory,
+  type PersonVdaRow,
+} from "@/hooks/use-vda-sales-directory";
 import { useAdminPreview } from "@/hooks/use-admin-preview";
 import { useSalesPreview } from "@/hooks/use-sales-preview";
 import { AppHeader } from "@/components/layout/app-header";
@@ -30,33 +33,20 @@ import {
 import { cn } from "@/lib/utils";
 import { VdaSalesAccessPanel } from "@/components/admin/vda-sales-access-panel";
 
-interface PersonCodeAssignment {
-  code: string;
-  vdas: string[];
-}
-
-interface SalesPreviewPerson {
-  email: string;
-  name: string;
-  codes: PersonCodeAssignment[];
-  allVdas: string[];
-  multipleCodes: boolean;
-  hasVdaAccess: boolean;
-}
-
-interface SalesPreviewDirectory {
-  people: SalesPreviewPerson[];
-  peopleWithVda?: SalesPreviewPerson[];
-  stats: {
-    totalPeople: number;
-    peopleWithVda: number;
-    withVdaAccess: number;
-  };
-}
-
 type SalesPreviewScope = "with_vda" | "all";
+type AdminTab = "vda" | "sales" | "settings";
 
-function filterPreviewPeople(rows: SalesPreviewPerson[], query: string) {
+const ADMIN_TABS: {
+  id: AdminTab;
+  label: string;
+  icon: typeof Warehouse;
+}[] = [
+  { id: "vda", label: "มุมมอง VDA", icon: Warehouse },
+  { id: "sales", label: "มุมมองเซลล์", icon: Users },
+  { id: "settings", label: "ตั้งค่าระบบ", icon: Shield },
+];
+
+function filterPreviewPeople(rows: PersonVdaRow[], query: string) {
   const q = query.trim().toLowerCase();
   if (!q) return rows;
   return rows.filter(
@@ -259,31 +249,23 @@ function AdminEmailsSection() {
 }
 
 export function AdminDevClient() {
-  const { session } = useSalesSession();
+  const { session, loading: sessionLoading } = useSalesSession();
   const adminPreview = useAdminPreview();
   const salesPreview = useSalesPreview();
   const router = useRouter();
-  const [activePanel, setActivePanel] = useState<"hub" | "vda" | "sales" | "settings">("hub");
-  const [salesDirectory, setSalesDirectory] = useState<SalesPreviewDirectory | null>(null);
-  const [salesDirectoryLoading, setSalesDirectoryLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<AdminTab>("vda");
+  const {
+    data: salesDirectory,
+    loading: salesDirectoryLoading,
+    error: salesDirectoryError,
+  } = useVdaSalesDirectory(session?.role === "admin");
   const [repSearch, setRepSearch] = useState("");
   const [repScope, setRepScope] = useState<SalesPreviewScope>("with_vda");
 
-  useEffect(() => {
-    if (session?.role !== "admin") return;
-    setSalesDirectoryLoading(true);
-    fetch("/api/admin/vda-sales")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => setSalesDirectory(data))
-      .catch(() => setSalesDirectory(null))
-      .finally(() => setSalesDirectoryLoading(false));
-  }, [session]);
-
-  const peopleWithVda = useMemo(() => {
-    if (!salesDirectory) return [];
-    if (Array.isArray(salesDirectory.peopleWithVda)) return salesDirectory.peopleWithVda;
-    return salesDirectory.people.filter((p) => p.hasVdaAccess);
-  }, [salesDirectory]);
+  const peopleWithVda = useMemo(
+    () => getPeopleWithVda(salesDirectory),
+    [salesDirectory]
+  );
 
   const filteredReps = useMemo(() => {
     const base =
@@ -294,12 +276,31 @@ export function AdminDevClient() {
   }, [salesDirectory, repSearch, repScope, peopleWithVda]);
 
   async function startSalesPreview(email: string, code?: string) {
-    await fetch("/api/auth/admin/preview-sales", {
+    const codeOnly =
+      email.startsWith("__unmapped__:") || email.startsWith("__code_preview__:");
+    const res = await fetch("/api/auth/admin/preview-sales", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, code }),
+      body: JSON.stringify(
+        codeOnly && code ? { code } : { email, code }
+      ),
     });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      alert(data.error ?? "ไม่สามารถเปิดมุมมองทดสอบได้");
+      return;
+    }
     router.push("/sales/orders");
+  }
+
+  if (sessionLoading) {
+    return (
+      <PageShell>
+        <div className="flex min-h-screen items-center justify-center px-4">
+          <p className="text-slate-600 dark:text-slate-400">กำลังโหลด...</p>
+        </div>
+      </PageShell>
+    );
   }
 
   if (session?.role !== "admin") {
@@ -316,21 +317,35 @@ export function AdminDevClient() {
     <PageShell>
       <AppHeader
         title="ศูนย์ควบคุม Admin"
-        subtitle={
-          activePanel === "hub"
-            ? "สลับมุมมอง VDA · เซลล์ · ตั้งค่าระบบ"
-            : activePanel === "vda"
-              ? "มุมมอง VDA / ร้านค้า"
-              : activePanel === "sales"
-                ? "มุมมองเซลล์"
-                : "ตั้งค่าระบบ"
-        }
+        subtitle="ทดสอบมุมมอง VDA / เซลล์ และจัดการระบบ"
         role="admin"
-        onBack={activePanel !== "hub" ? () => setActivePanel("hub") : undefined}
-        backLabel="กลับศูนย์ Admin"
       />
 
-      <main className="mx-auto max-w-5xl space-y-6 px-3 py-4 sm:px-4 sm:py-6">
+      <main className="mx-auto max-w-5xl space-y-4 px-3 py-4 sm:px-4 sm:py-6">
+        <nav
+          role="tablist"
+          aria-label="เมนู Admin"
+          className="flex gap-1 overflow-x-auto rounded-xl border border-slate-200 bg-slate-100/80 p-1 dark:border-slate-700 dark:bg-slate-800/60"
+        >
+          {ADMIN_TABS.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === id}
+              onClick={() => setActiveTab(id)}
+              className={cn(
+                "flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold whitespace-nowrap transition-colors sm:px-4",
+                activeTab === id
+                  ? "bg-white text-slate-900 shadow-sm dark:bg-slate-900 dark:text-slate-50"
+                  : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
+              )}
+            >
+              <Icon className="h-4 w-4 shrink-0" />
+              <span className="truncate">{label}</span>
+            </button>
+          ))}
+        </nav>
         {(adminPreview || salesPreview) && (
           <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800/50 dark:bg-amber-950/40">
             <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
@@ -367,103 +382,12 @@ export function AdminDevClient() {
           </div>
         )}
 
-        {activePanel === "hub" && (
-          <>
-            <div className="grid gap-4 sm:grid-cols-3">
-              <button
-                type="button"
-                onClick={() => setActivePanel("vda")}
-                className="vmi-perspective-card group text-left"
-              >
-                <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-teal-600 text-white shadow-md">
-                  <Warehouse className="h-6 w-6" />
-                </div>
-                <h3 className="text-lg font-bold text-slate-900 dark:text-slate-50">
-                  มุมมอง VDA
-                </h3>
-                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                  เลือกคลัง ดูสต็อก สั่งสินค้า พร้อมโปร C4
-                </p>
-                <span className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-teal-700 dark:text-teal-400">
-                  เข้าดู <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActivePanel("sales")}
-                className="vmi-perspective-card group text-left"
-              >
-                <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-md">
-                  <Users className="h-6 w-6" />
-                </div>
-                <h3 className="text-lg font-bold text-slate-900 dark:text-slate-50">
-                  มุมมองเซลล์
-                </h3>
-                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                  ดูออเดอร์ในมุมมองเซลล์แต่ละคน
-                </p>
-                <span className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-indigo-700 dark:text-indigo-400">
-                  เลือกเซลล์ <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActivePanel("settings")}
-                className="vmi-perspective-card group text-left"
-              >
-                <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-700 text-white shadow-md">
-                  <Shield className="h-6 w-6" />
-                </div>
-                <h3 className="text-lg font-bold text-slate-900 dark:text-slate-50">
-                  ตั้งค่าระบบ
-                </h3>
-                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                  เซลล์↔VDA, ดึงข้อมูล Fabric, จัดการ admin
-                </p>
-                <span className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-slate-700 dark:text-slate-300">
-                  จัดการ <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-                </span>
-              </button>
-            </div>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Eye className="h-5 w-5 text-teal-600" />
-                  ทางลัด
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="flex flex-wrap gap-2">
-                <Button variant="outline" onClick={() => router.push("/sales/orders")}>
-                  ออเดอร์ทั้งหมด (Admin)
-                </Button>
-                <Button variant="outline" onClick={() => setActivePanel("vda")}>
-                  เลือก VDA
-                </Button>
-              </CardContent>
-            </Card>
-          </>
-        )}
-
-        {activePanel === "vda" && (
+        {activeTab === "vda" && (
           <Card className="vmi-card-elevated">
-            <CardHeader>
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <Warehouse className="h-5 w-5 text-teal-600" />
-                    มุมมอง VDA
-                  </CardTitle>
-                  <CardDescription className="mt-1">
-                    เลือกคลัง VDA เพื่อดูสต็อกและสั่งสินค้าเหมือนผู้ใช้งานจริง
-                  </CardDescription>
-                </div>
-                <Button variant="ghost" size="sm" onClick={() => setActivePanel("hub")}>
-                  กลับ
-                </Button>
-              </div>
+            <CardHeader className="pb-3">
+              <CardDescription>
+                เลือกคลัง VDA เพื่อดูสต็อกและสั่งสินค้าเหมือนผู้ใช้งานจริง
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <CustomerLoginForm
@@ -474,30 +398,50 @@ export function AdminDevClient() {
           </Card>
         )}
 
-        {activePanel === "sales" && (
+        {activeTab === "sales" && (
           <Card className="vmi-card-elevated">
-            <CardHeader>
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <UserCircle className="h-5 w-5 text-indigo-600" />
-                    มุมมองเซลล์
-                  </CardTitle>
-                  <CardDescription className="mt-1">
-                    เลือกเซลล์เพื่อดูออเดอร์ที่เขาเห็น (scope เดียวกับ login จริง)
-                  </CardDescription>
-                </div>
-                <Button variant="ghost" size="sm" onClick={() => setActivePanel("hub")}>
-                  กลับ
-                </Button>
-              </div>
+            <CardHeader className="pb-3">
+              <CardDescription>
+                เลือกเซลล์เพื่อดูออเดอร์ที่เขาเห็น (scope เดียวกับ login จริง)
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {salesDirectory && (
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  มี VDA {salesDirectory.stats.peopleWithVda} คน ·{" "}
-                  {salesDirectory.stats.withVdaAccess} รหัส — แสดงเฉพาะคนที่ดูแล VDA ก่อน
+              {salesDirectoryError && (
+                <p className="text-sm text-red-600 dark:text-red-400">
+                  โหลดข้อมูลไม่สำเร็จ: {salesDirectoryError}
                 </p>
+              )}
+              {salesDirectory && (
+                <div className="flex flex-wrap gap-2 text-xs">
+                  <span
+                    className={cn(
+                      "rounded-full px-2.5 py-1",
+                      salesDirectory.loaded?.salesmanMaster
+                        ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+                        : "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+                    )}
+                  >
+                    cross_salesman:{" "}
+                    {salesDirectory.loaded?.salesmanMaster ? "โหลดแล้ว" : "ยังไม่มี"}
+                  </span>
+                  <span
+                    className={cn(
+                      "rounded-full px-2.5 py-1",
+                      salesDirectory.loaded?.vdaAosBill
+                        ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+                        : "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+                    )}
+                  >
+                    vda_aos_bill:{" "}
+                    {salesDirectory.loaded?.vdaAosBill
+                      ? "โหลดแล้ว"
+                      : "ยังไม่มี — sync หรือตั้ง VDA_SALESMAN_MAP"}
+                  </span>
+                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                    มี VDA {salesDirectory.stats.peopleWithVda} คน ·{" "}
+                    {salesDirectory.stats.withVdaAccess} รหัส
+                  </span>
+                </div>
               )}
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <div className="relative min-w-0 flex-1">
@@ -562,13 +506,22 @@ export function AdminDevClient() {
                           <p className="font-semibold text-slate-900 dark:text-slate-100">
                             {rep.name}
                           </p>
+                          {rep.unmapped && (
+                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-950/50 dark:text-amber-300">
+                              ไม่พบใน cross_salesman
+                            </span>
+                          )}
                           {rep.multipleCodes && (
                             <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-950/50 dark:text-amber-300">
                               หลายรหัส ({rep.codes.length})
                             </span>
                           )}
                         </div>
-                        <p className="text-xs text-slate-500">{rep.email}</p>
+                        <p className="text-xs text-slate-500">
+                          {rep.unmapped
+                            ? "ทดสอบด้วยรหัสเท่านั้น — ยังไม่มีอีเมลใน cross_salesman"
+                            : rep.email}
+                        </p>
 
                         {rep.multipleCodes ? (
                           <div className="mt-3 space-y-2">
@@ -640,7 +593,9 @@ export function AdminDevClient() {
                 {!salesDirectoryLoading && filteredReps.length === 0 && (
                   <p className="py-8 text-center text-sm text-slate-500">
                     {repScope === "with_vda" && !repSearch.trim()
-                      ? "ยังไม่มีเซลล์ที่ผูก VDA ใน vda_aos_bill"
+                      ? salesDirectory?.loaded?.vdaAosBill
+                        ? "ไม่พบเซลล์ที่จับคู่ได้ — ลองกด「ทั้งหมด」หรือ sync vda_aos_bill"
+                        : "ยังไม่มี vda_aos_bill — รัน sync masters หรือตั้ง VDA_SALESMAN_MAP"
                       : "ไม่พบเซลล์"}
                   </p>
                 )}
@@ -661,15 +616,8 @@ export function AdminDevClient() {
           </Card>
         )}
 
-        {activePanel === "settings" && (
+        {activeTab === "settings" && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold">ตั้งค่าระบบ</h2>
-              <Button variant="ghost" size="sm" onClick={() => setActivePanel("hub")}>
-                กลับ
-              </Button>
-            </div>
-
             <AdminEmailsSection />
 
             <VdaSalesAccessPanel />

@@ -22,6 +22,8 @@ export interface PersonVdaRow {
   allVdas: string[];
   multipleCodes: boolean;
   hasVdaAccess: boolean;
+  /** รหัสมีใน vda_aos แต่ไม่พบอีเมลใน cross_salesman */
+  unmapped?: boolean;
 }
 
 export interface VdaSalesmanRow {
@@ -84,11 +86,15 @@ function buildPeopleRows(
     for (const vda of vdaReg.listVdaCodes()) {
       for (const code of vdaReg.getSalesmanCodesForVda(vda)) {
         const assignment = salesmanReg.getCurrentByCode(code);
-        if (!assignment?.email) continue;
-        const person = ensurePerson(
-          assignment.email,
-          salesmanReg.getDisplayName(assignment)
-        );
+        const email = assignment?.email?.toLowerCase() ?? `__unmapped__:${code}`;
+        const name = assignment
+          ? salesmanReg.getDisplayName(assignment)
+          : `รหัส ${code}`;
+        const person = ensurePerson(email, name);
+        if (!assignment?.email) {
+          person.unmapped = true;
+          person.name = `รหัส ${code} — ไม่พบใน cross_salesman`;
+        }
         upsertCode(person, code, vdaReg.getVdasForSalesman(code));
       }
     }
@@ -272,7 +278,9 @@ export function getSalesVdaAccessForSession(input: {
     salesmanCode: assignment?.code ?? input.salesmanCode,
     salesmanName: assignment
       ? salesmanReg.getDisplayName(assignment)
-      : undefined,
+      : input.salesmanCode
+        ? `รหัส ${input.salesmanCode.trim().toUpperCase()}`
+        : undefined,
     vdas: [...vdas].sort(),
     hasVdaAccess: vdas.size > 0,
     codes: personCodes,

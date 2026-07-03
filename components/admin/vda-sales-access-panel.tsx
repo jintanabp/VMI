@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
@@ -11,20 +11,12 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-
-interface PersonCodeAssignment {
-  code: string;
-  vdas: string[];
-}
-
-interface PersonRow {
-  email: string;
-  name: string;
-  codes: PersonCodeAssignment[];
-  allVdas: string[];
-  multipleCodes: boolean;
-  hasVdaAccess: boolean;
-}
+import {
+  getPeopleWithVda,
+  useVdaSalesDirectory,
+  type PersonCodeAssignment,
+  type PersonVdaRow,
+} from "@/hooks/use-vda-sales-directory";
 
 interface VdaRow {
   vda: string;
@@ -33,26 +25,11 @@ interface VdaRow {
   people: Array<{ email: string; name: string; codes: string[] }>;
 }
 
-interface DirectoryPayload {
-  loaded: { salesmanMaster: boolean; vdaAosBill: boolean };
-  people: PersonRow[];
-  peopleWithVda?: PersonRow[];
-  vdas: VdaRow[];
-  vdasWithSalesman?: VdaRow[];
-  stats: {
-    totalSalesmen: number;
-    withVdaAccess: number;
-    withoutVdaAccess: number;
-    totalPeople: number;
-    peopleWithVda: number;
-  };
-}
-
 type ViewMode = "person" | "vda";
 type PersonScope = "with_vda" | "all";
 type VdaScope = "with_salesman" | "all";
 
-function filterPeople(rows: PersonRow[], query: string) {
+function filterPeople(rows: PersonVdaRow[], query: string) {
   const q = query.trim().toLowerCase();
   if (!q) return rows;
   return rows.filter(
@@ -118,30 +95,18 @@ function CodeVdaList({ codes }: { codes: PersonCodeAssignment[] }) {
 }
 
 export function VdaSalesAccessPanel() {
-  const [data, setData] = useState<DirectoryPayload | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { data, loading, error } = useVdaSalesDirectory();
   const [view, setView] = useState<ViewMode>("person");
   const [personScope, setPersonScope] = useState<PersonScope>("with_vda");
   const [vdaScope, setVdaScope] = useState<VdaScope>("with_salesman");
   const [query, setQuery] = useState("");
 
-  useEffect(() => {
-    fetch("/api/admin/vda-sales")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((payload) => setData(payload))
-      .finally(() => setLoading(false));
-  }, []);
-
-  const peopleWithVda = useMemo(() => {
-    if (!data) return [];
-    if (Array.isArray(data.peopleWithVda)) return data.peopleWithVda;
-    return data.people.filter((p) => p.hasVdaAccess);
-  }, [data]);
+  const peopleWithVda = useMemo(() => getPeopleWithVda(data), [data]);
 
   const vdasWithSalesman = useMemo(() => {
     if (!data) return [];
     if (Array.isArray(data.vdasWithSalesman)) return data.vdasWithSalesman;
-    return data.vdas.filter((v) => v.salesmanCodes.length > 0);
+    return (data.vdas ?? []).filter((v) => v.salesmanCodes.length > 0);
   }, [data]);
 
   const filteredPeople = useMemo(() => {
@@ -169,7 +134,7 @@ export function VdaSalesAccessPanel() {
     return (
       <Card>
         <CardContent className="py-8 text-center text-sm text-red-600">
-          โหลดข้อมูลไม่สำเร็จ
+          {error ? `โหลดข้อมูลไม่สำเร็จ: ${error}` : "โหลดข้อมูลไม่สำเร็จ"}
         </CardContent>
       </Card>
     );
@@ -280,7 +245,7 @@ export function VdaSalesAccessPanel() {
                       : "text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
                   )}
                 >
-                  ทุก VDA ({data.vdas.length})
+                  ทุก VDA ({data.vdas?.length ?? 0})
                 </button>
               </div>
             )}
@@ -324,7 +289,7 @@ export function VdaSalesAccessPanel() {
               : `แสดง ${filteredPeople.length} จาก ${data.stats.totalPeople} คน`
             : vdaScope === "with_salesman"
               ? `แสดง ${filteredVdas.length} VDA ที่มีเซลล์`
-              : `แสดง ${filteredVdas.length} จาก ${data.vdas.length} VDA`}
+              : `แสดง ${filteredVdas.length} จาก ${data.vdas?.length ?? 0} VDA`}
         </p>
 
         <div className="vmi-table-wrap">
@@ -352,6 +317,11 @@ export function VdaSalesAccessPanel() {
                         {p.multipleCodes && (
                           <span className="mt-1.5 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
                             หลายรหัสเซลล์ ({p.codes.length})
+                          </span>
+                        )}
+                        {p.unmapped && (
+                          <span className="mt-1.5 ml-1 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                            ไม่พบใน cross_salesman
                           </span>
                         )}
                       </td>

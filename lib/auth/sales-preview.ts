@@ -5,6 +5,15 @@ import type { SalesSession } from "./sales-session";
 export const SALES_PREVIEW_COOKIE = "vmi_sales_preview";
 export const SALES_PREVIEW_INFO_COOKIE = "vmi_sales_preview_info";
 
+/** Synthetic email for admin preview by salesman code only (no cross_salesman row). */
+export function codeOnlyPreviewEmail(code: string) {
+  return `__code_preview__:${code.trim().toUpperCase()}`;
+}
+
+export function isCodeOnlyPreviewEmail(email: string) {
+  return email.startsWith("__code_preview__:");
+}
+
 interface SalesPreviewPayload {
   asEmail: string;
   asCode: string;
