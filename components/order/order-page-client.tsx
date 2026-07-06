@@ -39,6 +39,12 @@ import {
   type PromoResult,
 } from "@/lib/calculations";
 import { cn } from "@/lib/utils";
+import {
+  annotatePromoGroupStripes,
+  promoGroupRowBgClass,
+  sortRowsByPromoGroup,
+  type PromoGroupStripe,
+} from "@/lib/promo/promo-group-display";
 
 interface OrderLine {
   row: StockRowComputed;
@@ -91,6 +97,10 @@ interface EnrichedLine {
   lineTotal: number | null;
   priceExpired: boolean;
   freeGood: LineFreeGood | null;
+  promoGroup?: string | null;
+  promoGroupMembers?: number;
+  skuCode?: string;
+  promoGroupStripe?: PromoGroupStripe | null;
 }
 
 function formatBaht(value: number | null | undefined): string {
@@ -133,10 +143,19 @@ export function OrderPageClient({
         router.replace("/stock");
         return;
       }
+      let qtyBySku: Record<string, number> = {};
+      try {
+        const rawQty = sessionStorage.getItem("vmi_order_qty");
+        if (rawQty) qtyBySku = JSON.parse(rawQty) as Record<string, number>;
+      } catch {
+        qtyBySku = {};
+      }
       setLines(
         items.map((row) => ({
           row,
-          qty: row.suggestOrder > 0 ? row.suggestOrder : 1,
+          qty:
+            qtyBySku[row.skuCode] ??
+            (row.suggestOrder > 0 ? row.suggestOrder : 1),
         }))
       );
     } catch {
@@ -238,6 +257,24 @@ export function OrderPageClient({
     };
   }, [enriched, promoApi]);
 
+  const promoStagedQty = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const l of enriched) {
+      if (l.qty > 0) m[l.row.skuCode] = l.qty;
+    }
+    return m;
+  }, [enriched]);
+
+  const displayLines = useMemo(() => {
+    const withGroup = enriched.map((line) => ({
+      ...line,
+      promoGroup: line.row.promoGroup ?? null,
+      promoGroupMembers: line.row.promoGroupMembers ?? 0,
+      skuCode: line.row.skuCode,
+    }));
+    return annotatePromoGroupStripes(sortRowsByPromoGroup(withGroup));
+  }, [enriched]);
+
   const hasRedFlag = stats.redCount > 0;
 
   const submitMutation = useMutation({
@@ -285,6 +322,23 @@ export function OrderPageClient({
   function applySuggest(skuId: string, suggest: number) {
     if (suggest > 0) setQty(skuId, suggest);
   }
+
+  function applyGroupStaged(staged: Record<string, number>) {
+    setLines((prev) =>
+      prev.map((l) => {
+        const q = staged[l.row.skuCode];
+        if (q == null || q <= 0) return l;
+        return { ...l, qty: Math.max(1, Math.floor(q)) };
+      })
+    );
+  }
+
+  useEffect(() => {
+    if (lines.length === 0) return;
+    const qtyMap: Record<string, number> = {};
+    for (const l of lines) qtyMap[l.row.skuCode] = l.qty;
+    sessionStorage.setItem("vmi_order_qty", JSON.stringify(qtyMap));
+  }, [lines]);
 
   function switchView(mode: ViewMode) {
     setViewMode(mode);
@@ -410,7 +464,10 @@ export function OrderPageClient({
           <div className="vmi-order-list-scroll vmi-table-scroll">
             <div className="xl:hidden">
               <OrderLineMobileList
-                lines={enriched}
+                lines={displayLines}
+                storeCode={storeCode}
+                stagedQty={promoStagedQty}
+                onConfirmStaged={applyGroupStaged}
                 onDelta={updateQty}
                 onApplySuggest={applySuggest}
                 onApplyPromo={setQty}
@@ -418,11 +475,14 @@ export function OrderPageClient({
             </div>
             {viewMode === "cards" ? (
               <div className="mx-auto hidden w-full max-w-3xl space-y-4 xl:block">
-                {enriched.map((line, index) => (
+                {displayLines.map((line, index) => (
                   <OrderLineCard
                     key={line.row.skuId}
                     index={index + 1}
                     line={line}
+                    storeCode={storeCode}
+                    stagedQty={promoStagedQty}
+                    onConfirmStaged={applyGroupStaged}
                     onDelta={(d) => updateQty(line.row.skuId, d)}
                     onApplySuggest={() =>
                       applySuggest(line.row.skuId, line.row.suggestOrder)
@@ -434,7 +494,10 @@ export function OrderPageClient({
             ) : (
               <div className="hidden xl:block">
                 <OrderLineTable
-                  lines={enriched}
+                  lines={displayLines}
+                  storeCode={storeCode}
+                  stagedQty={promoStagedQty}
+                  onConfirmStaged={applyGroupStaged}
                   onDelta={updateQty}
                   onApplySuggest={applySuggest}
                   onApplyPromo={setQty}
@@ -629,12 +692,18 @@ function OrderQtyControl({
 function OrderLineCard({
   index,
   line,
+  storeCode,
+  stagedQty,
+  onConfirmStaged,
   onDelta,
   onApplySuggest,
   onApplyPromo,
 }: {
   index: number;
   line: EnrichedLine;
+  storeCode: string;
+  stagedQty: Record<string, number>;
+  onConfirmStaged: (staged: Record<string, number>) => void;
   onDelta: (delta: number) => void;
   onApplySuggest: () => void;
   onApplyPromo: (qty: number) => void;
@@ -708,6 +777,14 @@ function OrderLineCard({
         hasPromoLadder={line.promo.hasPromoLadder}
         freeGood={line.freeGood}
         onApplyNext={onApplyPromo}
+        inspector={{
+          skuCode: line.row.skuCode,
+          storeCode,
+          stagedQty,
+          promoGroup: line.row.promoGroup,
+          promoGroupMembers: line.row.promoGroupMembers,
+          onConfirmStaged: onConfirmStaged,
+        }}
       />
     </article>
   );
@@ -715,11 +792,17 @@ function OrderLineCard({
 
 function OrderLineMobileList({
   lines,
+  storeCode,
+  stagedQty,
+  onConfirmStaged,
   onDelta,
   onApplySuggest,
   onApplyPromo,
 }: {
   lines: EnrichedLine[];
+  storeCode: string;
+  stagedQty: Record<string, number>;
+  onConfirmStaged: (staged: Record<string, number>) => void;
   onDelta: (skuId: string, delta: number) => void;
   onApplySuggest: (skuId: string, suggest: number) => void;
   onApplyPromo: (skuId: string, qty: number) => void;
@@ -736,7 +819,14 @@ function OrderLineMobileList({
           line.freeGood;
 
         return (
-          <MobileRow key={line.row.skuId} warn={line.flag === "red"}>
+          <MobileRow
+            key={line.row.skuId}
+            warn={line.flag === "red" && line.promoGroupStripe == null}
+            className={cn(
+              promoGroupRowBgClass(line.promoGroupStripe ?? null),
+              line.flag === "red" && !line.promoGroupStripe && "bg-red-50/40 dark:bg-red-950/20"
+            )}
+          >
             <div className="flex items-start gap-2">
               <span className="w-5 shrink-0 pt-0.5 text-xs text-slate-400">
                 {index + 1}
@@ -796,6 +886,14 @@ function OrderLineMobileList({
                   hasPromoLadder={line.promo.hasPromoLadder}
                   freeGood={line.freeGood}
                   onApplyNext={(qty) => onApplyPromo(line.row.skuId, qty)}
+                  inspector={{
+                    skuCode: line.row.skuCode,
+                    storeCode,
+                    stagedQty,
+                    promoGroup: line.row.promoGroup,
+                    promoGroupMembers: line.row.promoGroupMembers,
+                    onConfirmStaged: onConfirmStaged,
+                  }}
                 />
               </MobileRowExtra>
             )}
@@ -808,11 +906,17 @@ function OrderLineMobileList({
 
 function OrderLineTable({
   lines,
+  storeCode,
+  stagedQty,
+  onConfirmStaged,
   onDelta,
   onApplySuggest,
   onApplyPromo,
 }: {
   lines: EnrichedLine[];
+  storeCode: string;
+  stagedQty: Record<string, number>;
+  onConfirmStaged: (staged: Record<string, number>) => void;
   onDelta: (skuId: string, delta: number) => void;
   onApplySuggest: (skuId: string, suggest: number) => void;
   onApplyPromo: (skuId: string, qty: number) => void;
@@ -843,9 +947,11 @@ function OrderLineTable({
                   <tr
                     key={line.row.skuId}
                     className={cn(
-                      "border-t border-slate-100 dark:border-slate-700/60",
+                      "border-t border-slate-100 dark:border-slate-800",
+                      promoGroupRowBgClass(line.promoGroupStripe ?? null),
                       line.flag === "red" &&
-                        "bg-red-50/50 dark:bg-red-950/20"
+                        !line.promoGroupStripe &&
+                        "bg-red-50/40 dark:bg-red-950/20"
                     )}
                   >
                     <td className="px-3 py-2.5 text-slate-500">{index + 1}</td>
@@ -932,6 +1038,14 @@ function OrderLineTable({
                         onApplyNext={(qty) =>
                           onApplyPromo(line.row.skuId, qty)
                         }
+                        inspector={{
+                          skuCode: line.row.skuCode,
+                          storeCode,
+                          stagedQty,
+                          promoGroup: line.row.promoGroup,
+                          promoGroupMembers: line.row.promoGroupMembers,
+                          onConfirmStaged: onConfirmStaged,
+                        }}
                       />
                     </td>
                   </tr>

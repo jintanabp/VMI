@@ -13,6 +13,9 @@ import {
   promoRowsToTiers,
 } from "./promotion-lookup";
 import {
+  countPromoGroupMembers,
+} from "@/lib/promo/promo-group-display";
+import {
   getStockFilterConfig,
   resolveActiveFromDb,
   type StockFilterConfig,
@@ -130,6 +133,8 @@ export async function buildFabricStockPayload(
       sortOrder: t.sortOrder,
     }));
     let c4PromoRows: ReturnType<typeof filterCandidateRows> | undefined;
+    let promoGroup: string | null = null;
+    let promoGroupMembers = 0;
 
     if (promoDir) {
       c4PromoRows = filterCandidateRows(
@@ -141,6 +146,21 @@ export async function buildFabricStockPayload(
       );
       if (c4PromoRows.length > 0) {
         promoTiers = promoRowsToTiers(c4PromoRows);
+        const group = promoDir.assortedGroupFor(
+          promoCtx.division,
+          promoCtx.cusgroup,
+          cover.productCode
+        );
+        if (group) {
+          promoGroupMembers = countPromoGroupMembers(
+            promoDir.rowsForGroup(
+              promoCtx.division,
+              promoCtx.cusgroup,
+              group
+            )
+          );
+          if (promoGroupMembers > 1) promoGroup = group;
+        }
       }
     }
 
@@ -162,6 +182,8 @@ export async function buildFabricStockPayload(
         unitPrice: priceLookup?.price ?? null,
         priceExpired: priceLookup?.expired ?? false,
         c4PromoRows,
+        promoGroup,
+        promoGroupMembers,
         sku: {
           code: sku.code,
           name: skuName,

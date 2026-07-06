@@ -35,6 +35,36 @@ export function isBenefitTier(tier: PromoTierInput): boolean {
 }
 
 export function formatPromoTierLabel(tier: PromoTierInput): string {
+  return formatPromoBenefitShort(tier);
+}
+
+/** ข้อความโปรที่ได้อยู่แล้ว (กระชับ) */
+export function formatPromoBenefitShort(tier: PromoTierInput): string {
+  const kind = tier.kind ?? "none";
+  if (kind === "premium" && tier.premiumProduct) {
+    const perStep = tier.premiumQty ? ` ×${tier.premiumQty}` : "";
+    return `แถม ${tier.premiumProduct}${perStep}`;
+  }
+  if (kind === "discount_baht" || kind === "discount_pct") {
+    return `ลด ${tier.discount}`;
+  }
+  return tier.discount || "";
+}
+
+/** ข้อความโปรขั้นถัดไป (ใช้กับ «อีก X หีบ …») */
+export function formatNextPromoHint(tier: PromoTierInput): string {
+  const kind = tier.kind ?? "none";
+  if (kind === "premium" && tier.premiumProduct) {
+    const perStep = tier.premiumQty ? ` ×${tier.premiumQty}` : "";
+    return `ได้แถม ${tier.premiumProduct}${perStep}`;
+  }
+  if (kind === "discount_baht" || kind === "discount_pct") {
+    return `ได้ส่วนลด ${tier.discount}`;
+  }
+  return formatPromoBenefitShort(tier);
+}
+
+export function formatPromoTierLabelVerbose(tier: PromoTierInput): string {
   const kind = tier.kind ?? "none";
   if (kind === "premium" && tier.premiumProduct) {
     const perStep = tier.premiumQty ? ` ×${tier.premiumQty}` : "";
@@ -57,7 +87,7 @@ export function formatPremiumEarnedLabel(
     tier.minQty,
     tier.premiumQty ?? 0
   );
-  if (earned <= 0) return formatPromoTierLabel(tier);
+  if (earned <= 0) return formatPromoBenefitShort(tier);
   return `แถม ${label} ×${earned}`;
 }
 
@@ -103,13 +133,13 @@ export function getPromoForQty(
     currentPromo =
       currentTier.kind === "premium"
         ? formatPremiumEarnedLabel(currentTier, qty)
-        : formatPromoTierLabel(currentTier);
+        : formatPromoBenefitShort(currentTier);
     currentKind = currentTier.kind ?? null;
   }
 
   return {
     currentPromo: currentPromo || null,
-    nextPromo: nextTier ? formatPromoTierLabel(nextTier) : null,
+    nextPromo: nextTier ? formatNextPromoHint(nextTier) : null,
     nextPromoQty: nextTier?.minQty ?? null,
     qtyToNext: nextTier ? Math.max(0, nextTier.minQty - qty) : null,
     currentKind,

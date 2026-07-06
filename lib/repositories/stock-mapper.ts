@@ -25,6 +25,8 @@ export function mapStockRow(
     unitPrice?: number | null;
     priceExpired?: boolean;
     c4PromoRows?: PromoRow[];
+    promoGroup?: string | null;
+    promoGroupMembers?: number;
     sku: {
       code: string;
       name: string;
@@ -87,8 +89,12 @@ export function mapStockRow(
     currentPromoKind: promo.currentKind,
     nextPromoKind: promo.nextKind,
     hasPromoLadder: promo.hasPromoLadder,
+    promoGroup: item.promoGroup ?? null,
+    promoGroupMembers: item.promoGroupMembers ?? 0,
     promoTiers: item.sku.promoTiers,
     unitPrice: item.unitPrice ?? null,
+    discountBahtPerCase: discountBaht,
+    discountPctPerCase: discountPct,
     netUnitPrice,
     lineTotal,
     priceExpired: item.priceExpired ?? false,

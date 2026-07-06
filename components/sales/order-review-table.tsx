@@ -19,6 +19,11 @@ import {
   formatQtyPair,
 } from "@/lib/format-store-label";
 import { cn } from "@/lib/utils";
+import {
+  annotatePromoGroupStripes,
+  promoGroupRowBgClass,
+  sortRowsByPromoGroup,
+} from "@/lib/promo/promo-group-display";
 
 interface ReviewOrderItem {
   id: string;
@@ -43,6 +48,8 @@ interface PromoApiLine {
   currentKind?: PromoTierKind | null;
   nextKind?: PromoTierKind | null;
   hasPromoLadder?: boolean;
+  promoGroup?: string | null;
+  promoGroupMembers?: number;
   unitPrice: number | null;
   netUnitPrice: number | null;
   lineTotal: number | null;
@@ -183,6 +190,27 @@ export function OrderReviewTable({ storeCode, items }: OrderReviewTableProps) {
     );
   }, [items, promoOnly, promoBySku]);
 
+  const promoStagedQty = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const i of items) {
+      if (i.finalQty > 0) m[i.sku.code] = i.finalQty;
+    }
+    return m;
+  }, [items]);
+
+  const displayItems = useMemo(() => {
+    const withGroup = visibleItems.map((item) => {
+      const api = promoBySku.get(item.sku.code);
+      return {
+        ...item,
+        promoGroup: api?.promoGroup ?? null,
+        promoGroupMembers: api?.promoGroupMembers ?? 0,
+        skuCode: item.sku.code,
+      };
+    });
+    return annotatePromoGroupStripes(sortRowsByPromoGroup(withGroup));
+  }, [visibleItems, promoBySku]);
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
       <div className="vmi-sales-review-toolbar flex shrink-0 flex-col gap-2">
@@ -268,7 +296,7 @@ export function OrderReviewTable({ storeCode, items }: OrderReviewTableProps) {
           <div className="xl:hidden">
             {!promoLoading && visibleItems.length > 0 && (
               <MobileRowList>
-                {visibleItems.map((item, index) => {
+                {displayItems.map((item, index) => {
                   const api = promoBySku.get(item.sku.code);
                   const flag = getCvdFlag(item.cvdEstimate);
                   const rowNum = promoOnly
@@ -281,7 +309,14 @@ export function OrderReviewTable({ storeCode, items }: OrderReviewTableProps) {
                     api?.freeGood;
 
                   return (
-                    <MobileRow key={item.id} warn={flag === "red"}>
+                    <MobileRow
+                      key={item.id}
+                      warn={flag === "red" && item.promoGroupStripe == null}
+                      className={cn(
+                        promoGroupRowBgClass(item.promoGroupStripe ?? null),
+                        flag === "red" && !item.promoGroupStripe && "bg-red-50/40 dark:bg-red-950/20"
+                      )}
+                    >
                       <MobileRowTop>
                         <span className="w-5 shrink-0 text-xs text-slate-400">
                           {rowNum}
@@ -332,6 +367,13 @@ export function OrderReviewTable({ storeCode, items }: OrderReviewTableProps) {
                             nextKind={api?.nextKind}
                             hasPromoLadder={api?.hasPromoLadder}
                             freeGood={api?.freeGood}
+                            inspector={{
+                              skuCode: item.sku.code,
+                              storeCode,
+                              stagedQty: promoStagedQty,
+                              promoGroup: item.promoGroup,
+                              promoGroupMembers: item.promoGroupMembers,
+                            }}
                           />
                         </MobileRowExtra>
                       )}
@@ -366,7 +408,7 @@ export function OrderReviewTable({ storeCode, items }: OrderReviewTableProps) {
                   </td>
                 </tr>
               )}
-              {visibleItems.map((item, index) => {
+              {displayItems.map((item, index) => {
                 const api = promoBySku.get(item.sku.code);
                 const flag = getCvdFlag(item.cvdEstimate);
                 const rowNum = promoOnly
@@ -376,8 +418,11 @@ export function OrderReviewTable({ storeCode, items }: OrderReviewTableProps) {
                   <tr
                     key={item.id}
                     className={cn(
-                      "border-t border-slate-100 dark:border-slate-700/60",
-                      flag === "red" && "bg-red-50/40 dark:bg-red-950/20"
+                      "border-t border-slate-100 dark:border-slate-800",
+                      promoGroupRowBgClass(item.promoGroupStripe ?? null),
+                      flag === "red" &&
+                        !item.promoGroupStripe &&
+                        "bg-red-50/40 dark:bg-red-950/20"
                     )}
                   >
                     <td className="px-2 py-2.5 align-top text-xs text-slate-400">
@@ -406,6 +451,13 @@ export function OrderReviewTable({ storeCode, items }: OrderReviewTableProps) {
                               nextKind={api?.nextKind}
                               hasPromoLadder={api?.hasPromoLadder}
                               freeGood={api?.freeGood}
+                              inspector={{
+                                skuCode: item.sku.code,
+                                storeCode,
+                                stagedQty: promoStagedQty,
+                                promoGroup: item.promoGroup,
+                                promoGroupMembers: item.promoGroupMembers,
+                              }}
                             />
                           </div>
                         )}

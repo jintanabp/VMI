@@ -125,6 +125,45 @@ export class PromotionCredit {
     return this.byKey.get(`${division}|${cusgroup}|${product}`) ?? [];
   }
 
+  /** All tier rows under (division, cusgroup) whose ASSORTEDPRODUCTGROUP equals group. */
+  rowsForGroup(division: string, cusgroup: string, group: string): PromoRow[] {
+    const g = group.trim();
+    if (!g) return [];
+    const out: PromoRow[] = [];
+    for (const bucket of this.byKey.values()) {
+      for (const r of bucket) {
+        if (
+          r.division === division &&
+          r.cusgroup === cusgroup &&
+          (r.raw.ASSORTEDPRODUCTGROUP ?? "").trim() === g
+        ) {
+          out.push(r);
+        }
+      }
+    }
+    return out.sort((a, b) => a.fromQty - b.fromQty || a.toQty - b.toQty);
+  }
+
+  /** ASSORTEDPRODUCTGROUP for a SKU, if any (empty = standalone SKU promo). */
+  assortedGroupFor(division: string, cusgroup: string, product: string): string {
+    const rows = this.rowsFor(division, cusgroup, product);
+    if (rows.length === 0) return "";
+    return (rows[0].raw.ASSORTEDPRODUCTGROUP ?? "").trim();
+  }
+
+  hasActivePromoToday(
+    division: string,
+    cusgroup: string,
+    product: string,
+    region: string,
+    day: Date = new Date()
+  ): boolean {
+    const normRegion = region.toUpperCase().replace(/\s+/g, "");
+    return this.rowsFor(division, cusgroup, product).some(
+      (r) => promoActiveOn(r, day) && promoServesRegion(r, normRegion)
+    );
+  }
+
   load(csvPath: string): void {
     if (!fs.existsSync(csvPath)) {
       console.warn(`[PromotionCredit] CSV not found: ${csvPath}`);

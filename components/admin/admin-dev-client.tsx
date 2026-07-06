@@ -62,8 +62,8 @@ function filterPreviewPeople(rows: PersonVdaRow[], query: string) {
   );
 }
 
-function FabricSyncStatus() {
-  const [data, setData] = useState<{
+function FabricSyncPanel() {
+  const [statusData, setStatusData] = useState<{
     schedulerEnabled?: boolean;
     status?: {
       lastSuccessAt?: string;
@@ -72,11 +72,16 @@ function FabricSyncStatus() {
     };
     cacheFiles?: Record<string, string | null>;
   } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  async function loadStatus() {
+    const res = await fetch("/api/admin/refresh-status");
+    if (res.ok) setStatusData(await res.json());
+  }
 
   useEffect(() => {
-    fetch("/api/admin/refresh-status")
-      .then((r) => (r.ok ? r.json() : null))
-      .then(setData);
+    void loadStatus();
   }, []);
 
   const fmt = (iso?: string) =>
@@ -86,32 +91,6 @@ function FabricSyncStatus() {
           timeStyle: "short",
         })
       : "—";
-
-  return (
-    <div className="mb-3 space-y-1 rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-800/50">
-      <p>
-        <span className="text-slate-500">Scheduler:</span>{" "}
-        <span className="font-semibold">
-          {data?.schedulerEnabled ? "เปิด (03:30 น.)" : "ปิด"}
-        </span>
-      </p>
-      <p>
-        <span className="text-slate-500">Sync สำเร็จล่าสุด:</span>{" "}
-        {fmt(data?.status?.lastSuccessAt)}
-      </p>
-      {data?.status?.lastFailureAt && (
-        <p className="text-amber-700 dark:text-amber-400">
-          ล้มเหลวล่าสุด: {fmt(data.status.lastFailureAt)}
-          {data.status.lastError ? ` — ${data.status.lastError}` : ""}
-        </p>
-      )}
-    </div>
-  );
-}
-
-function RefreshMastersButton() {
-  const [loading, setLoading] = useState(false);
-  const [msg, setMsg] = useState("");
 
   async function refresh() {
     setLoading(true);
@@ -123,21 +102,43 @@ function RefreshMastersButton() {
       setMsg(
         `สำเร็จ — customer: ${data.customer ? "OK" : "-"}, salesman: ${data.salesman ? "OK" : "-"}, promo: ${data.promotion ? "OK" : "-"}, sku: ${data.skuMaster ? "OK" : "-"}, stock: ${data.stockCover ? "OK" : "-"}, vdaBill: ${data.vdaAos ? "OK" : "-"}`
       );
+      await loadStatus();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "ล้มเหลว");
+      await loadStatus();
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div className="space-y-2">
-      <Button className="w-full sm:w-auto" onClick={refresh} disabled={loading}>
-        <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
-        {loading ? "กำลังดึงจาก Fabric..." : "ดึงข้อมูล master ตอนนี้"}
-      </Button>
-      {msg && <p className="text-sm text-slate-600 dark:text-slate-400">{msg}</p>}
-    </div>
+    <>
+      <div className="mb-3 space-y-1 rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-800/50">
+        <p>
+          <span className="text-slate-500">Scheduler:</span>{" "}
+          <span className="font-semibold">
+            {statusData?.schedulerEnabled ? "เปิด (03:30 น.)" : "ปิด"}
+          </span>
+        </p>
+        <p>
+          <span className="text-slate-500">Sync สำเร็จล่าสุด:</span>{" "}
+          {fmt(statusData?.status?.lastSuccessAt)}
+        </p>
+        {statusData?.status?.lastFailureAt && (
+          <p className="text-amber-700 dark:text-amber-400">
+            ล้มเหลวล่าสุด: {fmt(statusData.status.lastFailureAt)}
+            {statusData.status.lastError ? ` — ${statusData.status.lastError}` : ""}
+          </p>
+        )}
+      </div>
+      <div className="space-y-2">
+        <Button className="w-full sm:w-auto" onClick={refresh} disabled={loading}>
+          <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+          {loading ? "กำลังดึงจาก Fabric..." : "ดึงข้อมูล master ตอนนี้"}
+        </Button>
+        {msg && <p className="text-sm text-slate-600 dark:text-slate-400">{msg}</p>}
+      </div>
+    </>
   );
 }
 
@@ -630,8 +631,7 @@ export function AdminDevClient() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <FabricSyncStatus />
-                <RefreshMastersButton />
+                <FabricSyncPanel />
               </CardContent>
             </Card>
           </div>

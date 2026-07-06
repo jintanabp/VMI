@@ -16,6 +16,7 @@ import {
   lookupC4,
   promoRowsToTiers,
 } from "@/lib/fabric/promotion-lookup";
+import { countPromoGroupMembers } from "@/lib/promo/promo-group-display";
 
 export interface OrderPromoLineInput {
   skuCode: string;
@@ -32,6 +33,8 @@ export interface OrderPromoLineResult {
   currentKind?: string | null;
   nextKind?: string | null;
   hasPromoLadder?: boolean;
+  promoGroup?: string | null;
+  promoGroupMembers?: number;
   unitPrice: number | null;
   netUnitPrice: number | null;
   lineTotal: number | null;
@@ -138,11 +141,27 @@ export function lookupOrderPromoLines(
     );
     const lineTotal = calcLineAmount(qty, unitPrice, netUnitPrice);
 
+    const assorted = promo.assortedGroupFor(
+      ctx.division,
+      ctx.cusgroup,
+      code
+    );
+    let promoGroup: string | null = null;
+    let promoGroupMembers = 0;
+    if (assorted) {
+      promoGroupMembers = countPromoGroupMembers(
+        promo.rowsForGroup(ctx.division, ctx.cusgroup, assorted)
+      );
+      if (promoGroupMembers > 1) promoGroup = assorted;
+    }
+
     return {
       skuCode: code,
       qty,
       ...display,
       hasPromoLadder: display.hasPromoLadder ?? tiers.length > 0,
+      promoGroup,
+      promoGroupMembers,
       unitPrice,
       netUnitPrice,
       lineTotal,

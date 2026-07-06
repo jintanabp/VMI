@@ -21,8 +21,16 @@ export interface StockRowComputed {
   currentPromoKind?: PromoTierKind | null;
   nextPromoKind?: PromoTierKind | null;
   hasPromoLadder?: boolean;
+  /** รหัส ASSORTEDPRODUCTGROUP จาก C4 (ว่าง = โปรราย SKU เดียว) */
+  promoGroup?: string | null;
+  /** จำนวน SKU ในกลุ่มจาก master C4 */
+  promoGroupMembers?: number;
   promoTiers: PromoTierInput[];
   unitPrice?: number | null;
+  /** ส่วนลด C4 ต่อหีบ (บาท) ตามจำนวนแนะนำ */
+  discountBahtPerCase?: number | null;
+  /** ส่วนลด C4 ต่อหีบ (%) ตามจำนวนแนะนำ */
+  discountPctPerCase?: number | null;
   netUnitPrice?: number | null;
   lineTotal?: number | null;
   priceExpired?: boolean;

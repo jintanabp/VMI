@@ -21,6 +21,12 @@ import {
 } from "@/components/ui/mobile-row";
 import { cn } from "@/lib/utils";
 import { formatDays, formatNumber } from "@/lib/calculations";
+import {
+  annotatePromoGroupStripes,
+  promoGroupRowBgClass,
+  sortRowsByPromoGroup,
+  type PromoGroupStripe,
+} from "@/lib/promo/promo-group-display";
 import type { StockRowComputed } from "@/lib/repositories/types";
 
 interface StockPageClientProps {
@@ -59,6 +65,7 @@ export function StockPageClient({
   const [editing, setEditing] = useState<string | null>(null);
   const [editMin, setEditMin] = useState("");
   const [editMax, setEditMax] = useState("");
+  const [qtyOverrides, setQtyOverrides] = useState<Record<string, number>>({});
 
   const { data, isLoading } = useQuery<StockApiResponse>({
     queryKey: ["stock"],
@@ -105,6 +112,42 @@ export function StockPageClient({
         r.skuName.toLowerCase().includes(q)
     );
   }, [rows, search]);
+
+  const displayRows = useMemo(
+    () => annotatePromoGroupStripes(sortRowsByPromoGroup(filtered)),
+    [filtered]
+  );
+
+  /** จำนวนต่อ SKU สำหรับจำลอง promotion group (override จาก modal ได้) */
+  const promoStagedQty = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const r of rows) {
+      const o = qtyOverrides[r.skuCode];
+      if (o != null && o > 0) {
+        m[r.skuCode] = o;
+      } else if (r.suggestOrder > 0) {
+        m[r.skuCode] = r.suggestOrder;
+      }
+    }
+    return m;
+  }, [rows, qtyOverrides]);
+
+  function applyGroupStaged(staged: Record<string, number>) {
+    setQtyOverrides((prev) => ({ ...prev, ...staged }));
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const r of rows) {
+        const q = staged[r.skuCode];
+        if (q != null && q > 0) next.add(r.skuId);
+      }
+      return next;
+    });
+  }
+
+  useEffect(() => {
+    if (Object.keys(qtyOverrides).length === 0) return;
+    sessionStorage.setItem("vmi_order_qty", JSON.stringify(qtyOverrides));
+  }, [qtyOverrides]);
 
   function toggleRow(skuId: string) {
     setSelected((prev) => {
@@ -163,11 +206,26 @@ export function StockPageClient({
   useEffect(() => {
     if (selectedItems.length === 0) return;
     sessionStorage.setItem("vmi_order_draft", JSON.stringify(selectedItems));
-  }, [selectedItems]);
+    const qtyMap: Record<string, number> = {};
+    for (const item of selectedItems) {
+      const q =
+        qtyOverrides[item.skuCode] ??
+        (item.suggestOrder > 0 ? item.suggestOrder : 1);
+      qtyMap[item.skuCode] = q;
+    }
+    sessionStorage.setItem("vmi_order_qty", JSON.stringify(qtyMap));
+  }, [selectedItems, qtyOverrides]);
 
   function goToOrder() {
     if (selectedItems.length === 0) return;
     sessionStorage.setItem("vmi_order_draft", JSON.stringify(selectedItems));
+    const qtyMap: Record<string, number> = {};
+    for (const item of selectedItems) {
+      qtyMap[item.skuCode] =
+        qtyOverrides[item.skuCode] ??
+        (item.suggestOrder > 0 ? item.suggestOrder : 1);
+    }
+    sessionStorage.setItem("vmi_order_qty", JSON.stringify(qtyMap));
     router.push("/order");
   }
 
@@ -278,10 +336,13 @@ export function StockPageClient({
                 </p>
               ) : (
                 <MobileRowList>
-                  {filtered.map((row) => (
+                  {displayRows.map((row) => (
                     <StockMobileRow
                       key={row.skuId}
                       row={row}
+                      storeCode={activeVda}
+                      stagedQty={promoStagedQty}
+                      onConfirmStaged={applyGroupStaged}
                       selected={selected.has(row.skuId)}
                       onToggle={() => toggleRow(row.skuId)}
                     />
@@ -290,10 +351,10 @@ export function StockPageClient({
               )}
             </div>
 
-            <table className="vmi-data-table hidden w-full min-w-0 text-left xl:table xl:min-w-[1020px]">
-            <thead className="font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
+            <table className="vmi-data-table hidden w-full min-w-0 text-left xl:table xl:min-w-[1140px]">
+            <thead className="text-xs font-medium text-slate-500 dark:text-slate-400">
               <tr>
-                <th className="w-9 px-2 py-2 xl:w-10 xl:px-3 xl:py-3">
+                <th className="w-9 px-2 py-2 xl:w-10 xl:px-3 xl:py-2.5">
                   <Checkbox
                     checked={
                       allNeedsSelected
@@ -307,28 +368,30 @@ export function StockPageClient({
                     title="เลือกรายการที่ควรสั่ง (ตามตัวกรอง)"
                   />
                 </th>
-                <th className="whitespace-nowrap px-2 py-2 xl:px-3 xl:py-3">SKU</th>
-                <th className="px-2 py-2 xl:min-w-[140px] xl:px-3 xl:py-3">ชื่อ</th>
-                <th className="whitespace-nowrap px-3 py-3 text-right">สต็อก</th>
-                <th className="whitespace-nowrap px-3 py-3 text-right">ยอดขายเฉลี่ย</th>
-                <th className="whitespace-nowrap px-3 py-3 text-right">CVD</th>
-                <th className="whitespace-nowrap px-3 py-3 text-right">MIN</th>
-                <th className="whitespace-nowrap px-3 py-3 text-right">MAX</th>
-                <th className="whitespace-nowrap px-3 py-3 text-right">แนะนำ</th>
-                <th className="whitespace-nowrap px-3 py-3 text-right">ราคา/หีบ</th>
-                <th className="min-w-[200px] px-3 py-3">โปรโมชัน</th>
+                <th className="whitespace-nowrap px-2 py-2 xl:px-3 xl:py-2.5">SKU</th>
+                <th className="px-2 py-2 xl:min-w-[140px] xl:px-3 xl:py-2.5">ชื่อ</th>
+                <th className="whitespace-nowrap px-3 py-2.5 text-right">สต็อก</th>
+                <th className="whitespace-nowrap px-3 py-2.5 text-right">ยอดขาย</th>
+                <th className="whitespace-nowrap px-3 py-2.5 text-right">CVD</th>
+                <th className="whitespace-nowrap px-3 py-2.5 text-right">MIN</th>
+                <th className="whitespace-nowrap px-3 py-2.5 text-right">MAX</th>
+                <th className="whitespace-nowrap px-3 py-2.5 text-right">แนะนำ</th>
+                <th className="whitespace-nowrap px-3 py-2.5 text-right">ราคา</th>
+                <th className="whitespace-nowrap px-3 py-2.5 text-right">ลด</th>
+                <th className="whitespace-nowrap px-3 py-2.5 text-right">สุทธิ</th>
+                <th className="min-w-[160px] px-3 py-2.5">โปร</th>
               </tr>
             </thead>
             <tbody>
               {isLoading && (
                 <tr>
-                  <td colSpan={11} className="px-3 py-8 text-center text-slate-500 dark:text-slate-400">
+                  <td colSpan={13} className="px-3 py-8 text-center text-slate-500 dark:text-slate-400">
                     กำลังโหลด...
                   </td>
                 </tr>
               )}
               {!isLoading &&
-                filtered.map((row) => {
+                displayRows.map((row) => {
                   const lowStock =
                     row.needsOrder ||
                     (row.stockCvd !== null && row.stockCvd < 7);
@@ -336,9 +399,10 @@ export function StockPageClient({
                     <tr
                       key={row.skuId}
                       className={cn(
-                        "border-t border-slate-100 text-slate-800 transition-colors hover:bg-slate-50/80 dark:border-slate-700/60 dark:text-slate-200 dark:hover:bg-slate-800/60",
-                        lowStock && "bg-amber-50/60 dark:bg-amber-950/30",
-                        selected.has(row.skuId) && "bg-teal-50/50 dark:bg-teal-950/35"
+                        "border-t border-slate-100 text-slate-800 transition-colors hover:bg-slate-50/60 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-800/40",
+                        promoGroupRowBgClass(row.promoGroupStripe),
+                        lowStock && !row.promoGroupStripe && "bg-amber-100/80 dark:bg-amber-950/20",
+                        selected.has(row.skuId) && "bg-teal-100/70 dark:bg-teal-950/25"
                       )}
                     >
                       <td className="px-3 py-2">
@@ -396,17 +460,29 @@ export function StockPageClient({
                           </button>
                         )}
                       </td>
-                      <td className="whitespace-nowrap px-3 py-2 text-right">
+                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
                         {row.suggestOrder > 0 ? (
-                          <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-800 ring-1 ring-amber-200 dark:bg-amber-900/50 dark:text-amber-300 dark:ring-amber-700/60">
-                            {row.suggestOrder} หีบ
+                          <span className="font-semibold text-amber-700 dark:text-amber-400">
+                            {row.suggestOrder}
                           </span>
                         ) : (
-                          "-"
+                          <span className="text-slate-400">—</span>
                         )}
                       </td>
                       <td className="whitespace-nowrap px-3 py-2 text-right text-xs tabular-nums">
-                        <StockPriceCell
+                        <StockListPriceCell
+                          unitPrice={row.unitPrice}
+                          expired={row.priceExpired}
+                        />
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2 text-right text-xs tabular-nums">
+                        <StockDiscountPerCaseCell
+                          discountBaht={row.discountBahtPerCase}
+                          discountPct={row.discountPctPerCase}
+                        />
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2 text-right text-xs tabular-nums">
+                        <StockNetPriceCell
                           unitPrice={row.unitPrice}
                           netUnitPrice={row.netUnitPrice}
                           expired={row.priceExpired}
@@ -422,6 +498,14 @@ export function StockPageClient({
                           nextPromoQty={row.nextPromoQty}
                           nextKind={row.nextPromoKind}
                           hasPromoLadder={row.hasPromoLadder}
+                          inspector={{
+                            skuCode: row.skuCode,
+                            storeCode: activeVda,
+                            stagedQty: promoStagedQty,
+                            promoGroup: row.promoGroup,
+                            promoGroupMembers: row.promoGroupMembers,
+                            onConfirmStaged: applyGroupStaged,
+                          }}
                         />
                       </td>
                       {editing === row.skuId && (
@@ -481,10 +565,16 @@ export function StockPageClient({
 
 function StockMobileRow({
   row,
+  storeCode,
+  stagedQty,
+  onConfirmStaged,
   selected,
   onToggle,
 }: {
-  row: StockRowComputed;
+  row: StockRowComputed & { promoGroupStripe?: PromoGroupStripe | null };
+  storeCode: string;
+  stagedQty: Record<string, number>;
+  onConfirmStaged: (staged: Record<string, number>) => void;
   selected: boolean;
   onToggle: () => void;
 }) {
@@ -496,7 +586,14 @@ function StockMobileRow({
     row.hasPromoLadder;
 
   return (
-    <MobileRow selected={selected} warn={lowStock}>
+    <MobileRow
+      selected={selected}
+      warn={lowStock && row.promoGroupStripe == null}
+      className={cn(
+        promoGroupRowBgClass(row.promoGroupStripe ?? null),
+        lowStock && !row.promoGroupStripe && "bg-amber-100/80 dark:bg-amber-950/20"
+      )}
+    >
       <MobileRowTop>
         <Checkbox checked={selected} onCheckedChange={onToggle} />
         <div className="min-w-0 flex-1">
@@ -522,7 +619,24 @@ function StockMobileRow({
           />
         )}
         <MobileStat label="ราคา">
-          <StockPriceCell
+          <StockListPriceCell
+            unitPrice={row.unitPrice}
+            expired={row.priceExpired}
+            compact
+          />
+        </MobileStat>
+        {(row.discountBahtPerCase != null && row.discountBahtPerCase > 0) ||
+        (row.discountPctPerCase != null && row.discountPctPerCase > 0) ? (
+          <MobileStat label="ลด">
+            <StockDiscountPerCaseCell
+              discountBaht={row.discountBahtPerCase}
+              discountPct={row.discountPctPerCase}
+              compact
+            />
+          </MobileStat>
+        ) : null}
+        <MobileStat label="สุทธิ">
+          <StockNetPriceCell
             unitPrice={row.unitPrice}
             netUnitPrice={row.netUnitPrice}
             expired={row.priceExpired}
@@ -541,6 +655,14 @@ function StockMobileRow({
             nextPromoQty={row.nextPromoQty}
             nextKind={row.nextPromoKind}
             hasPromoLadder={row.hasPromoLadder}
+            inspector={{
+              skuCode: row.skuCode,
+              storeCode,
+              stagedQty,
+              promoGroup: row.promoGroup,
+              promoGroupMembers: row.promoGroupMembers,
+              onConfirmStaged,
+            }}
           />
         </MobileRowExtra>
       )}
@@ -558,24 +680,14 @@ function StockStatChip({
   tone?: "default" | "amber" | "red";
 }) {
   return (
-    <div
-      className={cn(
-        "flex min-w-0 flex-1 items-center justify-center gap-1 rounded-lg border px-1.5 py-1 text-[11px] xl:gap-1.5 xl:px-2 xl:py-1.5 xl:text-xs",
-        tone === "amber" &&
-          "border-amber-200/80 bg-amber-50/80 dark:border-amber-800/50 dark:bg-amber-950/30",
-        tone === "red" &&
-          "border-red-200/80 bg-red-50/80 dark:border-red-900/50 dark:bg-red-950/30",
-        tone === "default" &&
-          "border-slate-200/80 bg-white dark:border-slate-700/80 dark:bg-slate-900/80"
-      )}
-    >
+    <div className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-lg bg-slate-100/80 px-2.5 py-1.5 text-xs dark:bg-slate-800/60">
       <span className="truncate text-slate-500 dark:text-slate-400">{label}</span>
       <span
         className={cn(
-          "shrink-0 font-bold tabular-nums",
+          "shrink-0 font-semibold tabular-nums",
           tone === "amber" && "text-amber-700 dark:text-amber-400",
           tone === "red" && "text-red-600 dark:text-red-400",
-          tone === "default" && "text-slate-900 dark:text-slate-50"
+          tone === "default" && "text-slate-800 dark:text-slate-100"
         )}
       >
         {value}
@@ -584,7 +696,57 @@ function StockStatChip({
   );
 }
 
-function StockPriceCell({
+function StockListPriceCell({
+  unitPrice,
+  expired,
+  compact = false,
+}: {
+  unitPrice?: number | null;
+  expired?: boolean;
+  compact?: boolean;
+}) {
+  if (unitPrice == null) return <span className="text-slate-400">-</span>;
+  return (
+    <span
+      className={cn(
+        "font-medium text-slate-800 dark:text-slate-200",
+        expired && "text-amber-600 dark:text-amber-400",
+        compact && "text-xs"
+      )}
+      title={expired ? "ราคาในระบบหมดอายุ" : undefined}
+    >
+      {formatNumber(unitPrice, 0)}
+    </span>
+  );
+}
+
+function StockDiscountPerCaseCell({
+  discountBaht,
+  discountPct,
+  compact = false,
+}: {
+  discountBaht?: number | null;
+  discountPct?: number | null;
+  compact?: boolean;
+}) {
+  if (discountBaht != null && discountBaht > 0) {
+    return (
+      <span className={cn("text-slate-600 dark:text-slate-400", compact && "text-xs")}>
+        {formatNumber(discountBaht, 0)}
+      </span>
+    );
+  }
+  if (discountPct != null && discountPct > 0) {
+    return (
+      <span className={cn("text-slate-600 dark:text-slate-400", compact && "text-xs")}>
+        {formatNumber(discountPct, 1)}%
+      </span>
+    );
+  }
+  return <span className="text-slate-300 dark:text-slate-600">—</span>;
+}
+
+function StockNetPriceCell({
   unitPrice,
   netUnitPrice,
   expired,
@@ -596,31 +758,18 @@ function StockPriceCell({
   compact?: boolean;
 }) {
   if (unitPrice == null) return <span className="text-slate-400">-</span>;
-  const hasDiscount =
-    netUnitPrice != null && netUnitPrice < unitPrice - 0.001;
+  const net = netUnitPrice ?? unitPrice;
+  const hasDiscount = net < unitPrice - 0.001;
   return (
-    <span className={cn(expired && "text-amber-600 dark:text-amber-400")}>
-      {hasDiscount ? (
-        compact ? (
-          <span
-            className="font-semibold text-teal-700 dark:text-teal-400"
-            title={`${formatNumber(unitPrice, 0)} → ${formatNumber(netUnitPrice!, 0)}`}
-          >
-            {formatNumber(netUnitPrice!, 0)}
-          </span>
-        ) : (
-          <>
-            <span className="text-slate-400 line-through">
-              {formatNumber(unitPrice, 0)}
-            </span>{" "}
-            <span className="font-semibold text-teal-700 dark:text-teal-400">
-              {formatNumber(netUnitPrice!, 0)}
-            </span>
-          </>
-        )
-      ) : (
-        formatNumber(unitPrice, 0)
+    <span
+      className={cn(
+        hasDiscount ? "font-semibold text-slate-900 dark:text-slate-100" : "text-slate-700 dark:text-slate-300",
+        expired && !hasDiscount && "text-amber-600 dark:text-amber-400",
+        compact && "text-xs"
       )}
+      title={expired ? "ราคาในระบบหมดอายุ" : undefined}
+    >
+      {formatNumber(net, 0)}
     </span>
   );
 }

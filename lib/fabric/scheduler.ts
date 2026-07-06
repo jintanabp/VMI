@@ -135,6 +135,10 @@ export async function runMasterRefreshNow(): Promise<{
       vdaAos: false,
     };
   }
+  writeMasterRefreshStatus({
+    lastAttemptAt: new Date().toISOString(),
+    schedulerEnabled: isSchedulerEnabled(),
+  });
   const result = await refreshAllMasters({ allowInteractive: true });
   reloadFabricMasters();
   await syncFabricSalesReps();
