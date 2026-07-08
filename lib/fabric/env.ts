@@ -101,6 +101,29 @@ export function getStockOnelakeConfig(): StockOnelakeTarget | null {
   };
 }
 
+/** Ai_LH lakehouse — ประวัติยอดขายรายวัน (cross_sold_history_2y_qu)
+ *  ใช้ค่าเฉพาะ AI_LH_* ก่อน ไม่งั้น fallback ไป masters config */
+export function getSoldHistoryOnelakeConfig(): MastersOnelakeTarget | null {
+  const workspaceId =
+    trimEnv("AI_LH_WORKSPACE_ID") || trimEnv("ONELAKE_WORKSPACE_ID");
+  const lakehouseId =
+    trimEnv("AI_LH_LAKEHOUSE_ID") || trimEnv("ONELAKE_LAKEHOUSE_ID");
+  const scanDir =
+    process.env.AI_LH_SCAN_DIR ??
+    process.env.ONELAKE_SCAN_DIR ??
+    "Files/exports/";
+
+  if (!workspaceId || !lakehouseId) {
+    return null;
+  }
+
+  return {
+    workspaceId,
+    lakehouseId,
+    scanDir: normalizeScanDir(scanDir),
+  };
+}
+
 /** @deprecated use getMastersOnelakeConfig — kept for callers expecting auth+master */
 export function getOnelakeConfig() {
   const masters = getMastersOnelakeConfig();

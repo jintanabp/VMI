@@ -55,22 +55,14 @@ export function getCvdFlag(cvdEst: number | null): CvdFlag {
   return "green";
 }
 
-export interface PromoTierInput {
-  minQty: number;
-  discount: string;
-  sortOrder: number;
-  kind?: import("./promo").PromoTierKind;
-  premiumProduct?: string;
-  premiumQty?: number;
-}
-
-export type { PromoResult, PromoTierKind } from "./promo";
+export type { PromoResult, PromoTierInput, PromoTierKind } from "./promo";
 
 export {
   formatPromoTierLabel,
   getPromoForQty,
   calcNetUnitPrice,
   calcLineAmount,
+  isBenefitTier,
 } from "./promo";
 
 export function formatNumber(value: number, decimals = 1): string {

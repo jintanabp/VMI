@@ -12,6 +12,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { getCustomerStoreFromCookie } from "@/lib/auth/customer-session";
 import { getRawSalesSession } from "@/lib/auth/sales-session";
 import { CustomerLoginForm } from "@/components/auth/customer-login-form";
+import { StoreLoginForm } from "@/components/auth/store-login-form";
 import { SalesLoginButton } from "@/components/auth/sales-login-button";
 
 export default async function LoginPage({
@@ -112,13 +113,23 @@ export default async function LoginPage({
             {mode === "customer" && (
               <Card className="vmi-card-elevated">
                 <CardHeader>
-                  <CardTitle>เลือกคลัง VDA</CardTitle>
+                  <CardTitle>
+                    {salesSession?.role === "admin"
+                      ? "เลือกคลัง VDA"
+                      : "เข้าสู่ระบบร้านค้า"}
+                  </CardTitle>
                   <CardDescription>
-                    เลือก VDA ที่ต้องการดูสต็อกและสั่งสินค้า
+                    {salesSession?.role === "admin"
+                      ? "เลือก VDA ที่ต้องการดูสต็อกและสั่งสินค้า"
+                      : "เข้าใช้งานด้วยอีเมลของทางร้านค้า"}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <CustomerLoginForm adminPreview={salesSession?.role === "admin"} />
+                  {salesSession?.role === "admin" ? (
+                    <CustomerLoginForm adminPreview />
+                  ) : (
+                    <StoreLoginForm />
+                  )}
                   {salesSession?.role === "admin" && (
                     <Link
                       href="/admin"

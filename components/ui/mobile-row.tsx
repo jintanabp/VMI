@@ -2,15 +2,18 @@ import { cn } from "@/lib/utils";
 
 export function MobileRowList({
   className,
+  grid,
   children,
 }: {
   className?: string;
+  grid?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <div
       className={cn(
         "divide-y divide-slate-100 dark:divide-slate-700/60",
+        grid && "vmi-card-grid md:divide-y-0",
         className
       )}
     >

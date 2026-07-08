@@ -15,11 +15,18 @@ const flagLabels: Record<CvdFlag, string> = {
   red: "ไม่แนะนำ",
 };
 
-export function FlagBadge({ flag }: { flag: CvdFlag }) {
+export function FlagBadge({
+  flag,
+  compact = false,
+}: {
+  flag: CvdFlag;
+  compact?: boolean;
+}) {
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
+        "inline-flex items-center rounded-full font-semibold",
+        compact ? "px-1.5 py-0.5 text-[10px] leading-tight" : "px-2.5 py-1 text-xs",
         flagStyles[flag]
       )}
     >

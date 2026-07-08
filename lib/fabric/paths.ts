@@ -39,6 +39,13 @@ export function getSkuMasterCsvPath() {
   );
 }
 
+export function getSoldHistoryCsvPath() {
+  return (
+    process.env.SOLD_HISTORY_CSV ??
+    path.join(getFabricCacheDir(), "cross_sold_history_2y_qu.csv")
+  );
+}
+
 export function getVdaAosCsvPath(vdaKey: string) {
   const key = vdaKey.trim().toLowerCase();
   const fromEnv = process.env[`VDA_AOS_CSV_${key.toUpperCase()}`]?.trim();

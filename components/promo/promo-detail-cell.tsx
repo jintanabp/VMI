@@ -64,6 +64,13 @@ export function PromoDetailCell({
 
   const showCurrentPromo = hasCurrent && !hideCurrentForFreeGood;
 
+  // ได้โปรสูงสุดแล้ว: มีโปรปัจจุบัน + มีบันได แต่ไม่มีขั้นถัดไป
+  const atMaxPromo =
+    hasPromoLadder === true &&
+    (hasCurrent || showFreeGood) &&
+    !hasNext &&
+    qtyToNext == null;
+
   const stagedForSku = inspector?.stagedQty?.[inspector.skuCode] ?? 0;
   const showInspector = Boolean(
     inspector &&
@@ -80,7 +87,6 @@ export function PromoDetailCell({
     />
   ) : null;
 
-  const isFlat = variant === "table" || variant === "embedded" || variant === "compact";
   const textSize =
     variant === "compact" ? "text-[10px]" : "text-xs leading-snug";
 
@@ -103,24 +109,47 @@ export function PromoDetailCell({
     );
   }
 
-  const currentAccent =
+  // ชิปโปรปัจจุบัน — พื้นหลังชัดเพื่ออ่านง่ายในโหมดสว่าง
+  const currentChip =
     currentKind === "premium"
-      ? "text-violet-800 dark:text-violet-300"
+      ? "bg-violet-100 text-violet-800 ring-1 ring-violet-200 dark:bg-violet-500/15 dark:text-violet-200 dark:ring-violet-500/25"
       : currentKind === "discount_baht" || currentKind === "discount_pct"
-        ? "text-emerald-800 dark:text-emerald-400"
-        : "text-slate-800 dark:text-slate-300";
+        ? "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-200 dark:ring-emerald-500/25"
+        : "bg-slate-100 text-slate-700 ring-1 ring-slate-200 dark:bg-slate-700/40 dark:text-slate-200 dark:ring-slate-600/40";
+
+  const chipBase = cn(
+    "inline-flex max-w-full items-center gap-1 rounded-md px-1.5 py-0.5 font-semibold",
+    variant === "compact" ? "text-[10px]" : "text-[11px] leading-tight"
+  );
 
   const content = (
-    <div className={cn("min-w-0 space-y-0.5", isFlat && "space-y-0.5")}>
+    <div className={cn("flex min-w-0 flex-wrap items-center gap-1")}>
       {showCurrentPromo && (
-        <p className={cn(textSize, "font-medium", currentAccent)} title={currentPromo!}>
-          {currentPromo}
-        </p>
+        <span className={cn(chipBase, currentChip)} title={currentPromo!}>
+          <span className="truncate">{currentPromo}</span>
+        </span>
       )}
       {showFreeGood && freeGood && (
-        <p className={cn(textSize, "text-violet-800 dark:text-violet-300")} title={freeGood.premiumName}>
-          แถม {freeGood.premiumName} ×{freeGood.qty}
-        </p>
+        <span
+          className={cn(
+            chipBase,
+            "bg-violet-100 text-violet-800 ring-1 ring-violet-200 dark:bg-violet-500/15 dark:text-violet-200 dark:ring-violet-500/25"
+          )}
+          title={freeGood.premiumName}
+        >
+          <span className="truncate">แถม {freeGood.premiumName} ×{freeGood.qty}</span>
+        </span>
+      )}
+      {atMaxPromo && (
+        <span
+          className={cn(
+            chipBase,
+            "bg-amber-100 text-amber-800 ring-1 ring-amber-300 dark:bg-amber-500/20 dark:text-amber-200 dark:ring-amber-500/30"
+          )}
+          title="สินค้านี้ได้ส่วนลด/ของแถมขั้นสูงสุดแล้ว"
+        >
+          ★ สูงสุด
+        </span>
       )}
       {hasNext && (
         <NextPromoHint
@@ -128,7 +157,6 @@ export function PromoDetailCell({
           nextPromo={nextPromo!}
           nextPromoQty={nextPromoQty!}
           onApplyNext={onApplyNext}
-          flat={isFlat}
           textSize={textSize}
         />
       )}
@@ -147,11 +175,12 @@ export function PromoDetailCell({
   return (
     <div
       className={cn(
-        "flex items-start gap-1",
-        variant === "table" && "max-w-[220px]"
+        "flex min-w-0 items-start gap-0.5",
+        variant === "table" && "max-w-[220px]",
+        variant === "compact" && "max-w-full"
       )}
     >
-      <div className="min-w-0 flex-1">{content}</div>
+      <div className="min-w-0 flex-1 overflow-hidden">{content}</div>
       {inspectorBtn}
     </div>
   );
@@ -162,17 +191,19 @@ function NextPromoHint({
   nextPromo,
   nextPromoQty,
   onApplyNext,
-  flat,
   textSize,
 }: {
   qtyToNext: number;
   nextPromo: string;
   nextPromoQty: number;
   onApplyNext?: (qty: number) => void;
-  flat?: boolean;
   textSize: string;
 }) {
   const label = `อีก ${qtyToNext} หีบ ${nextPromo}`;
+  const chip = cn(
+    "inline-flex max-w-full items-center gap-1 rounded-md px-1.5 py-0.5 font-medium",
+    textSize
+  );
 
   if (onApplyNext) {
     return (
@@ -180,20 +211,25 @@ function NextPromoHint({
         type="button"
         onClick={() => onApplyNext(nextPromoQty)}
         className={cn(
-          textSize,
-          "text-left font-medium text-sky-800 underline-offset-2 hover:underline dark:text-sky-400",
-          !flat && "rounded-md border border-sky-200/60 bg-sky-50/50 px-2 py-1 dark:border-sky-800/40 dark:bg-sky-950/20"
+          chip,
+          "bg-sky-100 text-sky-800 ring-1 ring-sky-200 transition-colors hover:bg-sky-200 dark:bg-sky-500/15 dark:text-sky-200 dark:ring-sky-500/25 dark:hover:bg-sky-500/25"
         )}
         title={label}
       >
-        {label}
+        <span className="truncate">{label}</span>
       </button>
     );
   }
 
   return (
-    <p className={cn(textSize, "text-slate-600 dark:text-slate-400")} title={label}>
-      {label}
-    </p>
+    <span
+      className={cn(
+        chip,
+        "bg-slate-100 text-slate-600 ring-1 ring-slate-200 dark:bg-slate-700/40 dark:text-slate-300 dark:ring-slate-600/40"
+      )}
+      title={label}
+    >
+      <span className="truncate">{label}</span>
+    </span>
   );
 }

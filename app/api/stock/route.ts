@@ -34,6 +34,7 @@ export async function GET(request: Request) {
     sources: [],
     activeFromDb: null,
     filterMode: config.filterMode,
+    dataDate: null,
     rows,
   });
 }

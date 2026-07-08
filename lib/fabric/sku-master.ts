@@ -12,6 +12,14 @@ export interface SkuMasterRow {
   productCode: string;
   barcode: string;
   name: string;
+  section: string;
+  brand: string;
+}
+
+export interface SkuMeta {
+  barcode: string;
+  section: string;
+  brand: string;
 }
 
 function normKeys(row: Record<string, string>): Record<string, string> {
@@ -44,6 +52,7 @@ function parseNum(raw: string | undefined): number {
 export class SkuMasterDirectory {
   private rows: SkuMasterRow[] = [];
   private nameByCode = new Map<string, string>();
+  private metaByCode = new Map<string, SkuMeta>();
   private pricesByCode = new Map<string, PriceRecord[]>();
   private csvPath: string | null = null;
 
@@ -53,6 +62,22 @@ export class SkuMasterDirectory {
 
   nameForSku(code: string): string {
     return this.nameByCode.get(code.trim()) ?? "";
+  }
+
+  metaForSku(code: string): SkuMeta | null {
+    return this.metaByCode.get(code.trim()) ?? null;
+  }
+
+  barcodeForSku(code: string): string {
+    return this.metaByCode.get(code.trim())?.barcode ?? "";
+  }
+
+  sectionForSku(code: string): string {
+    return this.metaByCode.get(code.trim())?.section ?? "";
+  }
+
+  brandForSku(code: string): string {
+    return this.metaByCode.get(code.trim())?.brand ?? "";
   }
 
   getLookupPrice(
@@ -91,6 +116,7 @@ export class SkuMasterDirectory {
     const { rows } = readCsvFile(csvPath);
     const parsedRows: SkuMasterRow[] = [];
     const nameByCode = new Map<string, string>();
+    const metaByCode = new Map<string, SkuMeta>();
     const pricesByCode = new Map<string, PriceRecord[]>();
 
     for (const row of rows) {
@@ -105,10 +131,24 @@ export class SkuMasterDirectory {
         n.product_name ||
         splitCodeName(n.productcode_name || "") ||
         productCode;
+      // Section (product group) จาก Dim_Product ที่ join มาใน item_barcode_map_v2
+      const section =
+        splitCodeName(n.sectioncode_name || "") ||
+        n.section ||
+        "";
+      const brand =
+        splitCodeName(n.brandcode_name || "") ||
+        n.brand_namethai ||
+        n.brand_nameenglish ||
+        n.brand ||
+        "";
 
-      parsedRows.push({ productCode, barcode, name });
+      parsedRows.push({ productCode, barcode, name, section, brand });
       if (!nameByCode.has(productCode)) {
         nameByCode.set(productCode, name);
+      }
+      if (!metaByCode.has(productCode)) {
+        metaByCode.set(productCode, { barcode, section, brand });
       }
 
       const creditCol =
@@ -137,6 +177,7 @@ export class SkuMasterDirectory {
 
     this.rows = parsedRows;
     this.nameByCode = nameByCode;
+    this.metaByCode = metaByCode;
     this.pricesByCode = pricesByCode;
     this.csvPath = csvPath;
 

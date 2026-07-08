@@ -295,7 +295,7 @@ export function OrderReviewTable({ storeCode, items }: OrderReviewTableProps) {
           )}
           <div className="xl:hidden">
             {!promoLoading && visibleItems.length > 0 && (
-              <MobileRowList>
+              <MobileRowList grid>
                 {displayItems.map((item, index) => {
                   const api = promoBySku.get(item.sku.code);
                   const flag = getCvdFlag(item.cvdEstimate);

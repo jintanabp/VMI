@@ -5,7 +5,7 @@ import { CUSTOMER_STORE_COOKIE, SALES_SESSION_COOKIE } from "@/lib/auth/roles";
 const SALES_PREVIEW_COOKIE = "vmi_sales_preview";
 const SALES_PREVIEW_INFO_COOKIE = "vmi_sales_preview_info";
 
-const customerRoutes = ["/stock", "/order"];
+const customerRoutes = ["/stock", "/order", "/manage"];
 const salesRoutes = ["/sales"];
 const adminRoutes = ["/admin"];
 

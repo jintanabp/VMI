@@ -1,14 +1,42 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { useRouter } from "next/navigation";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Search, ShoppingCart, AlertTriangle, Package, TrendingDown } from "lucide-react";
+import { createPortal } from "react-dom";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  Search,
+  ShoppingCart,
+  BarChart3,
+  Clock,
+  RefreshCw,
+  Filter,
+  Package,
+  Boxes,
+  Wallet,
+  CalendarClock,
+  X,
+  Check,
+  Minus,
+  Plus,
+  RotateCcw,
+} from "lucide-react";
 import { AppHeader } from "@/components/layout/app-header";
 import { PageShell } from "@/components/layout/page-shell";
 import { PromoDetailCell } from "@/components/promo/promo-detail-cell";
+import { ProductSalesPanel } from "@/components/stock/product-sales-panel";
+import { FlagBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { StatCard } from "@/components/ui/stat-card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
@@ -20,13 +48,21 @@ import {
   MobileStat,
 } from "@/components/ui/mobile-row";
 import { cn } from "@/lib/utils";
-import { formatDays, formatNumber } from "@/lib/calculations";
+import {
+  calcCvdEstimate,
+  formatDays,
+  formatNumber,
+  getCvdFlag,
+  type CvdFlag,
+} from "@/lib/calculations";
 import {
   annotatePromoGroupStripes,
+  promoGroupBadgeClass,
   promoGroupRowBgClass,
   sortRowsByPromoGroup,
   type PromoGroupStripe,
 } from "@/lib/promo/promo-group-display";
+import { enrichStockRowsWithPooledPromo } from "@/lib/promo/stock-pooled-promo";
 import type { StockRowComputed } from "@/lib/repositories/types";
 
 interface StockPageClientProps {
@@ -40,6 +76,7 @@ interface StockApiResponse {
   sources: string[];
   activeFromDb: string | null;
   filterMode: string | null;
+  dataDate: string | null;
   rows: StockRowComputed[];
 }
 
@@ -52,6 +89,13 @@ function isStockPayload(data: unknown): data is StockApiResponse {
   );
 }
 
+type ViewScope = { needsOnly: boolean; brand: string | null; section: string | null };
+
+type DisplayRow = StockRowComputed & {
+  promoGroupStripe?: PromoGroupStripe | null;
+  promoGroupIsFirst?: boolean;
+};
+
 export function StockPageClient({
   storeCode,
   storeName,
@@ -62,10 +106,14 @@ export function StockPageClient({
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
-  const [editing, setEditing] = useState<string | null>(null);
-  const [editMin, setEditMin] = useState("");
-  const [editMax, setEditMax] = useState("");
   const [qtyOverrides, setQtyOverrides] = useState<Record<string, number>>({});
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [viewScope, setViewScope] = useState<ViewScope>({
+    needsOnly: false,
+    brand: null,
+    section: null,
+  });
+  const [refreshing, setRefreshing] = useState(false);
 
   const { data, isLoading } = useQuery<StockApiResponse>({
     queryKey: ["stock"],
@@ -76,6 +124,7 @@ export function StockPageClient({
         sources: [],
         activeFromDb: null,
         filterMode: null,
+        dataDate: null,
         rows: Array.isArray(raw) ? raw : [],
       };
     },
@@ -83,40 +132,7 @@ export function StockPageClient({
 
   const rows = useMemo(() => data?.rows ?? [], [data?.rows]);
   const activeVda = data?.activeFromDb ?? storeCode;
-
-  const updateMutation = useMutation({
-    mutationFn: async (payload: {
-      skuId: string;
-      minDays: number;
-      maxDays: number;
-    }) => {
-      const res = await fetch("/api/stock", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) throw new Error("update failed");
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["stock"] });
-      setEditing(null);
-    },
-  });
-
-  const filtered = useMemo(() => {
-    const q = search.toLowerCase();
-    return rows.filter(
-      (r) =>
-        r.skuCode.toLowerCase().includes(q) ||
-        r.skuName.toLowerCase().includes(q)
-    );
-  }, [rows, search]);
-
-  const displayRows = useMemo(
-    () => annotatePromoGroupStripes(sortRowsByPromoGroup(filtered)),
-    [filtered]
-  );
+  const dataDate = data?.dataDate ?? null;
 
   /** จำนวนต่อ SKU สำหรับจำลอง promotion group (override จาก modal ได้) */
   const promoStagedQty = useMemo(() => {
@@ -131,6 +147,56 @@ export function StockPageClient({
     }
     return m;
   }, [rows, qtyOverrides]);
+
+  const enrichedRows = useMemo(
+    () => enrichStockRowsWithPooledPromo(rows, promoStagedQty),
+    [rows, promoStagedQty]
+  );
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    let out = enrichedRows;
+    if (q) {
+      out = out.filter((r) => r.skuName.toLowerCase().includes(q));
+    }
+    if (viewScope.needsOnly) {
+      out = out.filter((r) => r.needsOrder);
+    }
+    if (viewScope.brand) {
+      out = out.filter((r) => (r.brand ?? "") === viewScope.brand);
+    }
+    if (viewScope.section) {
+      out = out.filter((r) => (r.section ?? "") === viewScope.section);
+    }
+    return out;
+  }, [enrichedRows, search, viewScope]);
+
+  function toggleExpand(skuId: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(skuId)) next.delete(skuId);
+      else next.add(skuId);
+      return next;
+    });
+  }
+
+  const handleRefresh = useCallback(async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      await fetch("/api/stock/refresh", { method: "POST" });
+    } catch {
+      // เงียบไว้ — ผู้ใช้กดใหม่ได้
+    } finally {
+      await queryClient.invalidateQueries({ queryKey: ["stock"] });
+      setRefreshing(false);
+    }
+  }, [refreshing, queryClient]);
+
+  const displayRows = useMemo(
+    () => annotatePromoGroupStripes(sortRowsByPromoGroup(filtered)),
+    [filtered]
+  );
 
   function applyGroupStaged(staged: Record<string, number>) {
     setQtyOverrides((prev) => ({ ...prev, ...staged }));
@@ -149,13 +215,77 @@ export function StockPageClient({
     sessionStorage.setItem("vmi_order_qty", JSON.stringify(qtyOverrides));
   }, [qtyOverrides]);
 
+  function lineQty(row: StockRowComputed): number {
+    const o = qtyOverrides[row.skuCode];
+    if (o != null && o > 0) return o;
+    return row.suggestOrder > 0 ? row.suggestOrder : 1;
+  }
+
+  /** จำนวนที่ใช้ประเมิน CVD — เฉพาะเมื่อมีการสั่งจริงหรือมีแนะนำ */
+  function evalQty(row: StockRowComputed): number {
+    if (qtyOverrides[row.skuCode] != null && qtyOverrides[row.skuCode]! > 0) {
+      return qtyOverrides[row.skuCode]!;
+    }
+    if (selected.has(row.skuId)) return lineQty(row);
+    if (row.suggestOrder > 0) return row.suggestOrder;
+    return 0;
+  }
+
+  function orderCvdFlag(row: StockRowComputed): {
+    cvdEst: number | null;
+    flag: CvdFlag | null;
+  } {
+    const qty = evalQty(row);
+    if (qty <= 0) return { cvdEst: null, flag: null };
+    const cvdEst = calcCvdEstimate(row.stock, qty, row.avgSales);
+    return { cvdEst, flag: getCvdFlag(cvdEst) };
+  }
+
+  /** ปรับจำนวน + เลือกสินค้าเข้าออเดอร์ให้อัตโนมัติ */
+  function setLineQty(skuCode: string, qty: number, skuId?: string) {
+    const row = rows.find((r) => r.skuCode === skuCode);
+    const id = skuId ?? row?.skuId;
+    const nextQty = Math.max(1, Math.floor(qty));
+    setQtyOverrides((prev) => ({
+      ...prev,
+      [skuCode]: nextQty,
+    }));
+    if (id) {
+      setSelected((prev) => {
+        if (prev.has(id)) return prev;
+        const next = new Set(prev);
+        next.add(id);
+        return next;
+      });
+    }
+  }
+
+  function adjustLineQty(skuCode: string, delta: number) {
+    const row = rows.find((r) => r.skuCode === skuCode);
+    if (!row) return;
+    setLineQty(skuCode, lineQty(row) + delta, row.skuId);
+  }
+
+  function initQtyForRow(row: StockRowComputed) {
+    setQtyOverrides((prev) => {
+      if (prev[row.skuCode] != null) return prev;
+      return {
+        ...prev,
+        [row.skuCode]: row.suggestOrder > 0 ? row.suggestOrder : 1,
+      };
+    });
+  }
+
   function toggleRow(skuId: string) {
+    const row = rows.find((r) => r.skuId === skuId);
+    const adding = !selected.has(skuId);
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(skuId)) next.delete(skuId);
       else next.add(skuId);
       return next;
     });
+    if (adding && row) initQtyForRow(row);
   }
 
   const filteredNeedsOrder = useMemo(
@@ -171,12 +301,25 @@ export function StockPageClient({
     filteredNeedsOrder.some((r) => selected.has(r.skuId)) && !allNeedsSelected;
 
   function toggleSelectAllNeeds() {
+    if (allNeedsSelected) {
+      setSelected((prev) => {
+        const next = new Set(prev);
+        filteredNeedsOrder.forEach((r) => next.delete(r.skuId));
+        return next;
+      });
+      return;
+    }
     setSelected((prev) => {
       const next = new Set(prev);
-      if (allNeedsSelected) {
-        filteredNeedsOrder.forEach((r) => next.delete(r.skuId));
-      } else {
-        filteredNeedsOrder.forEach((r) => next.add(r.skuId));
+      filteredNeedsOrder.forEach((r) => next.add(r.skuId));
+      return next;
+    });
+    setQtyOverrides((prev) => {
+      const next = { ...prev };
+      for (const r of filteredNeedsOrder) {
+        if (next[r.skuCode] == null) {
+          next[r.skuCode] = r.suggestOrder > 0 ? r.suggestOrder : 1;
+        }
       }
       return next;
     });
@@ -186,22 +329,81 @@ export function StockPageClient({
     setSelected(new Set());
   }
 
-  function selectAllNeedsOrder() {
-    setSelected(new Set(rows.filter((r) => r.needsOrder).map((r) => r.skuId)));
+  /** เลือกที่ควรสั่งตามตัวกรองปัจจุบัน (replace ไม่สะสม) */
+  function selectByFilter(section?: string) {
+    let target = filteredNeedsOrder;
+    if (section) {
+      target = target.filter((r) => (r.section ?? "") === section);
+    }
+    setSelected(new Set(target.map((r) => r.skuId)));
+    setQtyOverrides((prev) => {
+      const next = { ...prev };
+      for (const r of target) {
+        if (next[r.skuCode] == null) {
+          next[r.skuCode] = r.suggestOrder > 0 ? r.suggestOrder : 1;
+        }
+      }
+      return next;
+    });
   }
 
+  const hasActiveFilter =
+    viewScope.needsOnly ||
+    Boolean(viewScope.brand) ||
+    Boolean(viewScope.section);
+
+  /** รายการ Section / Brand สำหรับแผงกรอง */
+  const filterSections = useMemo(() => {
+    const s = new Set<string>();
+    for (const r of rows) if (r.section) s.add(r.section);
+    return [...s].sort((a, b) => a.localeCompare(b, "th"));
+  }, [rows]);
+
+  const filterBrands = useMemo(() => {
+    const s = new Set<string>();
+    for (const r of rows) if (r.brand) s.add(r.brand);
+    return [...s].sort((a, b) => a.localeCompare(b, "th"));
+  }, [rows]);
+
   const stats = useMemo(() => {
-    const needsOrder = rows.filter((r) => r.needsOrder).length;
-    const lowStock = rows.filter(
-      (r) => r.stockCvd !== null && r.stockCvd < 7
-    ).length;
-    return { total: rows.length, needsOrder, lowStock };
+    let totalStock = 0;
+    let totalValue = 0;
+    let totalAvg = 0;
+    let needsOrder = 0;
+    for (const r of rows) {
+      totalStock += r.stock;
+      totalValue += r.stock * (r.unitPrice ?? 0);
+      totalAvg += r.avgSales;
+      if (r.needsOrder) needsOrder++;
+    }
+    const cvdAll = totalAvg > 0 ? totalStock / totalAvg : null;
+    return {
+      total: rows.length,
+      totalStock,
+      totalValue,
+      cvdAll,
+      needsOrder,
+    };
   }, [rows]);
 
   const selectedItems = useMemo(
     () => rows.filter((r) => selected.has(r.skuId)),
     [rows, selected]
   );
+
+  const selectedRedCount = useMemo(() => {
+    let n = 0;
+    for (const item of selectedItems) {
+      const qty =
+        qtyOverrides[item.skuCode] ??
+        (item.suggestOrder > 0 ? item.suggestOrder : 1);
+      if (qty <= 0) continue;
+      if (getCvdFlag(calcCvdEstimate(item.stock, qty, item.avgSales)) === "red") {
+        n++;
+      }
+    }
+    return n;
+  }, [selectedItems, qtyOverrides]);
 
   useEffect(() => {
     if (selectedItems.length === 0) return;
@@ -229,20 +431,6 @@ export function StockPageClient({
     router.push("/order");
   }
 
-  function startEdit(row: StockRowComputed) {
-    setEditing(row.skuId);
-    setEditMin(String(row.minDays));
-    setEditMax(String(row.maxDays));
-  }
-
-  function saveEdit(skuId: string) {
-    updateMutation.mutate({
-      skuId,
-      minDays: Number(editMin),
-      maxDays: Number(editMax),
-    });
-  }
-
   return (
     <PageShell className="vmi-stock-page pb-20">
       <AppHeader
@@ -257,40 +445,54 @@ export function StockPageClient({
 
       <main className="vmi-stock-main mx-auto w-full min-w-0 max-w-7xl px-3 sm:px-4">
         <div className="vmi-stock-stats shrink-0 py-2 xl:py-3">
-          <div className="flex gap-1.5 xl:hidden">
-            <StockStatChip label="SKU" value={stats.total} />
-            <StockStatChip
-              label="ควรสั่ง"
-              value={stats.needsOrder}
-              tone="amber"
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
+            <StockStatCard
+              icon={<Package className="h-4 w-4" />}
+              label="จำนวน SKU"
+              value={formatNumber(stats.total, 0)}
             />
-            <StockStatChip
-              label="CVDต่ำ"
-              value={stats.lowStock}
-              tone="red"
+            <StockStatCard
+              icon={<Boxes className="h-4 w-4" />}
+              label="หีบทั้งหมด"
+              value={formatNumber(stats.totalStock, 0)}
+            />
+            <StockStatCard
+              icon={<Wallet className="h-4 w-4" />}
+              label="มูลค่าสินค้ารวม"
+              value={`฿${formatNumber(stats.totalValue, 0)}`}
+            />
+            <StockStatCard
+              icon={<CalendarClock className="h-4 w-4" />}
+              label="CVD รวม"
+              value={formatDays(stats.cvdAll)}
+            />
+            <StockStatCard
+              icon={<ShoppingCart className="h-4 w-4" />}
+              label="ควรสั่ง"
+              value={formatNumber(stats.needsOrder, 0)}
+              tone="amber"
             />
           </div>
-          <div className="hidden grid-cols-3 gap-2 xl:grid">
-            <StatCard
-              icon={<Package className="h-4 w-4 sm:h-5 sm:w-5" />}
-              value={stats.total}
-              label="SKU"
-              className="!gap-2 !p-2.5 sm:!p-3"
-            />
-            <StatCard
-              icon={<AlertTriangle className="h-4 w-4 sm:h-5 sm:w-5" />}
-              value={stats.needsOrder}
-              label="ควรสั่ง"
-              tone="amber"
-              className="!gap-2 !p-2.5 sm:!p-3"
-            />
-            <StatCard
-              icon={<TrendingDown className="h-4 w-4 sm:h-5 sm:w-5" />}
-              value={stats.lowStock}
-              label="CVD ต่ำ"
-              tone="red"
-              className="!gap-2 !p-2.5 sm:!p-3"
-            />
+          <div className="mt-2 flex items-center justify-between gap-2">
+            {dataDate ? (
+              <p className="flex items-center gap-1 text-[11px] text-slate-400 dark:text-slate-500">
+                <Clock className="h-3 w-3" />
+                ข้อมูล ณ {formatDataDate(dataDate)}
+              </p>
+            ) : (
+              <span />
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1.5 px-2 text-xs text-slate-500 hover:text-teal-700 dark:text-slate-400"
+              onClick={handleRefresh}
+              disabled={refreshing}
+              title="ดึงข้อมูลสินค้าล่าสุด"
+            >
+              <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} />
+              {refreshing ? "กำลังรีเฟรช..." : "รีเฟรชข้อมูล"}
+            </Button>
           </div>
         </div>
 
@@ -299,20 +501,33 @@ export function StockPageClient({
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
             <Input
               className="h-8 pl-9 text-xs xl:h-9 xl:text-sm"
-              placeholder="ค้นหา SKU หรือชื่อสินค้า..."
+              placeholder="ค้นหาชื่อสินค้า..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="whitespace-nowrap"
-              onClick={selectAllNeedsOrder}
-            >
-              เลือกที่ควรสั่ง ({stats.needsOrder})
-            </Button>
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+            <StockFilterDropdown
+              viewScope={viewScope}
+              brands={filterBrands}
+              sections={filterSections}
+              filteredNeedsCount={filteredNeedsOrder.length}
+              onChange={setViewScope}
+              onSelect={() => selectByFilter()}
+              onClear={() =>
+                setViewScope({ needsOnly: false, brand: null, section: null })
+              }
+            />
+            {filteredNeedsOrder.length > 0 && (
+              <Button
+                variant="secondary"
+                size="sm"
+                className="whitespace-nowrap"
+                onClick={() => selectByFilter()}
+              >
+                เลือก {filteredNeedsOrder.length}
+              </Button>
+            )}
             {selected.size > 0 && (
               <Button variant="ghost" size="sm" onClick={clearSelection}>
                 ล้าง
@@ -321,6 +536,33 @@ export function StockPageClient({
           </div>
         </div>
 
+        {hasActiveFilter && (
+          <div className="mb-2 flex shrink-0 flex-wrap items-center gap-1.5">
+            <span className="text-[11px] text-slate-500 dark:text-slate-400">
+              กำลังแสดง:
+            </span>
+            {viewScope.needsOnly && (
+              <FilterChip label="ควรสั่ง" />
+            )}
+            {viewScope.brand && (
+              <FilterChip label={`แบรนด์: ${viewScope.brand}`} />
+            )}
+            {viewScope.section && (
+              <FilterChip label={`กลุ่มสินค้า: ${viewScope.section}`} />
+            )}
+            <button
+              type="button"
+              className="inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[11px] text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+              onClick={() =>
+                setViewScope({ needsOnly: false, brand: null, section: null })
+              }
+            >
+              <X className="h-3 w-3" />
+              ล้างกรอง
+            </button>
+          </div>
+        )}
+
         {selected.size > 0 && (
           <p className="mb-2 shrink-0 text-xs font-medium text-teal-700 dark:text-teal-400">
             เลือกแล้ว {selected.size} รายการ · หน่วย หีบ
@@ -328,33 +570,63 @@ export function StockPageClient({
         )}
 
         <div className="vmi-table-wrap vmi-stock-table-wrap min-h-0 flex-1 max-xl:flex-none">
-          <div className="vmi-table-scroll vmi-stock-table-scroll overflow-x-hidden xl:overflow-x-auto">
+          <div className="vmi-table-scroll vmi-stock-table-scroll overflow-x-hidden">
             <div className="xl:hidden">
               {isLoading ? (
                 <p className="px-3 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
                   กำลังโหลด...
                 </p>
               ) : (
-                <MobileRowList>
-                  {displayRows.map((row) => (
+                <MobileRowList grid>
+                  {displayRows.map((row) => {
+                    const { cvdEst, flag } = orderCvdFlag(row);
+                    return (
                     <StockMobileRow
                       key={row.skuId}
                       row={row}
                       storeCode={activeVda}
+                      qty={lineQty(row)}
+                      selected={selected.has(row.skuId)}
+                      orderCvd={cvdEst}
+                      orderFlag={flag}
                       stagedQty={promoStagedQty}
                       onConfirmStaged={applyGroupStaged}
-                      selected={selected.has(row.skuId)}
+                      onAdjustQty={(d) => adjustLineQty(row.skuCode, d)}
+                      onSetQty={(q) => setLineQty(row.skuCode, q, row.skuId)}
+                      onApplySuggest={() =>
+                        setLineQty(
+                          row.skuCode,
+                          row.suggestOrder > 0 ? row.suggestOrder : 1,
+                          row.skuId
+                        )
+                      }
                       onToggle={() => toggleRow(row.skuId)}
+                      expanded={expanded.has(row.skuId)}
+                      onToggleExpand={() => toggleExpand(row.skuId)}
                     />
-                  ))}
+                    );
+                  })}
                 </MobileRowList>
               )}
             </div>
 
-            <table className="vmi-data-table hidden w-full min-w-0 text-left xl:table xl:min-w-[1140px]">
-            <thead className="text-xs font-medium text-slate-500 dark:text-slate-400">
+            <table className="vmi-data-table vmi-stock-fit-table hidden w-full table-fixed text-left xl:table">
+            <colgroup>
+              <col className="w-[2.5%]" />
+              <col className="w-[8%]" />
+              <col className="w-[18%]" />
+              <col className="w-[5%]" />
+              <col className="w-[5%]" />
+              <col className="w-[6%]" />
+              <col className="w-[6%]" />
+              <col className="w-[12%]" />
+              <col className="w-[8%]" />
+              <col className="w-[8%]" />
+              <col className="w-[21.5%]" />
+            </colgroup>
+            <thead className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
               <tr>
-                <th className="w-9 px-2 py-2 xl:w-10 xl:px-3 xl:py-2.5">
+                <th className="px-1 py-2">
                   <Checkbox
                     checked={
                       allNeedsSelected
@@ -368,24 +640,26 @@ export function StockPageClient({
                     title="เลือกรายการที่ควรสั่ง (ตามตัวกรอง)"
                   />
                 </th>
-                <th className="whitespace-nowrap px-2 py-2 xl:px-3 xl:py-2.5">SKU</th>
-                <th className="px-2 py-2 xl:min-w-[140px] xl:px-3 xl:py-2.5">ชื่อ</th>
-                <th className="whitespace-nowrap px-3 py-2.5 text-right">สต็อก</th>
-                <th className="whitespace-nowrap px-3 py-2.5 text-right">ยอดขาย</th>
-                <th className="whitespace-nowrap px-3 py-2.5 text-right">CVD</th>
-                <th className="whitespace-nowrap px-3 py-2.5 text-right">MIN</th>
-                <th className="whitespace-nowrap px-3 py-2.5 text-right">MAX</th>
-                <th className="whitespace-nowrap px-3 py-2.5 text-right">แนะนำ</th>
-                <th className="whitespace-nowrap px-3 py-2.5 text-right">ราคา</th>
-                <th className="whitespace-nowrap px-3 py-2.5 text-right">ลด</th>
-                <th className="whitespace-nowrap px-3 py-2.5 text-right">สุทธิ</th>
-                <th className="min-w-[160px] px-3 py-2.5">โปร</th>
+                <th className="px-1 py-2">SKU</th>
+                <th className="px-1 py-2">ชื่อสินค้า</th>
+                <th className="px-1 py-2 text-right">สต็อก</th>
+                <th className="px-1 py-2 text-right">ขาย</th>
+                <th className="px-1 py-2 text-right">CVD</th>
+                <th className="px-1 py-2 text-right" title="MIN / MAX">
+                  ม./แม.
+                </th>
+                <th className="px-1 py-2 text-center">จำนวนสั่ง</th>
+                <th className="px-1 py-2 text-center">หลังสั่ง</th>
+                <th className="px-1 py-2 text-right" title="ราคาสุทธิต่อหีบ">
+                  ราคา
+                </th>
+                <th className="px-1 py-2">โปร</th>
               </tr>
             </thead>
             <tbody>
               {isLoading && (
                 <tr>
-                  <td colSpan={13} className="px-3 py-8 text-center text-slate-500 dark:text-slate-400">
+                  <td colSpan={11} className="px-3 py-8 text-center text-slate-500 dark:text-slate-400">
                     กำลังโหลด...
                   </td>
                 </tr>
@@ -395,127 +669,165 @@ export function StockPageClient({
                   const lowStock =
                     row.needsOrder ||
                     (row.stockCvd !== null && row.stockCvd < 7);
+                  const isExpanded = expanded.has(row.skuId);
+                  const { cvdEst, flag } = orderCvdFlag(row);
                   return (
+                    <Fragment key={row.skuId}>
+                    {row.promoGroupIsFirst && row.promoGroupStripe != null && (
+                      <tr className="border-t border-slate-100 dark:border-slate-800">
+                        <td colSpan={11} className="px-2 py-1">
+                          <span
+                            className={cn(
+                              "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-semibold ring-1",
+                              promoGroupBadgeClass(row.promoGroupStripe)
+                            )}
+                          >
+                            กลุ่ม {row.promoGroup}
+                          </span>
+                        </td>
+                      </tr>
+                    )}
                     <tr
-                      key={row.skuId}
                       className={cn(
                         "border-t border-slate-100 text-slate-800 transition-colors hover:bg-slate-50/60 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-800/40",
                         promoGroupRowBgClass(row.promoGroupStripe),
                         lowStock && !row.promoGroupStripe && "bg-amber-100/80 dark:bg-amber-950/20",
-                        selected.has(row.skuId) && "bg-teal-100/70 dark:bg-teal-950/25"
+                        selected.has(row.skuId) && "bg-teal-100/70 dark:bg-teal-950/25",
+                        flag === "red" && "bg-red-50/70 dark:bg-red-950/25"
                       )}
                     >
-                      <td className="px-3 py-2">
+                      <td className="px-1 py-1.5">
                         <Checkbox
                           checked={selected.has(row.skuId)}
                           onCheckedChange={() => toggleRow(row.skuId)}
                         />
                       </td>
-                      <td className="whitespace-nowrap px-3 py-2 font-medium text-slate-900 dark:text-slate-100">
-                        {row.skuCode}
+                      <td className="truncate px-1 py-1.5 font-medium text-slate-900 dark:text-slate-100">
+                        <div className="truncate text-xs">{row.skuCode}</div>
+                        {row.barcode && (
+                          <div className="truncate font-mono text-[9px] font-normal text-slate-400 dark:text-slate-500">
+                            {row.barcode}
+                          </div>
+                        )}
                       </td>
-                      <td className="px-3 py-2 text-slate-700 dark:text-slate-300">
-                        {row.skuName}
+                      <td className="px-1 py-1.5 text-slate-700 dark:text-slate-300">
+                        <button
+                          type="button"
+                          className={cn(
+                            "group flex w-full min-w-0 items-center gap-1 text-left hover:text-teal-700 dark:hover:text-teal-400",
+                            expanded.has(row.skuId) &&
+                              "font-medium text-teal-700 dark:text-teal-400"
+                          )}
+                          onClick={() => toggleExpand(row.skuId)}
+                          title={row.skuName}
+                        >
+                          <span className="min-w-0 truncate text-xs">{row.skuName}</span>
+                          <BarChart3
+                            className={cn(
+                              "h-3 w-3 shrink-0 text-slate-300 group-hover:text-teal-600 dark:text-slate-600",
+                              expanded.has(row.skuId) && "text-teal-600 dark:text-teal-400"
+                            )}
+                          />
+                        </button>
                       </td>
-                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
+                      <td className="px-1 py-1.5 text-right tabular-nums text-xs">
                         {formatNumber(row.stock, 0)}
                       </td>
-                      <td className="px-3 py-2 text-right">
-                        {formatNumber(row.avgSales, 2)}
+                      <td className="px-1 py-1.5 text-right tabular-nums text-xs">
+                        {formatNumber(row.avgSales, 1)}
                       </td>
-                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
+                      <td className="px-1 py-1.5 text-right tabular-nums text-xs">
                         {formatDays(row.stockCvd)}
                       </td>
-                      <td className="px-3 py-2 text-right">
-                        {editing === row.skuId ? (
-                          <Input
-                            className="h-8 w-16 text-right"
-                            value={editMin}
-                            onChange={(e) => setEditMin(e.target.value)}
-                          />
-                        ) : (
-                          <button
-                            className="rounded px-1 hover:bg-slate-100 dark:hover:bg-slate-700 dark:text-slate-300"
-                            onClick={() => startEdit(row)}
-                            title="คลิกเพื่อแก้ MIN (วัน)"
-                          >
-                            {formatNumber(row.minStock, 0)}
-                          </button>
-                        )}
+                      <td
+                        className="px-1 py-1.5 text-right tabular-nums text-[11px] text-slate-500 dark:text-slate-400"
+                        title={`MIN ${formatNumber(row.minStock, 0)} / MAX ${formatNumber(row.maxStock, 0)}`}
+                      >
+                        {formatNumber(row.minStock, 0)}/
+                        {formatNumber(row.maxStock, 0)}
                       </td>
-                      <td className="px-3 py-2 text-right">
-                        {editing === row.skuId ? (
-                          <Input
-                            className="h-8 w-16 text-right"
-                            value={editMax}
-                            onChange={(e) => setEditMax(e.target.value)}
-                          />
-                        ) : (
-                          <button
-                            className="rounded px-1 hover:bg-slate-100 dark:hover:bg-slate-700 dark:text-slate-300"
-                            onClick={() => startEdit(row)}
-                            title="คลิกเพื่อแก้ MAX (วัน)"
-                          >
-                            {formatNumber(row.maxStock, 0)}
-                          </button>
-                        )}
+                      <td className="px-1 py-1.5 text-center">
+                        <StockQtyStepper
+                          qty={lineQty(row)}
+                          suggestOrder={row.suggestOrder}
+                          onMinus={() => adjustLineQty(row.skuCode, -1)}
+                          onPlus={() => adjustLineQty(row.skuCode, 1)}
+                          onApplySuggest={() =>
+                            setLineQty(
+                              row.skuCode,
+                              row.suggestOrder > 0 ? row.suggestOrder : 1,
+                              row.skuId
+                            )
+                          }
+                          compact
+                        />
                       </td>
-                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
-                        {row.suggestOrder > 0 ? (
-                          <span className="font-semibold text-amber-700 dark:text-amber-400">
-                            {row.suggestOrder}
-                          </span>
+                      <td className="px-1 py-1.5 text-center">
+                        {flag ? (
+                          <div className="inline-flex flex-col items-center gap-0.5">
+                            <FlagBadge flag={flag} compact />
+                            <span
+                              className={cn(
+                                "text-[9px] tabular-nums",
+                                flag === "red"
+                                  ? "font-semibold text-red-600 dark:text-red-400"
+                                  : "text-slate-500 dark:text-slate-400"
+                              )}
+                            >
+                              {formatDays(cvdEst)}
+                            </span>
+                          </div>
                         ) : (
                           <span className="text-slate-400">—</span>
                         )}
                       </td>
-                      <td className="whitespace-nowrap px-3 py-2 text-right text-xs tabular-nums">
-                        <StockListPriceCell
-                          unitPrice={row.unitPrice}
-                          expired={row.priceExpired}
-                        />
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-2 text-right text-xs tabular-nums">
-                        <StockDiscountPerCaseCell
-                          discountBaht={row.discountBahtPerCase}
-                          discountPct={row.discountPctPerCase}
-                        />
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-2 text-right text-xs tabular-nums">
-                        <StockNetPriceCell
+                      <td className="px-1 py-1.5 text-right">
+                        <StockPriceCompact
                           unitPrice={row.unitPrice}
                           netUnitPrice={row.netUnitPrice}
+                          discountBaht={row.discountBahtPerCase}
+                          discountPct={row.discountPctPerCase}
                           expired={row.priceExpired}
                         />
                       </td>
-                      <td className="px-3 py-2.5 align-top">
-                        <PromoDetailCell
-                          variant="table"
-                          currentPromo={row.currentPromo}
-                          currentKind={row.currentPromoKind}
-                          nextPromo={row.nextPromo}
-                          qtyToNext={row.qtyToNext}
-                          nextPromoQty={row.nextPromoQty}
-                          nextKind={row.nextPromoKind}
-                          hasPromoLadder={row.hasPromoLadder}
-                          inspector={{
-                            skuCode: row.skuCode,
-                            storeCode: activeVda,
-                            stagedQty: promoStagedQty,
-                            promoGroup: row.promoGroup,
-                            promoGroupMembers: row.promoGroupMembers,
-                            onConfirmStaged: applyGroupStaged,
-                          }}
-                        />
+                      <td className="max-w-0 overflow-hidden px-1 py-1.5 align-top">
+                        <div className="min-w-0">
+                          <PromoDetailCell
+                            variant="compact"
+                            currentPromo={row.currentPromo}
+                            currentKind={row.currentPromoKind}
+                            nextPromo={row.nextPromo}
+                            qtyToNext={row.qtyToNext}
+                            nextPromoQty={row.nextPromoQty}
+                            nextKind={row.nextPromoKind}
+                            hasPromoLadder={row.hasPromoLadder}
+                            onApplyNext={(qty) =>
+                              setLineQty(row.skuCode, qty, row.skuId)
+                            }
+                            inspector={{
+                              skuCode: row.skuCode,
+                              storeCode: activeVda,
+                              stagedQty: promoStagedQty,
+                              promoGroup: row.promoGroup,
+                              promoGroupMembers: row.promoGroupMembers,
+                              onConfirmStaged: applyGroupStaged,
+                            }}
+                          />
+                        </div>
                       </td>
-                      {editing === row.skuId && (
-                        <td className="px-3 py-2">
-                          <Button size="sm" onClick={() => saveEdit(row.skuId)}>
-                            บันทึก
-                          </Button>
-                        </td>
-                      )}
                     </tr>
+                    {isExpanded && (
+                      <tr className="bg-slate-50/40 dark:bg-slate-900/30">
+                        <td />
+                        <td colSpan={10} className="px-2 pb-3 pt-0">
+                          <ProductSalesPanel
+                            skuCode={row.skuCode}
+                            fromDb={row.fromDb ?? activeVda}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   );
                 })}
             </tbody>
@@ -525,36 +837,39 @@ export function StockPageClient({
       </main>
 
       <div className="vmi-action-bar">
-        <div className="mx-auto flex max-w-7xl items-center gap-2 sm:gap-3">
-          <Button
-            variant="outline"
-            size="sm"
-            className="hidden shrink-0 sm:inline-flex"
-            onClick={selectAllNeedsOrder}
-          >
-            เลือกที่ควรสั่ง
-          </Button>
+        <div className="mx-auto flex max-w-7xl flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
           <p className="min-w-0 flex-1 truncate text-center text-xs text-slate-600 sm:text-sm dark:text-slate-400">
             {selected.size > 0 ? (
-              <>
-                <span className="font-semibold text-teal-700 dark:text-teal-400">
-                  {selected.size}
-                </span>{" "}
-                รายการพร้อมสั่ง
-              </>
+              selectedRedCount > 0 ? (
+                <span className="font-semibold text-red-600 dark:text-red-400">
+                  มี {selectedRedCount} รายการจำนวนไม่เหมาะสม — ปรับก่อนตรวจสอบ
+                </span>
+              ) : (
+                <>
+                  <span className="font-semibold text-teal-700 dark:text-teal-400">
+                    {selected.size}
+                  </span>{" "}
+                  รายการพร้อมสั่ง
+                </>
+              )
             ) : (
-              <>เลือกสินค้าจากตาราง หรือกด &quot;เลือกที่ควรสั่ง&quot;</>
+              <>เลือกสินค้า ปรับจำนวน ตรวจโปร แล้วกดตรวจสอบคำสั่ง</>
             )}
           </p>
           <Button
             size="sm"
-            className="shrink-0 sm:px-5"
-            disabled={selected.size === 0}
+            className="mx-auto shrink-0 sm:mx-0 sm:px-5"
+            disabled={selected.size === 0 || selectedRedCount > 0}
             onClick={goToOrder}
+            title={
+              selectedRedCount > 0
+                ? "มีรายการจำนวนไม่เหมาะสม ปรับก่อนตรวจสอบ"
+                : undefined
+            }
           >
             <ShoppingCart className="h-4 w-4" />
-            <span className="hidden sm:inline">สั่งสินค้า</span>
-            <span className="sm:hidden">สั่ง</span>
+            <span className="hidden sm:inline">ตรวจสอบคำสั่ง</span>
+            <span className="sm:hidden">ตรวจสอบ</span>
             {selected.size > 0 && ` (${selected.size})`}
           </Button>
         </div>
@@ -566,57 +881,129 @@ export function StockPageClient({
 function StockMobileRow({
   row,
   storeCode,
+  qty,
+  selected,
+  orderCvd,
+  orderFlag,
   stagedQty,
   onConfirmStaged,
-  selected,
+  onAdjustQty,
+  onSetQty,
+  onApplySuggest,
   onToggle,
+  expanded,
+  onToggleExpand,
 }: {
-  row: StockRowComputed & { promoGroupStripe?: PromoGroupStripe | null };
+  row: DisplayRow;
   storeCode: string;
+  qty: number;
+  selected: boolean;
+  orderCvd: number | null;
+  orderFlag: CvdFlag | null;
   stagedQty: Record<string, number>;
   onConfirmStaged: (staged: Record<string, number>) => void;
-  selected: boolean;
+  onAdjustQty: (delta: number) => void;
+  onSetQty: (qty: number) => void;
+  onApplySuggest: () => void;
+  expanded: boolean;
+  onToggleExpand: () => void;
   onToggle: () => void;
 }) {
   const lowStock =
     row.needsOrder || (row.stockCvd !== null && row.stockCvd < 7);
-  const hasPromo =
-    row.currentPromo ||
-    row.nextPromo ||
-    row.hasPromoLadder;
+  const hasPromo = Boolean(
+    row.currentPromo || row.nextPromo || row.hasPromoLadder
+  );
 
   return (
     <MobileRow
       selected={selected}
-      warn={lowStock && row.promoGroupStripe == null}
+      warn={
+        (orderFlag === "red" || lowStock) && row.promoGroupStripe == null
+      }
       className={cn(
         promoGroupRowBgClass(row.promoGroupStripe ?? null),
-        lowStock && !row.promoGroupStripe && "bg-amber-100/80 dark:bg-amber-950/20"
+        orderFlag === "red"
+          ? "bg-red-50/70 dark:bg-red-950/25"
+          : lowStock && !row.promoGroupStripe && "bg-amber-100/80 dark:bg-amber-950/20"
       )}
     >
+      {row.promoGroupIsFirst && row.promoGroupStripe != null && (
+        <div className="px-3 pt-2">
+          <span
+            className={cn(
+              "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-semibold ring-1",
+              promoGroupBadgeClass(row.promoGroupStripe)
+            )}
+          >
+            กลุ่ม {row.promoGroup}
+          </span>
+        </div>
+      )}
       <MobileRowTop>
         <Checkbox checked={selected} onCheckedChange={onToggle} />
-        <div className="min-w-0 flex-1">
+        <button
+          type="button"
+          onClick={onToggleExpand}
+          className="min-w-0 flex-1 text-left"
+          title="ดู/ซ่อนยอดขายรายวัน"
+        >
           <p className="text-sm font-bold leading-snug text-slate-900 dark:text-slate-100">
             <span className="text-teal-700 dark:text-teal-400">{row.skuCode}</span>
             <span className="mx-1.5 font-normal text-slate-300 dark:text-slate-600">
               ·
             </span>
-            <span className="font-medium text-slate-800 dark:text-slate-200">
+            <span
+              className={cn(
+                "font-medium text-slate-800 dark:text-slate-200",
+                expanded && "text-teal-700 dark:text-teal-400"
+              )}
+            >
               {row.skuName}
             </span>
+            <BarChart3
+              className={cn(
+                "ml-1.5 inline h-3.5 w-3.5 shrink-0 align-text-bottom text-slate-300",
+                expanded
+                  ? "text-teal-600 dark:text-teal-400"
+                  : "text-slate-300 dark:text-slate-600"
+              )}
+            />
           </p>
-        </div>
+          {row.barcode && (
+            <p className="mt-0.5 font-mono text-[10px] text-slate-400 dark:text-slate-500">
+              {row.barcode}
+            </p>
+          )}
+        </button>
+        <StockQtyStepper
+          qty={qty}
+          suggestOrder={row.suggestOrder}
+          onMinus={() => onAdjustQty(-1)}
+          onPlus={() => onAdjustQty(1)}
+          onApplySuggest={onApplySuggest}
+          compact
+        />
       </MobileRowTop>
       <MobileRowStats className="pl-7">
         <MobileStat label="สต็อก" value={formatNumber(row.stock, 0)} />
         <MobileStat label="CVD" value={formatDays(row.stockCvd)} />
-        {row.suggestOrder > 0 && (
-          <MobileStat
-            label="แนะนำ"
-            value={`${row.suggestOrder} หีบ`}
-            warn
-          />
+        {orderFlag && (
+          <MobileStat label="หลังสั่ง">
+            <div className="flex flex-col items-start gap-0.5">
+              <FlagBadge flag={orderFlag} compact />
+              <span
+                className={cn(
+                  "text-[10px] tabular-nums",
+                  orderFlag === "red"
+                    ? "font-semibold text-red-600 dark:text-red-400"
+                    : "text-slate-500"
+                )}
+              >
+                {formatDays(orderCvd)}
+              </span>
+            </div>
+          </MobileStat>
         )}
         <MobileStat label="ราคา">
           <StockListPriceCell
@@ -655,6 +1042,7 @@ function StockMobileRow({
             nextPromoQty={row.nextPromoQty}
             nextKind={row.nextPromoKind}
             hasPromoLadder={row.hasPromoLadder}
+            onApplyNext={onSetQty}
             inspector={{
               skuCode: row.skuCode,
               storeCode,
@@ -666,32 +1054,514 @@ function StockMobileRow({
           />
         </MobileRowExtra>
       )}
+      {expanded && (
+        <MobileRowExtra className="pl-7">
+          <ProductSalesPanel skuCode={row.skuCode} fromDb={row.fromDb ?? storeCode} />
+        </MobileRowExtra>
+      )}
     </MobileRow>
   );
 }
 
-function StockStatChip({
+function formatDataDate(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString("th-TH", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function StockStatCard({
+  icon,
   label,
   value,
   tone = "default",
 }: {
+  icon: ReactNode;
   label: string;
-  value: number;
-  tone?: "default" | "amber" | "red";
+  value: string | number;
+  tone?: "default" | "amber";
 }) {
   return (
-    <div className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-lg bg-slate-100/80 px-2.5 py-1.5 text-xs dark:bg-slate-800/60">
-      <span className="truncate text-slate-500 dark:text-slate-400">{label}</span>
+    <div
+      className={cn(
+        "flex min-w-0 items-center gap-2.5 rounded-xl border px-3 py-2.5 shadow-sm",
+        tone === "amber"
+          ? "border-amber-200 bg-amber-50/70 dark:border-amber-500/25 dark:bg-amber-950/20"
+          : "border-slate-200/80 bg-white dark:border-slate-800 dark:bg-slate-900/50"
+      )}
+    >
       <span
         className={cn(
-          "shrink-0 font-semibold tabular-nums",
-          tone === "amber" && "text-amber-700 dark:text-amber-400",
-          tone === "red" && "text-red-600 dark:text-red-400",
-          tone === "default" && "text-slate-800 dark:text-slate-100"
+          "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
+          tone === "amber"
+            ? "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300"
+            : "bg-teal-50 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400"
         )}
       >
-        {value}
+        {icon}
       </span>
+      <div className="min-w-0">
+        <p className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+          {label}
+        </p>
+        <p
+          className={cn(
+            "truncate text-base font-bold tabular-nums leading-tight",
+            tone === "amber"
+              ? "text-amber-700 dark:text-amber-300"
+              : "text-slate-800 dark:text-slate-100"
+          )}
+        >
+          {value}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function FilterChip({ label }: { label: string }) {
+  return (
+    <span className="inline-flex items-center rounded-md bg-teal-50 px-2 py-0.5 text-[11px] font-medium text-teal-800 ring-1 ring-teal-200 dark:bg-teal-950/40 dark:text-teal-200 dark:ring-teal-800/50">
+      {label}
+    </span>
+  );
+}
+
+function countActiveFilters(scope: ViewScope): number {
+  let n = 0;
+  if (scope.needsOnly) n++;
+  if (scope.brand) n++;
+  if (scope.section) n++;
+  return n;
+}
+
+function FilterOption({
+  label,
+  selected,
+  onClick,
+}: {
+  label: string;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs transition-colors",
+        selected
+          ? "bg-teal-50 font-medium text-teal-800 dark:bg-teal-950/50 dark:text-teal-200"
+          : "text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800/60"
+      )}
+    >
+      <span
+        className={cn(
+          "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border",
+          selected
+            ? "border-teal-600 bg-teal-600 text-white dark:border-teal-500 dark:bg-teal-500"
+            : "border-slate-300 dark:border-slate-600"
+        )}
+      >
+        {selected && <Check className="h-2.5 w-2.5" strokeWidth={3} />}
+      </span>
+      <span className="min-w-0 truncate">{label}</span>
+    </button>
+  );
+}
+
+function FilterOptionList({
+  options,
+  value,
+  onChange,
+}: {
+  options: string[];
+  value: string | null;
+  onChange: (v: string | null) => void;
+}) {
+  return (
+    <div className="max-h-36 space-y-0.5 overflow-y-auto rounded-xl bg-slate-50/80 p-1 dark:bg-slate-900/40">
+      <FilterOption
+        label="ทั้งหมด"
+        selected={!value}
+        onClick={() => onChange(null)}
+      />
+      {options.map((opt) => (
+        <FilterOption
+          key={opt}
+          label={opt}
+          selected={value === opt}
+          onClick={() => onChange(value === opt ? null : opt)}
+        />
+      ))}
+    </div>
+  );
+}
+
+function StockFilterDropdown({
+  viewScope,
+  brands,
+  sections,
+  filteredNeedsCount,
+  onChange,
+  onSelect,
+  onClear,
+}: {
+  viewScope: ViewScope;
+  brands: string[];
+  sections: string[];
+  filteredNeedsCount: number;
+  onChange: (scope: ViewScope) => void;
+  onSelect: () => void;
+  onClear: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [panelStyle, setPanelStyle] = useState<CSSProperties>({ visibility: "hidden" });
+  const [mounted, setMounted] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const activeCount = countActiveFilters(viewScope);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    function onClick(e: MouseEvent) {
+      const target = e.target as Node;
+      if (ref.current?.contains(target) || panelRef.current?.contains(target)) {
+        return;
+      }
+      setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open || !ref.current || !panelRef.current) return;
+
+    function positionPanel() {
+      const trigger = ref.current!.getBoundingClientRect();
+      const panel = panelRef.current!;
+      const margin = 12;
+      const vw = document.documentElement.clientWidth;
+      const vh = window.innerHeight;
+      const width = Math.min(320, vw - margin * 2);
+      const gap = 6;
+
+      let left = Math.max(
+        margin,
+        Math.min(trigger.right - width, vw - width - margin)
+      );
+
+      const belowTop = trigger.bottom + gap;
+      const panelHeight = panel.offsetHeight;
+      const spaceBelow = vh - margin - belowTop;
+      const spaceAbove = trigger.top - gap - margin;
+
+      let top = belowTop;
+      let maxHeight = spaceBelow;
+
+      if (panelHeight > spaceBelow && spaceAbove > spaceBelow) {
+        maxHeight = spaceAbove;
+        top = Math.max(margin, trigger.top - gap - Math.min(panelHeight, maxHeight));
+      }
+
+      maxHeight = Math.max(180, Math.min(maxHeight, vh - top - margin));
+
+      setPanelStyle({
+        position: "fixed",
+        top,
+        left,
+        width,
+        maxHeight,
+        zIndex: 9999,
+        visibility: "visible",
+      });
+    }
+
+    positionPanel();
+    const raf = requestAnimationFrame(positionPanel);
+    window.addEventListener("resize", positionPanel);
+    window.addEventListener("scroll", positionPanel, true);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", positionPanel);
+      window.removeEventListener("scroll", positionPanel, true);
+    };
+  }, [open, brands.length, sections.length, filteredNeedsCount, activeCount]);
+
+  function handleSelect() {
+    onSelect();
+    setOpen(false);
+  }
+
+  const panel =
+    open && mounted
+      ? createPortal(
+          <div
+            ref={panelRef}
+            style={panelStyle}
+            className="flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900"
+          >
+            <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+              <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+                ตัวกรอง
+              </p>
+              <button
+                type="button"
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                onClick={() => setOpen(false)}
+                aria-label="ปิด"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-3">
+              <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 px-3 py-2.5 transition-colors has-[:checked]:border-teal-300 has-[:checked]:bg-teal-50/50 dark:border-slate-700 dark:has-[:checked]:border-teal-700 dark:has-[:checked]:bg-teal-950/20">
+                <Checkbox
+                  checked={viewScope.needsOnly}
+                  onCheckedChange={(checked) =>
+                    onChange({ ...viewScope, needsOnly: checked === true })
+                  }
+                />
+                <div>
+                  <p className="text-sm font-medium text-slate-800 dark:text-slate-100">
+                    เฉพาะที่ควรสั่ง
+                  </p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    แสดงเฉพาะสินค้าที่สต็อกต่ำกว่าเกณฑ์
+                  </p>
+                </div>
+              </label>
+
+              {brands.length > 0 && (
+                <div>
+                  <p className="mb-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                    แบรนด์
+                  </p>
+                  <FilterOptionList
+                    options={brands}
+                    value={viewScope.brand}
+                    onChange={(brand) => onChange({ ...viewScope, brand })}
+                  />
+                </div>
+              )}
+
+              {sections.length > 0 && (
+                <div>
+                  <p className="mb-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                    กลุ่มสินค้า
+                  </p>
+                  <FilterOptionList
+                    options={sections}
+                    value={viewScope.section}
+                    onChange={(section) => onChange({ ...viewScope, section })}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="flex shrink-0 items-center gap-2 border-t border-slate-100 px-4 py-3 dark:border-slate-800">
+              {activeCount > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="shrink-0"
+                  onClick={() => {
+                    onClear();
+                  }}
+                >
+                  ล้างกรอง
+                </Button>
+              )}
+              <div className="min-w-0 flex-1" />
+              {filteredNeedsCount > 0 ? (
+                <Button size="sm" className="shrink-0" onClick={handleSelect}>
+                  เลือก {filteredNeedsCount} รายการ
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="shrink-0"
+                  onClick={() => setOpen(false)}
+                >
+                  ปิด
+                </Button>
+              )}
+            </div>
+          </div>,
+          document.body
+        )
+      : null;
+
+  return (
+    <div className="relative" ref={ref}>
+      <Button
+        variant={activeCount > 0 ? "default" : "outline"}
+        size="sm"
+        className="gap-1.5 whitespace-nowrap"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        <Filter className="h-3.5 w-3.5" />
+        กรอง
+        {activeCount > 0 && (
+          <span className="rounded-full bg-white/20 px-1.5 py-px text-[10px] font-bold tabular-nums">
+            {activeCount}
+          </span>
+        )}
+      </Button>
+      {panel}
+    </div>
+  );
+}
+
+function StockQtyStepper({
+  qty,
+  suggestOrder,
+  onMinus,
+  onPlus,
+  onApplySuggest,
+  compact = false,
+}: {
+  qty: number;
+  suggestOrder: number;
+  onMinus: () => void;
+  onPlus: () => void;
+  onApplySuggest?: () => void;
+  compact?: boolean;
+}) {
+  const btn = compact ? "h-6 w-6 rounded-md" : "h-8 w-8";
+  const showSuggest = suggestOrder > 0 && qty !== suggestOrder;
+
+  return (
+    <div
+      className="inline-flex items-center justify-center gap-0.5"
+      onClick={(e) => e.stopPropagation()}
+    >
+      {showSuggest && onApplySuggest && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onApplySuggest();
+          }}
+          title={`ใช้จำนวนแนะนำ ${suggestOrder}`}
+          className="rounded p-0.5 text-teal-700 hover:bg-teal-50 dark:text-teal-400 dark:hover:bg-teal-950/50"
+        >
+          <RotateCcw className={compact ? "h-3 w-3" : "h-3.5 w-3.5"} />
+        </button>
+      )}
+      <Button
+        size="icon"
+        variant="outline"
+        className={btn}
+        onClick={(e) => {
+          e.stopPropagation();
+          onMinus();
+        }}
+        aria-label="ลดจำนวน"
+      >
+        <Minus className={compact ? "h-3 w-3" : "h-3.5 w-3.5"} />
+      </Button>
+      <span
+        className={cn(
+          "text-center font-bold tabular-nums text-slate-900 dark:text-white",
+          compact ? "min-w-[1.5rem] text-xs" : "w-8 text-sm"
+        )}
+        title={
+          suggestOrder > 0 && qty !== suggestOrder
+            ? `แนะนำ ${suggestOrder} หีบ`
+            : undefined
+        }
+      >
+        {qty}
+      </span>
+      <Button
+        size="icon"
+        variant="outline"
+        className={btn}
+        onClick={(e) => {
+          e.stopPropagation();
+          onPlus();
+        }}
+        aria-label="เพิ่มจำนวน"
+      >
+        <Plus className={compact ? "h-3 w-3" : "h-3.5 w-3.5"} />
+      </Button>
+    </div>
+  );
+}
+
+function StockPriceCompact({
+  unitPrice,
+  netUnitPrice,
+  discountBaht,
+  discountPct,
+  expired,
+}: {
+  unitPrice?: number | null;
+  netUnitPrice?: number | null;
+  discountBaht?: number | null;
+  discountPct?: number | null;
+  expired?: boolean;
+}) {
+  if (unitPrice == null) return <span className="text-slate-400">-</span>;
+  const net = netUnitPrice ?? unitPrice;
+  const hasDiscount = net < unitPrice - 0.001;
+  const discLabel =
+    discountBaht != null && discountBaht > 0
+      ? `ลด ${formatNumber(discountBaht, 2)}`
+      : discountPct != null && discountPct > 0
+        ? `ลด ${formatNumber(discountPct, 1)}%`
+        : null;
+
+  return (
+    <div
+      className="text-right leading-tight"
+      title={
+        [
+          expired ? "ราคาหมดอายุ" : null,
+          discLabel,
+          `ราคา ${formatNumber(unitPrice, 0)} → สุทธิ ${formatNumber(net, 0)}`,
+        ]
+          .filter(Boolean)
+          .join(" · ") || undefined
+      }
+    >
+      <div
+        className={cn(
+          "tabular-nums text-xs font-semibold",
+          hasDiscount
+            ? "text-slate-900 dark:text-slate-100"
+            : "text-slate-700 dark:text-slate-300",
+          expired && "text-amber-600 dark:text-amber-400"
+        )}
+      >
+        {formatNumber(net, 0)}
+      </div>
+      {hasDiscount && (
+        <div className="tabular-nums text-[9px] text-slate-400 line-through">
+          {formatNumber(unitPrice, 0)}
+        </div>
+      )}
     </div>
   );
 }
@@ -732,7 +1602,7 @@ function StockDiscountPerCaseCell({
   if (discountBaht != null && discountBaht > 0) {
     return (
       <span className={cn("text-slate-600 dark:text-slate-400", compact && "text-xs")}>
-        {formatNumber(discountBaht, 0)}
+        {formatNumber(discountBaht, 2)}
       </span>
     );
   }

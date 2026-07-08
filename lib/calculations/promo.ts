@@ -11,6 +11,8 @@ export interface PromoTierInput {
   kind?: PromoTierKind;
   premiumProduct?: string;
   premiumQty?: number;
+  discBaht?: number;
+  discPct?: number;
 }
 
 export interface PromoResult {

@@ -7,6 +7,7 @@ import {
   RefreshCw,
   Search,
   Shield,
+  Store,
   Users,
   Warehouse,
 } from "lucide-react";
@@ -34,7 +35,7 @@ import { cn } from "@/lib/utils";
 import { VdaSalesAccessPanel } from "@/components/admin/vda-sales-access-panel";
 
 type SalesPreviewScope = "with_vda" | "all";
-type AdminTab = "vda" | "sales" | "settings";
+type AdminTab = "vda" | "sales" | "stores" | "settings";
 
 const ADMIN_TABS: {
   id: AdminTab;
@@ -43,6 +44,7 @@ const ADMIN_TABS: {
 }[] = [
   { id: "vda", label: "มุมมอง VDA", icon: Warehouse },
   { id: "sales", label: "มุมมองเซลล์", icon: Users },
+  { id: "stores", label: "บัญชีร้านค้า", icon: Store },
   { id: "settings", label: "ตั้งค่าระบบ", icon: Shield },
 ];
 
@@ -255,6 +257,7 @@ export function AdminDevClient() {
   const salesPreview = useSalesPreview();
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<AdminTab>("vda");
+  const [storePendingCount, setStorePendingCount] = useState(0);
   const {
     data: salesDirectory,
     loading: salesDirectoryLoading,
@@ -267,6 +270,21 @@ export function AdminDevClient() {
     () => getPeopleWithVda(salesDirectory),
     [salesDirectory]
   );
+
+  useEffect(() => {
+    if (session?.role !== "admin") return;
+    fetch("/api/admin/store-accounts")
+      .then((r) => r.json())
+      .then((d: { accounts?: StoreAccountRow[] }) => {
+        const rows = Array.isArray(d.accounts) ? d.accounts : [];
+        const n =
+          rows.filter((a) => a.status === "pending").length +
+          rows.filter((a) => a.status === "approved" && a.resetRequestedAt)
+            .length;
+        setStorePendingCount(n);
+      })
+      .catch(() => {});
+  }, [session?.role]);
 
   const filteredReps = useMemo(() => {
     const base =
@@ -344,6 +362,14 @@ export function AdminDevClient() {
             >
               <Icon className="h-4 w-4 shrink-0" />
               <span className="truncate">{label}</span>
+              {id === "stores" && storePendingCount > 0 && (
+                <span
+                  className="ml-0.5 inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-bold leading-none text-white"
+                  title={`${storePendingCount} คำขอรอดำเนินการ`}
+                >
+                  {storePendingCount}
+                </span>
+              )}
             </button>
           ))}
         </nav>
@@ -617,6 +643,10 @@ export function AdminDevClient() {
           </Card>
         )}
 
+        {activeTab === "stores" && (
+          <StoreAccountsPanel onCountChange={setStorePendingCount} />
+        )}
+
         {activeTab === "settings" && (
           <div className="space-y-4">
             <AdminEmailsSection />
@@ -638,5 +668,319 @@ export function AdminDevClient() {
         )}
       </main>
     </PageShell>
+  );
+}
+
+interface StoreAccountRow {
+  id: string;
+  email: string;
+  vdaCode: string;
+  status: string;
+  mustSetPassword: boolean;
+  canManageMinMax: boolean;
+  resetRequestedAt: string | null;
+  createdAt: string;
+}
+
+function StoreAccountsPanel({
+  onCountChange,
+}: {
+  onCountChange?: (n: number) => void;
+}) {
+  const [accounts, setAccounts] = useState<StoreAccountRow[]>([]);
+  const [vdaOptions, setVdaOptions] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [vdaDraft, setVdaDraft] = useState<Record<string, string>>({});
+
+  async function load() {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/admin/store-accounts");
+      const data = await res.json();
+      const rows: StoreAccountRow[] = Array.isArray(data.accounts)
+        ? data.accounts
+        : [];
+      setAccounts(rows);
+      const pendingN =
+        rows.filter((a) => a.status === "pending").length +
+        rows.filter((a) => a.status === "approved" && a.resetRequestedAt).length;
+      onCountChange?.(pendingN);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void load();
+    fetch("/api/vda")
+      .then((r) => r.json())
+      .then((d: { sources?: string[] }) =>
+        setVdaOptions(Array.isArray(d.sources) ? d.sources : [])
+      )
+      .catch(() => setVdaOptions([]));
+  }, []);
+
+  async function act(email: string, body: Record<string, unknown>) {
+    setBusy(email);
+    try {
+      const res = await fetch("/api/admin/store-accounts", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, ...body }),
+      });
+      if (res.ok) await load();
+      else {
+        const d = await res.json();
+        alert(d.error ?? "ทำรายการไม่สำเร็จ");
+      }
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function remove(email: string) {
+    if (!confirm(`ลบบัญชี ${email}?`)) return;
+    setBusy(email);
+    try {
+      await fetch(
+        `/api/admin/store-accounts?email=${encodeURIComponent(email)}`,
+        { method: "DELETE" }
+      );
+      await load();
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const pending = accounts.filter((a) => a.status === "pending");
+  const approved = accounts.filter((a) => a.status === "approved");
+  const rejected = accounts.filter((a) => a.status === "rejected");
+  const resetRequests = approved.filter((a) => a.resetRequestedAt);
+
+  function vdaSelect(a: StoreAccountRow) {
+    const value = vdaDraft[a.email] ?? a.vdaCode ?? "";
+    return (
+      <select
+        className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs dark:border-slate-700 dark:bg-slate-900"
+        value={value}
+        onChange={(e) =>
+          setVdaDraft((prev) => ({ ...prev, [a.email]: e.target.value }))
+        }
+      >
+        <option value="">— เลือก VDA —</option>
+        {vdaOptions.map((v) => (
+          <option key={v} value={v}>
+            {v.toUpperCase()}
+          </option>
+        ))}
+      </select>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {resetRequests.length > 0 && (
+        <Card className="border-amber-300 dark:border-amber-800">
+          <CardHeader>
+            <CardTitle className="text-amber-800 dark:text-amber-300">
+              คำขอรีเซ็ตรหัส ({resetRequests.length})
+            </CardTitle>
+            <CardDescription>
+              กด &quot;รีเซ็ตรหัส&quot; เพื่อให้ร้านค้าตั้งรหัสใหม่ครั้งถัดไป
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {resetRequests.map((a) => (
+              <div
+                key={a.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2 text-sm dark:border-amber-800/50 dark:bg-amber-950/20"
+              >
+                <span className="font-medium">{a.email}</span>
+                <span className="text-xs text-slate-500">
+                  ขอเมื่อ{" "}
+                  {a.resetRequestedAt
+                    ? new Date(a.resetRequestedAt).toLocaleString("th-TH", {
+                        dateStyle: "short",
+                        timeStyle: "short",
+                      })
+                    : ""}
+                </span>
+                <Button
+                  size="sm"
+                  disabled={busy === a.email}
+                  onClick={() => act(a.email, { action: "reset-password" })}
+                >
+                  รีเซ็ตรหัส
+                </Button>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>รออนุมัติ ({pending.length})</CardTitle>
+          <CardDescription>
+            กำหนด VDA ให้ร้านค้า แล้วกดอนุมัติเพื่อให้ตั้งรหัสผ่านครั้งแรก
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {loading ? (
+            <p className="py-4 text-center text-sm text-slate-500">กำลังโหลด...</p>
+          ) : pending.length === 0 ? (
+            <p className="py-4 text-center text-sm text-slate-500">
+              ไม่มีคำขอใหม่
+            </p>
+          ) : (
+            pending.map((a) => (
+              <div
+                key={a.id}
+                className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700"
+              >
+                <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                  {a.email}
+                </span>
+                {vdaSelect(a)}
+                <Button
+                  size="sm"
+                  disabled={busy === a.email}
+                  onClick={() =>
+                    act(a.email, {
+                      action: "approve",
+                      vdaCode: vdaDraft[a.email] ?? a.vdaCode,
+                    })
+                  }
+                >
+                  อนุมัติ
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={busy === a.email}
+                  onClick={() => act(a.email, { action: "reject" })}
+                >
+                  ปฏิเสธ
+                </Button>
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>ร้านค้าที่อนุมัติแล้ว ({approved.length})</CardTitle>
+          <CardDescription>
+            ตั้งค่า VDA และสิทธิจัดการ min/max ต่อบัญชี
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {approved.length === 0 ? (
+            <p className="py-4 text-center text-sm text-slate-500">
+              ยังไม่มีร้านค้าที่อนุมัติ
+            </p>
+          ) : (
+            approved.map((a) => (
+              <div
+                key={a.id}
+                className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{a.email}</p>
+                  <p className="text-xs text-slate-500">
+                    VDA: {a.vdaCode?.toUpperCase() || "—"}
+                    {a.mustSetPassword ? " · ยังไม่ตั้งรหัส" : ""}
+                  </p>
+                </div>
+                {vdaSelect(a)}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={busy === a.email}
+                  onClick={() =>
+                    act(a.email, {
+                      action: "set-vda",
+                      vdaCode: vdaDraft[a.email] ?? a.vdaCode,
+                    })
+                  }
+                >
+                  บันทึก VDA
+                </Button>
+                <label className="flex items-center gap-1.5 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={a.canManageMinMax}
+                    disabled={busy === a.email}
+                    onChange={(e) =>
+                      act(a.email, {
+                        action: "set-can-manage",
+                        canManageMinMax: e.target.checked,
+                      })
+                    }
+                  />
+                  จัดการ min/max
+                </label>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={busy === a.email}
+                  onClick={() => act(a.email, { action: "reset-password" })}
+                >
+                  รีเซ็ตรหัส
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-red-600"
+                  disabled={busy === a.email}
+                  onClick={() => remove(a.email)}
+                >
+                  ลบ
+                </Button>
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
+
+      {rejected.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>ถูกปฏิเสธ ({rejected.length})</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {rejected.map((a) => (
+              <div
+                key={a.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700"
+              >
+                <span className="min-w-0 flex-1 truncate text-slate-500">
+                  {a.email}
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={busy === a.email}
+                  onClick={() => act(a.email, { action: "approve" })}
+                >
+                  อนุมัติใหม่
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-red-600"
+                  disabled={busy === a.email}
+                  onClick={() => remove(a.email)}
+                >
+                  ลบ
+                </Button>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+    </div>
   );
 }

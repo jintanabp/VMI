@@ -6,10 +6,12 @@ import {
   getPromotionCsvPath,
   getSalesmanCsvPath,
   getSkuMasterCsvPath,
+  getSoldHistoryCsvPath,
 } from "./paths";
 import { PromotionCredit } from "./promotion-credit";
 import { SalesmanRegistry } from "./salesman-registry";
 import { SkuMasterDirectory } from "./sku-master";
+import { SoldHistoryDirectory } from "./sold-history";
 import { reloadVdaAosBillRegistry } from "./vda-aos-bill";
 import { fabricMastersEnabled } from "./env";
 
@@ -17,10 +19,17 @@ let customerDir: CustomerDirectory | null = null;
 let salesmanReg: SalesmanRegistry | null = null;
 let promoCredit: PromotionCredit | null = null;
 let skuMaster: SkuMasterDirectory | null = null;
+let soldHistory: SoldHistoryDirectory | null = null;
 
 function shouldLoadSkuMaster() {
   if (!fabricMastersEnabled()) return false;
   const path = getSkuMasterCsvPath();
+  return fs.existsSync(path) && fs.statSync(path).size > 100;
+}
+
+function shouldLoadSoldHistory() {
+  if (!fabricMastersEnabled()) return false;
+  const path = getSoldHistoryCsvPath();
   return fs.existsSync(path) && fs.statSync(path).size > 100;
 }
 
@@ -77,11 +86,26 @@ export function getSkuMasterDirectory(): SkuMasterDirectory {
   return skuMaster;
 }
 
+export function getSoldHistoryDirectory(): SoldHistoryDirectory {
+  if (!soldHistory) {
+    soldHistory = new SoldHistoryDirectory();
+    if (shouldLoadSoldHistory()) {
+      soldHistory.load(getSoldHistoryCsvPath());
+    }
+  }
+  return soldHistory;
+}
+
+export function fabricSoldHistoryReady(): boolean {
+  return shouldLoadSoldHistory() && getSoldHistoryDirectory().isLoaded;
+}
+
 export function reloadFabricMasters(): void {
   customerDir = new CustomerDirectory();
   salesmanReg = new SalesmanRegistry();
   promoCredit = new PromotionCredit();
   skuMaster = new SkuMasterDirectory();
+  soldHistory = new SoldHistoryDirectory();
   if (shouldLoadMasters()) {
     customerDir.load(getCustomerCsvPath());
   }
@@ -94,6 +118,9 @@ export function reloadFabricMasters(): void {
   }
   if (shouldLoadSkuMaster()) {
     skuMaster.load(getSkuMasterCsvPath());
+  }
+  if (shouldLoadSoldHistory()) {
+    soldHistory.load(getSoldHistoryCsvPath());
   }
   reloadStockCover();
   reloadVdaAosBillRegistry();
@@ -122,5 +149,6 @@ export * from "./promotion-credit";
 export * from "./promotion-lookup";
 export * from "./promotion-context";
 export * from "./sku-master";
+export * from "./sold-history";
 export * from "./vda-aos-bill";
 export * from "./ensure-vda-sales-rep";

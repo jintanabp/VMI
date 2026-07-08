@@ -5,6 +5,7 @@ import {
   fabricStockEnabled,
   getMastersOnelakeConfig,
   getMinRows,
+  getSoldHistoryOnelakeConfig,
   getStockOnelakeConfig,
   getVdaAosOnelakeConfig,
   type OnelakeAuthProfile,
@@ -292,6 +293,25 @@ export function buildSkuMasterSpec(localPath: string): RefreshSpec | null {
   };
 }
 
+export function buildSoldHistorySpec(localPath: string): RefreshSpec | null {
+  const cfg = getSoldHistoryOnelakeConfig();
+  if (!cfg) return null;
+
+  return {
+    name: "cross_sold_history",
+    localPath,
+    workspaceId: cfg.workspaceId,
+    onelakeItemId: cfg.lakehouseId,
+    scanDir: cfg.scanDir,
+    ...fixedOrAuto("SOLD_HISTORY_ONELAKE_PATH", cfg.scanDir),
+    columnSignature: ["productcode"],
+    requiredColumns: ["productcode"],
+    minRows: Number(process.env.SOLD_HISTORY_MIN_ROWS ?? "1"),
+    authProfile:
+      (process.env.SOLD_HISTORY_AUTH_PROFILE as OnelakeAuthProfile) ?? "stock",
+  };
+}
+
 export function buildVdaAosSpec(
   vdaKey: string,
   localPath: string
@@ -342,6 +362,7 @@ export async function refreshAllMasters(
     getStockCoverCsvPath,
     getPromotionCsvPath,
     getSkuMasterCsvPath,
+    getSoldHistoryCsvPath,
   } = await import("./paths");
 
   let customer = false;
@@ -363,6 +384,16 @@ export async function refreshAllMasters(
   }
   if (skuSpec) {
     skuMaster = await refreshOne(skuSpec, options);
+  }
+
+  // ประวัติยอดขายรายวัน (ไม่บล็อก master อื่น ถ้า config/ไฟล์ไม่พร้อม)
+  const soldHistorySpec = buildSoldHistorySpec(getSoldHistoryCsvPath());
+  if (soldHistorySpec) {
+    try {
+      await refreshOne(soldHistorySpec, options);
+    } catch (err) {
+      console.warn("[cross_sold_history] refresh failed:", err);
+    }
   }
 
   let stockCover = false;

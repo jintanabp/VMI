@@ -6,6 +6,12 @@ export interface StockRowComputed {
   skuId: string;
   skuCode: string;
   skuName: string;
+  /** บาร์โค้ดจาก item_barcode_map_v2 (ให้ร้านค้าที่ไม่รู้จัก SKU) */
+  barcode?: string;
+  /** Section (product group) จาก Dim_Product */
+  section?: string;
+  /** แบรนด์สินค้า */
+  brand?: string;
   stock: number;
   avgSales: number;
   minDays: number;

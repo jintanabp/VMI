@@ -47,7 +47,9 @@ export function AppHeader({
   const salesPreview = useSalesPreview();
 
   const isCustomerRoute =
-    pathname.startsWith("/stock") || pathname.startsWith("/order");
+    pathname.startsWith("/stock") ||
+    pathname.startsWith("/order") ||
+    pathname.startsWith("/manage");
   const isAdminHub = pathname.startsWith("/admin");
 
   const customerCompactHeader = compact && isCustomerRoute;
@@ -119,6 +121,32 @@ export function AppHeader({
 
   const toolbar = (
     <div className="flex w-full flex-wrap items-center gap-1.5 sm:gap-2 md:w-auto md:flex-nowrap md:justify-end">
+      {role === "customer" && (
+        <nav className="flex shrink-0 items-center gap-1 rounded-lg bg-slate-100 p-0.5 dark:bg-slate-800">
+          <Link
+            href="/stock"
+            className={cn(
+              "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+              pathname.startsWith("/stock") || pathname.startsWith("/order")
+                ? "bg-white text-teal-700 shadow-sm dark:bg-slate-900 dark:text-teal-400"
+                : "text-slate-500 hover:text-slate-800 dark:text-slate-400"
+            )}
+          >
+            สินค้า
+          </Link>
+          <Link
+            href="/manage"
+            className={cn(
+              "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+              pathname.startsWith("/manage")
+                ? "bg-white text-teal-700 shadow-sm dark:bg-slate-900 dark:text-teal-400"
+                : "text-slate-500 hover:text-slate-800 dark:text-slate-400"
+            )}
+          >
+            จัดการ
+          </Link>
+        </nav>
+      )}
       <ThemeToggle />
       {actions}
       {(session || role === "customer") && (

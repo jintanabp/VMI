@@ -212,9 +212,23 @@ export function lookupC4(
   return result;
 }
 
+function formatDiscAmt(amt: number): string {
+  return amt.toLocaleString("th-TH", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function formatDiscPct(pct: number): string {
+  return pct.toLocaleString("th-TH", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+}
+
 export function formatPromoDiscount(row: PromoRow): string {
-  if (row.discAmt > 0) return `${row.discAmt} บาท/หีบ`;
-  if (row.discPct > 0) return `${row.discPct}%`;
+  if (row.discAmt > 0) return `${formatDiscAmt(row.discAmt)} บาท/หีบ`;
+  if (row.discPct > 0) return `${formatDiscPct(row.discPct)}%`;
   if (hasPremium(row)) {
     return `แถม ${row.premiumProduct} ×${row.premiumQty}`;
   }
@@ -260,6 +274,8 @@ export function promoRowsToTiers(rows: PromoRow[]): PromoTierInput[] {
       discount: formatPromoDiscount(r),
       sortOrder: r.fromQty,
       kind,
+      discBaht: r.discAmt > 0 ? r.discAmt : undefined,
+      discPct: r.discPct > 0 ? r.discPct : undefined,
       premiumProduct:
         kind === "premium" ? r.premiumProduct : undefined,
       premiumQty: kind === "premium" ? r.premiumQty : undefined,

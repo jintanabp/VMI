@@ -27,12 +27,16 @@ export function mapStockRow(
     c4PromoRows?: PromoRow[];
     promoGroup?: string | null;
     promoGroupMembers?: number;
+    barcode?: string;
+    section?: string;
+    brand?: string;
     sku: {
       code: string;
       name: string;
       promoTiers: PromoTierInput[];
     };
     promoOverride?: PromoResult;
+    poolQtyForDiscount?: number;
   }
 ): StockRowComputed {
   const minStock = calcMinStock(item.avgSales, item.minDays);
@@ -46,8 +50,12 @@ export function mapStockRow(
 
   let discountBaht: number | null = null;
   let discountPct: number | null = null;
-  if (item.c4PromoRows?.length && suggestOrder > 0) {
-    const active = activePromoRowAtQty(item.c4PromoRows, suggestOrder);
+  const tierQty =
+    item.poolQtyForDiscount ??
+    (suggestOrder > 0 ? suggestOrder : 0);
+
+  if (item.c4PromoRows?.length && suggestOrder > 0 && tierQty > 0) {
+    const active = activePromoRowAtQty(item.c4PromoRows, tierQty);
     if (active) {
       discountBaht = active.discAmt > 0 ? active.discAmt : null;
       discountPct =
@@ -67,13 +75,21 @@ export function mapStockRow(
 
   const promo =
     item.promoOverride ??
-    getPromoForQty(suggestOrder > 0 ? suggestOrder : 1, item.sku.promoTiers);
+    getPromoForQty(
+      tierQty > 0 ? tierQty : 1,
+      item.sku.promoTiers
+    );
+
+  const showPromo = suggestOrder > 0;
 
   return {
     storeId,
     skuId: item.skuId,
     skuCode: item.sku.code,
     skuName: item.sku.name,
+    barcode: item.barcode ?? "",
+    section: item.section ?? "",
+    brand: item.brand ?? "",
     stock: item.stock,
     avgSales: item.avgSales,
     minDays: item.minDays,
@@ -82,21 +98,21 @@ export function mapStockRow(
     maxStock,
     stockCvd: calcStockCvd(item.stock, item.avgSales),
     suggestOrder,
-    currentPromo: suggestOrder > 0 ? promo.currentPromo : null,
-    nextPromo: promo.nextPromo,
-    nextPromoQty: promo.nextPromoQty,
-    qtyToNext: promo.qtyToNext,
-    currentPromoKind: promo.currentKind,
-    nextPromoKind: promo.nextKind,
-    hasPromoLadder: promo.hasPromoLadder,
+    currentPromo: showPromo ? promo.currentPromo : null,
+    nextPromo: showPromo ? promo.nextPromo : null,
+    nextPromoQty: showPromo ? promo.nextPromoQty : null,
+    qtyToNext: showPromo ? promo.qtyToNext : null,
+    currentPromoKind: showPromo ? promo.currentKind : null,
+    nextPromoKind: showPromo ? promo.nextKind : null,
+    hasPromoLadder: showPromo ? promo.hasPromoLadder : false,
     promoGroup: item.promoGroup ?? null,
     promoGroupMembers: item.promoGroupMembers ?? 0,
     promoTiers: item.sku.promoTiers,
     unitPrice: item.unitPrice ?? null,
-    discountBahtPerCase: discountBaht,
-    discountPctPerCase: discountPct,
-    netUnitPrice,
-    lineTotal,
+    discountBahtPerCase: showPromo ? discountBaht : null,
+    discountPctPerCase: showPromo ? discountPct : null,
+    netUnitPrice: showPromo ? netUnitPrice : item.unitPrice ?? null,
+    lineTotal: showPromo ? lineTotal : null,
     priceExpired: item.priceExpired ?? false,
     needsOrder: suggestOrder > 0,
     fromDb: item.fromDb,
