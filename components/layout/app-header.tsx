@@ -21,6 +21,8 @@ interface AppHeaderProps {
   actions?: React.ReactNode;
   /** หัวเพจกะทัดรัด — ใช้กับหน้าตารางยาว */
   compact?: boolean;
+  /** ขยายความกว้างสูงสุดของเนื้อหา — ใช้กับหน้าตารางกว้าง (stock/order) */
+  wide?: boolean;
   /** ปุ่มกลับชัดเจน (เช่น กลับ hub ย่อยของ admin) */
   backHref?: string;
   backLabel?: string;
@@ -37,10 +39,12 @@ export function AppHeader({
   role,
   actions,
   compact = false,
+  wide = false,
   backHref,
   backLabel,
   onBack,
 }: AppHeaderProps) {
+  const contentMaxWidth = wide ? "max-w-[96rem]" : "max-w-7xl";
   const pathname = usePathname();
   const { session } = useSalesSession();
   const adminPreview = useAdminPreview();
@@ -189,7 +193,7 @@ export function AppHeader({
     <>
       {showPreviewBanner && (
         <div className="border-b border-amber-200/80 bg-amber-50 px-3 py-2 text-sm dark:border-amber-900/50 dark:bg-amber-950/40 sm:px-4">
-          <div className="mx-auto flex max-w-7xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className={cn("mx-auto flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between", contentMaxWidth)}>
             <span className="font-medium text-amber-900 dark:text-amber-200">
               โหมดทดสอบ Admin
               {adminPreview && " · มุมมอง VDA"}
@@ -217,7 +221,8 @@ export function AppHeader({
       >
         <div
           className={cn(
-            "mx-auto w-full min-w-0 max-w-7xl px-3 sm:px-4",
+            "mx-auto w-full min-w-0 px-3 sm:px-4",
+            contentMaxWidth,
             compact ? "py-2" : "py-3 sm:py-4"
           )}
         >
