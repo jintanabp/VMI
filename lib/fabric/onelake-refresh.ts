@@ -33,12 +33,17 @@ export interface RefreshSpec {
   authProfile?: OnelakeAuthProfile;
 }
 
+interface PathEntry {
+  name: string;
+  lastModified?: string;
+}
+
 async function listDirectory(
   workspaceId: string,
   itemId: string,
   folder: string,
   token: string
-): Promise<string[]> {
+): Promise<PathEntry[]> {
   const dirPath = `${itemId}/${folder.replace(/\/$/, "")}`;
   const url = `${ONELAKE_HOST}/${workspaceId}?resource=filesystem&directory=${encodeURIComponent(dirPath)}&recursive=false`;
 
@@ -54,7 +59,12 @@ async function listDirectory(
   }
 
   const data = (await res.json()) as {
-    paths?: { name: string; isDirectory?: boolean; contentLength?: string | number }[];
+    paths?: {
+      name: string;
+      isDirectory?: boolean;
+      contentLength?: string | number;
+      lastModified?: string;
+    }[];
   };
 
   return (data.paths ?? [])
@@ -65,7 +75,10 @@ async function listDirectory(
         p.contentLength !== 0 &&
         p.name.includes(".")
     )
-    .map((p) => path.basename(p.name));
+    .map((p) => ({
+      name: path.basename(p.name),
+      lastModified: p.lastModified,
+    }));
 }
 
 async function readCsvHeader(url: string, token: string): Promise<string[]> {
@@ -94,21 +107,41 @@ async function discoverFile(spec: RefreshSpec, token: string): Promise<string | 
     token
   );
   const sigLower = new Set(spec.columnSignature.map((c) => c.toLowerCase()));
+  const candidates: { fpath: string; sortKey: number; name: string }[] = [];
 
-  for (const fname of files) {
-    const fpath = `${spec.onelakeDir.replace(/\/$/, "")}/${fname}`;
+  for (const entry of files) {
+    const fpath = `${spec.onelakeDir.replace(/\/$/, "")}/${entry.name}`;
     const url = `${ONELAKE_HOST}/${spec.workspaceId}/${spec.onelakeItemId}/${fpath}`;
     const cols = await readCsvHeader(url, token);
     const colsLower = new Set(cols.map((c) => c.trim().toLowerCase()));
     const match = [...sigLower].every((c) => colsLower.has(c));
-    if (match) {
-      console.info(`[${spec.name}] Matched ${fname}`);
-      return fpath;
-    }
+    if (!match) continue;
+
+    const sortKey = entry.lastModified
+      ? Date.parse(entry.lastModified)
+      : 0;
+    candidates.push({
+      fpath,
+      sortKey: Number.isFinite(sortKey) ? sortKey : 0,
+      name: entry.name,
+    });
   }
 
-  console.error(`[${spec.name}] No file matched signature in ${spec.onelakeDir}`);
-  return null;
+  if (candidates.length === 0) {
+    console.error(`[${spec.name}] No file matched signature in ${spec.onelakeDir}`);
+    return null;
+  }
+
+  candidates.sort((a, b) => {
+    if (b.sortKey !== a.sortKey) return b.sortKey - a.sortKey;
+    return b.name.localeCompare(a.name);
+  });
+
+  const chosen = candidates[0]!;
+  console.info(
+    `[${spec.name}] Matched ${chosen.name} (${candidates.length} candidate(s))`
+  );
+  return chosen.fpath;
 }
 
 async function downloadFile(url: string, token: string, dest: string): Promise<number> {

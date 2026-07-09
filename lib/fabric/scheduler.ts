@@ -155,6 +155,12 @@ export async function runMasterRefreshNow(): Promise<{
       lastResult: result,
       lastError: undefined,
     });
+  } else {
+    writeMasterRefreshStatus({
+      lastFailureAt: new Date().toISOString(),
+      lastResult: result,
+      lastError: "ทุกไฟล์ดึงไม่สำเร็จ — ตรวจ ONELAKE/STOCK_ONELAKE credentials",
+    });
   }
   return { ok, ...result };
 }

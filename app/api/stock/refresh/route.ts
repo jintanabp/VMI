@@ -1,26 +1,17 @@
 import { NextResponse } from "next/server";
 import { getCustomerStoreFromCookie } from "@/lib/auth/customer-session";
-import { reloadFabricMasters } from "@/lib/fabric";
+import {
+  ensureFabricMastersFresh,
+  reloadFabricMasters,
+} from "@/lib/fabric";
 import { fabricStockEnabled } from "@/lib/fabric/env";
 import {
   buildSoldHistorySpec,
   buildStockCoverSpec,
+  localFileStats,
   refreshOne,
 } from "@/lib/fabric/onelake-refresh";
 import { getSoldHistoryCsvPath, getStockCoverCsvPath } from "@/lib/fabric/paths";
-
-/** กันการกดรัวเกินไป — เว้นระยะขั้นต่ำระหว่างการรีเฟรช (ทั้งระบบ) */
-const MIN_INTERVAL_MS = 20_000;
-const globalKey = "__vmiStockRefreshAt";
-
-function lastRefreshAt(): number {
-  const g = globalThis as typeof globalThis & { [globalKey]?: number };
-  return g[globalKey] ?? 0;
-}
-function markRefreshed() {
-  const g = globalThis as typeof globalThis & { [globalKey]?: number };
-  g[globalKey] = Date.now();
-}
 
 /** ร้านค้ากดรีเฟรชเพื่อดึงสต็อก + ยอดขายล่าสุดจาก Fabric */
 export async function POST() {
@@ -29,38 +20,65 @@ export async function POST() {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const since = Date.now() - lastRefreshAt();
-  if (since < MIN_INTERVAL_MS) {
-    // เพิ่งรีเฟรชไป — reload cache แล้วตอบกลับทันที
-    reloadFabricMasters();
-    return NextResponse.json({
-      success: true,
-      throttled: true,
-      retryInMs: MIN_INTERVAL_MS - since,
-    });
-  }
-  markRefreshed();
-
   let stockCover = false;
   let soldHistory = false;
+  const errors: string[] = [];
 
   if (fabricStockEnabled()) {
     const stockSpec = buildStockCoverSpec(getStockCoverCsvPath());
     if (stockSpec) {
       stockCover = await refreshOne(stockSpec, { allowInteractive: false });
+      if (!stockCover) errors.push("stock_cover_day");
+    } else {
+      errors.push("stock_cover_config");
     }
+  } else {
+    errors.push("fabric_stock_disabled");
   }
 
   const soldSpec = buildSoldHistorySpec(getSoldHistoryCsvPath());
   if (soldSpec) {
     try {
       soldHistory = await refreshOne(soldSpec, { allowInteractive: false });
+      if (!soldHistory) errors.push("sold_history");
     } catch (err) {
       console.warn("[stock/refresh] sold history failed:", err);
+      errors.push("sold_history");
     }
   }
 
   reloadFabricMasters();
+  ensureFabricMastersFresh();
 
-  return NextResponse.json({ success: true, stockCover, soldHistory });
+  const cacheStats = {
+    stockCover: localFileStats(getStockCoverCsvPath()),
+    soldHistory: localFileStats(getSoldHistoryCsvPath()),
+  };
+
+  if (fabricStockEnabled() && !stockCover) {
+    return NextResponse.json(
+      {
+        success: false,
+        stockCover,
+        soldHistory,
+        errors,
+        cacheStats,
+        message:
+          "ดึง stock_cover_day จาก Fabric ไม่สำเร็จ — แสดงข้อมูลจาก cache ล่าสุดที่มี",
+      },
+      { status: 502 }
+    );
+  }
+
+  return NextResponse.json({
+    success: true,
+    stockCover,
+    soldHistory,
+    errors: errors.length > 0 ? errors : undefined,
+    cacheStats,
+    message:
+      stockCover || soldHistory
+        ? "อัปเดตข้อมูลล่าสุดแล้ว"
+        : "โหลดข้อมูลจาก cache",
+  });
 }

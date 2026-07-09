@@ -7,6 +7,7 @@ import {
   getSalesmanCsvPath,
   getSkuMasterCsvPath,
   getSoldHistoryCsvPath,
+  getStockCoverCsvPath,
 } from "./paths";
 import { PromotionCredit } from "./promotion-credit";
 import { SalesmanRegistry } from "./salesman-registry";
@@ -20,6 +21,49 @@ let salesmanReg: SalesmanRegistry | null = null;
 let promoCredit: PromotionCredit | null = null;
 let skuMaster: SkuMasterDirectory | null = null;
 let soldHistory: SoldHistoryDirectory | null = null;
+
+const fabricCacheMtimes = new Map<string, number>();
+
+function csvMtime(filePath: string): number | null {
+  try {
+    return fs.statSync(filePath).mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
+function trackedFabricPaths(): string[] {
+  return [
+    getCustomerCsvPath(),
+    getSalesmanCsvPath(),
+    getPromotionCsvPath(),
+    getSkuMasterCsvPath(),
+    getSoldHistoryCsvPath(),
+    getStockCoverCsvPath(),
+  ];
+}
+
+/** โหลด cache ใหม่เมื่อไฟล์ CSV บนดิสก์เปลี่ยน (แก้ stale ข้าม worker / หลัง sync) */
+export function ensureFabricMastersFresh(): void {
+  const paths = trackedFabricPaths();
+  let stale = fabricCacheMtimes.size === 0;
+  for (const p of paths) {
+    const mtime = csvMtime(p);
+    if (mtime == null) continue;
+    if (fabricCacheMtimes.get(p) !== mtime) {
+      stale = true;
+      break;
+    }
+  }
+  if (!stale) return;
+
+  reloadFabricMasters();
+  fabricCacheMtimes.clear();
+  for (const p of paths) {
+    const mtime = csvMtime(p);
+    if (mtime != null) fabricCacheMtimes.set(p, mtime);
+  }
+}
 
 function shouldLoadSkuMaster() {
   if (!fabricMastersEnabled()) return false;
@@ -124,6 +168,11 @@ export function reloadFabricMasters(): void {
   }
   reloadStockCover();
   reloadVdaAosBillRegistry();
+  fabricCacheMtimes.clear();
+  for (const p of trackedFabricPaths()) {
+    const mtime = csvMtime(p);
+    if (mtime != null) fabricCacheMtimes.set(p, mtime);
+  }
 }
 
 export function fabricMastersReady(): boolean {

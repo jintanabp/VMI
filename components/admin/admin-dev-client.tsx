@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
@@ -693,7 +693,7 @@ function StoreAccountsPanel({
   const [busy, setBusy] = useState<string | null>(null);
   const [vdaDraft, setVdaDraft] = useState<Record<string, string>>({});
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch("/api/admin/store-accounts");
@@ -709,7 +709,7 @@ function StoreAccountsPanel({
     } finally {
       setLoading(false);
     }
-  }
+  }, [onCountChange]);
 
   useEffect(() => {
     void load();
@@ -719,7 +719,7 @@ function StoreAccountsPanel({
         setVdaOptions(Array.isArray(d.sources) ? d.sources : [])
       )
       .catch(() => setVdaOptions([]));
-  }, []);
+  }, [load]);
 
   async function act(email: string, body: Record<string, unknown>) {
     setBusy(email);

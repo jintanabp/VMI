@@ -59,6 +59,43 @@ export async function PATCH(request: Request) {
   }
 
   const body = await request.json().catch(() => ({}));
+
+  if (body.reset) {
+    const section = String(body.section ?? "").trim();
+    if (!section) {
+      return NextResponse.json(
+        { error: "ต้องระบุ section" },
+        { status: 400 }
+      );
+    }
+
+    await prisma.storeGroupThreshold.deleteMany({
+      where: { storeId, section },
+    });
+
+    const skuIds: string[] = Array.isArray(body.skuIds)
+      ? body.skuIds.map((id: unknown) => String(id)).filter(Boolean)
+      : [];
+    if (skuIds.length > 0) {
+      const { stock } = getRepositories();
+      await Promise.all(
+        skuIds.map((skuId) =>
+          stock.updateStockThresholds(storeId, skuId, {
+            minDays: 7,
+            maxDays: 15,
+          })
+        )
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      scope: "section-reset",
+      minDays: 7,
+      maxDays: 15,
+    });
+  }
+
   const minDays = parseDays(body.minDays, 7);
   const maxDays = parseDays(body.maxDays, 15);
   if (maxDays < minDays) {

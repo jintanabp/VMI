@@ -114,6 +114,7 @@ export function StockPageClient({
     section: null,
   });
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshMsg, setRefreshMsg] = useState("");
 
   const { data, isLoading } = useQuery<StockApiResponse>({
     queryKey: ["stock"],
@@ -183,10 +184,25 @@ export function StockPageClient({
   const handleRefresh = useCallback(async () => {
     if (refreshing) return;
     setRefreshing(true);
+    setRefreshMsg("");
     try {
-      await fetch("/api/stock/refresh", { method: "POST" });
+      const res = await fetch("/api/stock/refresh", { method: "POST" });
+      const data = (await res.json().catch(() => ({}))) as {
+        success?: boolean;
+        message?: string;
+        error?: string;
+      };
+      if (!res.ok || data.success === false) {
+        setRefreshMsg(
+          data.message ??
+            data.error ??
+            "ดึงข้อมูลจาก Fabric ไม่สำเร็จ — แสดง cache"
+        );
+      } else {
+        setRefreshMsg(data.message ?? "อัปเดตข้อมูลแล้ว");
+      }
     } catch {
-      // เงียบไว้ — ผู้ใช้กดใหม่ได้
+      setRefreshMsg("รีเฟรชไม่สำเร็จ — ลองใหม่อีกครั้ง");
     } finally {
       await queryClient.invalidateQueries({ queryKey: ["stock"] });
       setRefreshing(false);
@@ -200,14 +216,6 @@ export function StockPageClient({
 
   function applyGroupStaged(staged: Record<string, number>) {
     setQtyOverrides((prev) => ({ ...prev, ...staged }));
-    setSelected((prev) => {
-      const next = new Set(prev);
-      for (const r of rows) {
-        const q = staged[r.skuCode];
-        if (q != null && q > 0) next.add(r.skuId);
-      }
-      return next;
-    });
   }
 
   useEffect(() => {
@@ -241,29 +249,19 @@ export function StockPageClient({
     return { cvdEst, flag: getCvdFlag(cvdEst) };
   }
 
-  /** ปรับจำนวน + เลือกสินค้าเข้าออเดอร์ให้อัตโนมัติ */
-  function setLineQty(skuCode: string, qty: number, skuId?: string) {
-    const row = rows.find((r) => r.skuCode === skuCode);
-    const id = skuId ?? row?.skuId;
+  /** ปรับจำนวนเท่านั้น — ไม่เลือกสินค้าให้อัตโนมัติ */
+  function setLineQty(skuCode: string, qty: number) {
     const nextQty = Math.max(1, Math.floor(qty));
     setQtyOverrides((prev) => ({
       ...prev,
       [skuCode]: nextQty,
     }));
-    if (id) {
-      setSelected((prev) => {
-        if (prev.has(id)) return prev;
-        const next = new Set(prev);
-        next.add(id);
-        return next;
-      });
-    }
   }
 
   function adjustLineQty(skuCode: string, delta: number) {
     const row = rows.find((r) => r.skuCode === skuCode);
     if (!row) return;
-    setLineQty(skuCode, lineQty(row) + delta, row.skuId);
+    setLineQty(skuCode, lineQty(row) + delta);
   }
 
   function initQtyForRow(row: StockRowComputed) {
@@ -327,6 +325,11 @@ export function StockPageClient({
 
   function clearSelection() {
     setSelected(new Set());
+  }
+
+  /** คืนจำนวนทุกรายการเป็นที่แนะนำ (ไม่เปลี่ยนการเลือก) */
+  function resetAllQtyToSuggested() {
+    setQtyOverrides({});
   }
 
   /** เลือกที่ควรสั่งตามตัวกรองปัจจุบัน (replace ไม่สะสม) */
@@ -473,15 +476,27 @@ export function StockPageClient({
               tone="amber"
             />
           </div>
-          <div className="mt-2 flex items-center justify-between gap-2">
-            {dataDate ? (
-              <p className="flex items-center gap-1 text-[11px] text-slate-400 dark:text-slate-500">
-                <Clock className="h-3 w-3" />
-                ข้อมูล ณ {formatDataDate(dataDate)}
-              </p>
-            ) : (
-              <span />
-            )}
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <div className="min-w-0">
+              {dataDate ? (
+                <p className="flex items-center gap-1 text-[11px] text-slate-400 dark:text-slate-500">
+                  <Clock className="h-3 w-3" />
+                  ข้อมูล ณ {formatDataDate(dataDate)}
+                </p>
+              ) : null}
+              {refreshMsg && (
+                <p
+                  className={cn(
+                    "mt-0.5 text-[11px]",
+                    refreshMsg.includes("ไม่สำเร็จ") || refreshMsg.includes("cache")
+                      ? "text-amber-700 dark:text-amber-400"
+                      : "text-teal-700 dark:text-teal-400"
+                  )}
+                >
+                  {refreshMsg}
+                </p>
+              )}
+            </div>
             <Button
               variant="ghost"
               size="sm"
@@ -531,6 +546,18 @@ export function StockPageClient({
             {selected.size > 0 && (
               <Button variant="ghost" size="sm" onClick={clearSelection}>
                 ล้าง
+              </Button>
+            )}
+            {rows.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="whitespace-nowrap"
+                onClick={resetAllQtyToSuggested}
+                title="รีเซ็ตจำนวนทุกรายการกลับเป็นที่แนะนำ"
+              >
+                <RotateCcw className="h-4 w-4" />
+                <span className="hidden sm:inline">รีเซ็ตแนะนำ</span>
               </Button>
             )}
           </div>
@@ -592,12 +619,11 @@ export function StockPageClient({
                       stagedQty={promoStagedQty}
                       onConfirmStaged={applyGroupStaged}
                       onAdjustQty={(d) => adjustLineQty(row.skuCode, d)}
-                      onSetQty={(q) => setLineQty(row.skuCode, q, row.skuId)}
+                      onSetQty={(q) => setLineQty(row.skuCode, q)}
                       onApplySuggest={() =>
                         setLineQty(
                           row.skuCode,
-                          row.suggestOrder > 0 ? row.suggestOrder : 1,
-                          row.skuId
+                          row.suggestOrder > 0 ? row.suggestOrder : 1
                         )
                       }
                       onToggle={() => toggleRow(row.skuId)}
@@ -645,9 +671,7 @@ export function StockPageClient({
                 <th className="px-1 py-2 text-right">สต็อก</th>
                 <th className="px-1 py-2 text-right">ขาย</th>
                 <th className="px-1 py-2 text-right">CVD</th>
-                <th className="px-1 py-2 text-right" title="MIN / MAX">
-                  ม./แม.
-                </th>
+                <th className="px-1 py-2 text-right">MIN / MAX</th>
                 <th className="px-1 py-2 text-center">จำนวนสั่ง</th>
                 <th className="px-1 py-2 text-center">หลังสั่ง</th>
                 <th className="px-1 py-2 text-right" title="ราคาสุทธิต่อหีบ">
@@ -755,8 +779,7 @@ export function StockPageClient({
                           onApplySuggest={() =>
                             setLineQty(
                               row.skuCode,
-                              row.suggestOrder > 0 ? row.suggestOrder : 1,
-                              row.skuId
+                              row.suggestOrder > 0 ? row.suggestOrder : 1
                             )
                           }
                           compact
@@ -802,7 +825,7 @@ export function StockPageClient({
                             nextKind={row.nextPromoKind}
                             hasPromoLadder={row.hasPromoLadder}
                             onApplyNext={(qty) =>
-                              setLineQty(row.skuCode, qty, row.skuId)
+                              setLineQty(row.skuCode, qty)
                             }
                             inspector={{
                               skuCode: row.skuCode,
@@ -1263,7 +1286,7 @@ function StockFilterDropdown({
       const width = Math.min(320, vw - margin * 2);
       const gap = 6;
 
-      let left = Math.max(
+      const left = Math.max(
         margin,
         Math.min(trigger.right - width, vw - width - margin)
       );

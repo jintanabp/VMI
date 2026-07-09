@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronDown,
   ChevronRight,
   KeyRound,
   Loader2,
+  RotateCcw,
   Save,
+  Search,
   Settings2,
   Lock,
 } from "lucide-react";
@@ -37,6 +39,24 @@ interface GroupThreshold {
 }
 
 const NO_SECTION = "(ไม่มี Section)";
+const DEFAULT_MIN_DAYS = 7;
+const DEFAULT_MAX_DAYS = 15;
+
+function matchesBrandSearch(
+  query: string,
+  section: string,
+  items: StockRowComputed[]
+): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  if (section.toLowerCase().includes(q)) return true;
+  return items.some((item) => {
+    const brand = item.brand?.trim() ?? "";
+    if (brand && brand.toLowerCase().includes(q)) return true;
+    const sec = item.section?.trim() ?? "";
+    return sec && sec.toLowerCase().includes(q);
+  });
+}
 
 export function ManageClient({
   storeCode,
@@ -49,6 +69,8 @@ export function ManageClient({
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [resetMsg, setResetMsg] = useState("");
   const [resetting, setResetting] = useState(false);
+  const [brandSearch, setBrandSearch] = useState("");
+  const queryClient = useQueryClient();
 
   const stockQuery = useQuery<StockApiResponse>({
     queryKey: ["stock"],
@@ -80,6 +102,14 @@ export function ManageClient({
       .map(([section, items]) => ({ section, items }))
       .sort((a, b) => a.section.localeCompare(b.section, "th"));
   }, [rows]);
+
+  const filteredSections = useMemo(
+    () =>
+      sections.filter(({ section, items }) =>
+        matchesBrandSearch(brandSearch, section, items)
+      ),
+    [sections, brandSearch]
+  );
 
   function toggle(section: string) {
     setExpanded((prev) => {
@@ -155,15 +185,27 @@ export function ManageClient({
           <div className="flex items-center justify-between">
             <h2 className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-slate-100">
               <Settings2 className="h-4 w-4 text-teal-600" />
-              ตั้งค่า MIN / MAX ตาม Section
+              ตั้งค่า MIN / MAX ตามแบรนด์
             </h2>
           </div>
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            กำหนดจำนวนวันสำหรับสินค้าในกลุ่ม (ค่าเริ่มต้น MIN 7 / MAX 15 วัน)
+            กำหนดจำนวนวันสำหรับสินค้าในกลุ่ม (ค่าเริ่มต้น MIN {DEFAULT_MIN_DAYS} / MAX{" "}
+            {DEFAULT_MAX_DAYS} วัน)
             {canManage
               ? " — กดดูรายสินค้าเพื่อตั้งค่าพิเศษรายตัว"
               : " — บัญชีนี้ดูได้อย่างเดียว"}
           </p>
+
+          <div className="relative mt-3">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              type="search"
+              value={brandSearch}
+              onChange={(e) => setBrandSearch(e.target.value)}
+              placeholder="ค้นหาชื่อแบรนด์หรือ Section..."
+              className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm outline-none ring-teal-500/30 focus:ring-2 dark:border-slate-700 dark:bg-slate-900"
+            />
+          </div>
 
           {!canManage && (
             <div className="mt-3 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs text-amber-800 dark:border-amber-800/50 dark:bg-amber-950/30 dark:text-amber-200">
@@ -178,9 +220,13 @@ export function ManageClient({
             <p className="py-8 text-center text-sm text-slate-500">
               ไม่พบข้อมูลสินค้า
             </p>
+          ) : filteredSections.length === 0 ? (
+            <p className="py-8 text-center text-sm text-slate-500">
+              ไม่พบแบรนด์ที่ตรงกับคำค้นหา
+            </p>
           ) : (
             <div className="mt-3 space-y-2">
-              {sections.map(({ section, items }) => (
+              {filteredSections.map(({ section, items }) => (
                 <SectionCard
                   key={section}
                   section={section}
@@ -189,6 +235,10 @@ export function ManageClient({
                   saved={savedGroups.get(section)}
                   expanded={expanded.has(section)}
                   onToggle={() => toggle(section)}
+                  onReset={() => {
+                    void queryClient.invalidateQueries({ queryKey: ["thresholds"] });
+                    void queryClient.invalidateQueries({ queryKey: ["stock"] });
+                  }}
                 />
               ))}
             </div>
@@ -206,6 +256,7 @@ function SectionCard({
   saved,
   expanded,
   onToggle,
+  onReset,
 }: {
   section: string;
   items: StockRowComputed[];
@@ -213,16 +264,29 @@ function SectionCard({
   saved?: GroupThreshold;
   expanded: boolean;
   onToggle: () => void;
+  onReset: () => void;
 }) {
-  const [minDays, setMinDays] = useState(String(saved?.minDays ?? 7));
-  const [maxDays, setMaxDays] = useState(String(saved?.maxDays ?? 15));
+  const [minDays, setMinDays] = useState(String(saved?.minDays ?? DEFAULT_MIN_DAYS));
+  const [maxDays, setMaxDays] = useState(String(saved?.maxDays ?? DEFAULT_MAX_DAYS));
   const [saving, setSaving] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [savedFlag, setSavedFlag] = useState(false);
   const [error, setError] = useState("");
 
+  const brandLabel = useMemo(() => {
+    const brands = [
+      ...new Set(
+        items.map((i) => i.brand?.trim()).filter((b): b is string => !!b)
+      ),
+    ];
+    if (brands.length === 0) return null;
+    if (brands.length === 1) return brands[0];
+    return brands.slice(0, 3).join(", ") + (brands.length > 3 ? "…" : "");
+  }, [items]);
+
   useEffect(() => {
-    setMinDays(String(saved?.minDays ?? 7));
-    setMaxDays(String(saved?.maxDays ?? 15));
+    setMinDays(String(saved?.minDays ?? DEFAULT_MIN_DAYS));
+    setMaxDays(String(saved?.maxDays ?? DEFAULT_MAX_DAYS));
   }, [saved?.minDays, saved?.maxDays]);
 
   const isDefault = !saved && section !== NO_SECTION;
@@ -253,7 +317,50 @@ function SectionCard({
     }
   }
 
+  async function resetToDefault() {
+    if (
+      !confirm(
+        `รีเซ็ต MIN / MAX ของ "${section}" กลับเป็นค่าเริ่มต้น (${DEFAULT_MIN_DAYS} / ${DEFAULT_MAX_DAYS} วัน)?`
+      )
+    ) {
+      return;
+    }
+    setResetting(true);
+    setError("");
+    setSavedFlag(false);
+    try {
+      const res = await fetch("/api/store/thresholds", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          section,
+          reset: true,
+          skuIds: items.map((i) => i.skuId),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "รีเซ็ตไม่สำเร็จ");
+        return;
+      }
+      setMinDays(String(DEFAULT_MIN_DAYS));
+      setMaxDays(String(DEFAULT_MAX_DAYS));
+      onReset();
+    } finally {
+      setResetting(false);
+    }
+  }
+
   const canSaveGroup = canManage && section !== NO_SECTION;
+  const canResetGroup =
+    canSaveGroup &&
+    (saved != null ||
+      minDays !== String(DEFAULT_MIN_DAYS) ||
+      maxDays !== String(DEFAULT_MAX_DAYS) ||
+      items.some(
+        (i) =>
+          i.minDays !== DEFAULT_MIN_DAYS || i.maxDays !== DEFAULT_MAX_DAYS
+      ));
 
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700">
@@ -271,6 +378,11 @@ function SectionCard({
           <span className="truncate text-sm font-semibold text-slate-800 dark:text-slate-200">
             {section}
           </span>
+          {brandLabel && brandLabel !== section && (
+            <span className="shrink-0 text-[10px] text-slate-400">
+              · {brandLabel}
+            </span>
+          )}
           <span className="shrink-0 text-xs text-slate-400">
             ({items.length})
           </span>
@@ -295,15 +407,36 @@ function SectionCard({
             disabled={!canSaveGroup}
           />
           {canSaveGroup && (
-            <Button size="sm" variant="outline" onClick={save} disabled={saving}>
-              {saving ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : savedFlag ? (
-                "✓"
-              ) : (
-                <Save className="h-3.5 w-3.5" />
-              )}
-            </Button>
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={save}
+                disabled={saving || resetting}
+                title="บันทึก MIN / MAX"
+              >
+                {saving ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : savedFlag ? (
+                  "✓"
+                ) : (
+                  <Save className="h-3.5 w-3.5" />
+                )}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={resetToDefault}
+                disabled={resetting || saving || !canResetGroup}
+                title="รีเซ็ตเป็นค่าเริ่มต้น"
+              >
+                {resetting ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RotateCcw className="h-3.5 w-3.5" />
+                )}
+              </Button>
+            </>
           )}
         </div>
       </div>
@@ -316,7 +449,12 @@ function SectionCard({
       {expanded && (
         <div className="divide-y divide-slate-100 dark:divide-slate-800">
           {items.map((row) => (
-            <SkuOverrideRow key={row.skuId} row={row} canManage={canManage} />
+            <SkuOverrideRow
+              key={row.skuId}
+              row={row}
+              canManage={canManage}
+              onSaved={onReset}
+            />
           ))}
         </div>
       )}
@@ -327,14 +465,22 @@ function SectionCard({
 function SkuOverrideRow({
   row,
   canManage,
+  onSaved,
 }: {
   row: StockRowComputed;
   canManage: boolean;
+  onSaved: () => void;
 }) {
   const [minDays, setMinDays] = useState(String(row.minDays));
   const [maxDays, setMaxDays] = useState(String(row.maxDays));
   const [saving, setSaving] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [savedFlag, setSavedFlag] = useState(false);
+
+  useEffect(() => {
+    setMinDays(String(row.minDays));
+    setMaxDays(String(row.maxDays));
+  }, [row.minDays, row.maxDays]);
 
   async function save() {
     setSaving(true);
@@ -352,11 +498,40 @@ function SkuOverrideRow({
       if (res.ok) {
         setSavedFlag(true);
         setTimeout(() => setSavedFlag(false), 2000);
+        onSaved();
       }
     } finally {
       setSaving(false);
     }
   }
+
+  async function resetSku() {
+    setResetting(true);
+    setSavedFlag(false);
+    try {
+      const res = await fetch("/api/store/thresholds", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          skuId: row.skuId,
+          minDays: DEFAULT_MIN_DAYS,
+          maxDays: DEFAULT_MAX_DAYS,
+        }),
+      });
+      if (res.ok) {
+        setMinDays(String(DEFAULT_MIN_DAYS));
+        setMaxDays(String(DEFAULT_MAX_DAYS));
+        onSaved();
+      }
+    } finally {
+      setResetting(false);
+    }
+  }
+
+  const canResetSku =
+    canManage &&
+    (minDays !== String(DEFAULT_MIN_DAYS) ||
+      maxDays !== String(DEFAULT_MAX_DAYS));
 
   return (
     <div className="flex flex-wrap items-center gap-2 px-3 py-2">
@@ -385,15 +560,36 @@ function SkuOverrideRow({
           disabled={!canManage}
         />
         {canManage && (
-          <Button size="sm" variant="ghost" onClick={save} disabled={saving}>
-            {saving ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : savedFlag ? (
-              "✓"
-            ) : (
-              <Save className="h-3.5 w-3.5" />
-            )}
-          </Button>
+          <>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={save}
+              disabled={saving || resetting}
+              title="บันทึก MIN / MAX"
+            >
+              {saving ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : savedFlag ? (
+                "✓"
+              ) : (
+                <Save className="h-3.5 w-3.5" />
+              )}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={resetSku}
+              disabled={resetting || saving || !canResetSku}
+              title="รีเซ็ตเป็นค่าเริ่มต้น"
+            >
+              {resetting ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RotateCcw className="h-3.5 w-3.5" />
+              )}
+            </Button>
+          </>
         )}
       </div>
     </div>
@@ -418,7 +614,9 @@ function LabeledDays({
         disabled && "opacity-60"
       )}
     >
-      <span className="text-[10px] font-semibold text-slate-400">{label}</span>
+      <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+        {label}
+      </span>
       <input
         type="number"
         min={0}

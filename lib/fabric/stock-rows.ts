@@ -4,6 +4,7 @@ import type { StockRowComputed } from "@/lib/repositories/types";
 import {
   fabricPromoReady,
   fabricSkuMasterReady,
+  ensureFabricMastersFresh,
   getPromotionCreditDirectory,
   getSkuMasterDirectory,
 } from "./index";
@@ -100,6 +101,7 @@ export async function buildFabricStockPayload(
   storeCode: string,
   requestedFromDb?: string | null
 ): Promise<StockApiPayload> {
+  ensureFabricMastersFresh();
   const config = getStockFilterConfig();
   const dir = getStockCoverDirectory();
   const sources = dir.resolveSources(config);
