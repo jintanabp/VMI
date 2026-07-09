@@ -115,6 +115,7 @@ export function StockPageClient({
   });
   const [refreshing, setRefreshing] = useState(false);
   const [refreshMsg, setRefreshMsg] = useState("");
+  const [sessionReady, setSessionReady] = useState(false);
 
   const { data, isLoading } = useQuery<StockApiResponse>({
     queryKey: ["stock"],
@@ -134,6 +135,39 @@ export function StockPageClient({
   const rows = useMemo(() => data?.rows ?? [], [data?.rows]);
   const activeVda = data?.activeFromDb ?? storeCode;
   const dataDate = data?.dataDate ?? null;
+
+  /** คืนค่าการเลือก + จำนวนจาก session เมื่อกลับจากหน้า order */
+  useEffect(() => {
+    if (rows.length === 0 || sessionReady) return;
+    try {
+      const rawDraft = sessionStorage.getItem("vmi_order_draft");
+      const rawQty = sessionStorage.getItem("vmi_order_qty");
+      if (rawDraft) {
+        const draft = JSON.parse(rawDraft) as StockRowComputed[];
+        if (Array.isArray(draft) && draft.length > 0) {
+          const ids = draft
+            .map((r) => r.skuId)
+            .filter((id) => rows.some((r) => r.skuId === id));
+          if (ids.length > 0) setSelected(new Set(ids));
+        }
+      }
+      if (rawQty) {
+        const qtyMap = JSON.parse(rawQty) as Record<string, number>;
+        if (qtyMap && typeof qtyMap === "object") {
+          const valid: Record<string, number> = {};
+          for (const r of rows) {
+            const q = qtyMap[r.skuCode];
+            if (q != null && q > 0) valid[r.skuCode] = Math.floor(q);
+          }
+          if (Object.keys(valid).length > 0) setQtyOverrides(valid);
+        }
+      }
+    } catch {
+      // ignore corrupt session
+    } finally {
+      setSessionReady(true);
+    }
+  }, [rows, sessionReady]);
 
   /** จำนวนต่อ SKU สำหรับจำลอง promotion group (override จาก modal ได้) */
   const promoStagedQty = useMemo(() => {
@@ -217,11 +251,6 @@ export function StockPageClient({
   function applyGroupStaged(staged: Record<string, number>) {
     setQtyOverrides((prev) => ({ ...prev, ...staged }));
   }
-
-  useEffect(() => {
-    if (Object.keys(qtyOverrides).length === 0) return;
-    sessionStorage.setItem("vmi_order_qty", JSON.stringify(qtyOverrides));
-  }, [qtyOverrides]);
 
   function lineQty(row: StockRowComputed): number {
     const o = qtyOverrides[row.skuCode];
@@ -409,7 +438,12 @@ export function StockPageClient({
   }, [selectedItems, qtyOverrides]);
 
   useEffect(() => {
-    if (selectedItems.length === 0) return;
+    if (!sessionReady) return;
+    if (selectedItems.length === 0) {
+      sessionStorage.removeItem("vmi_order_draft");
+      sessionStorage.removeItem("vmi_order_qty");
+      return;
+    }
     sessionStorage.setItem("vmi_order_draft", JSON.stringify(selectedItems));
     const qtyMap: Record<string, number> = {};
     for (const item of selectedItems) {
@@ -419,7 +453,7 @@ export function StockPageClient({
       qtyMap[item.skuCode] = q;
     }
     sessionStorage.setItem("vmi_order_qty", JSON.stringify(qtyMap));
-  }, [selectedItems, qtyOverrides]);
+  }, [sessionReady, selectedItems, qtyOverrides]);
 
   function goToOrder() {
     if (selectedItems.length === 0) return;
@@ -776,6 +810,7 @@ export function StockPageClient({
                           suggestOrder={row.suggestOrder}
                           onMinus={() => adjustLineQty(row.skuCode, -1)}
                           onPlus={() => adjustLineQty(row.skuCode, 1)}
+                          onSetQty={(q) => setLineQty(row.skuCode, q)}
                           onApplySuggest={() =>
                             setLineQty(
                               row.skuCode,
@@ -1004,6 +1039,7 @@ function StockMobileRow({
           suggestOrder={row.suggestOrder}
           onMinus={() => onAdjustQty(-1)}
           onPlus={() => onAdjustQty(1)}
+          onSetQty={onSetQty}
           onApplySuggest={onApplySuggest}
           compact
         />
@@ -1461,6 +1497,7 @@ function StockQtyStepper({
   suggestOrder,
   onMinus,
   onPlus,
+  onSetQty,
   onApplySuggest,
   compact = false,
 }: {
@@ -1468,11 +1505,27 @@ function StockQtyStepper({
   suggestOrder: number;
   onMinus: () => void;
   onPlus: () => void;
+  onSetQty?: (qty: number) => void;
   onApplySuggest?: () => void;
   compact?: boolean;
 }) {
   const btn = compact ? "h-6 w-6 rounded-md" : "h-8 w-8";
   const showSuggest = suggestOrder > 0 && qty !== suggestOrder;
+  const [draft, setDraft] = useState(String(qty));
+
+  useEffect(() => {
+    setDraft(String(qty));
+  }, [qty]);
+
+  function commitDraft() {
+    if (!onSetQty) return;
+    const n = Math.floor(Number(draft));
+    if (!Number.isFinite(n) || n < 1) {
+      setDraft(String(qty));
+      return;
+    }
+    onSetQty(n);
+  }
 
   return (
     <div
@@ -1504,19 +1557,46 @@ function StockQtyStepper({
       >
         <Minus className={compact ? "h-3 w-3" : "h-3.5 w-3.5"} />
       </Button>
-      <span
-        className={cn(
-          "text-center font-bold tabular-nums text-slate-900 dark:text-white",
-          compact ? "min-w-[1.5rem] text-xs" : "w-8 text-sm"
-        )}
-        title={
-          suggestOrder > 0 && qty !== suggestOrder
-            ? `แนะนำ ${suggestOrder} หีบ`
-            : undefined
-        }
-      >
-        {qty}
-      </span>
+      {onSetQty ? (
+        <input
+          type="number"
+          min={1}
+          inputMode="numeric"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commitDraft}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.currentTarget.blur();
+            }
+          }}
+          onClick={(e) => e.stopPropagation()}
+          className={cn(
+            "rounded-md border border-slate-200 bg-white text-center font-bold tabular-nums text-slate-900 outline-none ring-teal-500/30 focus:ring-2 dark:border-slate-600 dark:bg-slate-900 dark:text-white",
+            compact ? "h-6 w-10 text-xs" : "h-8 w-12 text-sm"
+          )}
+          title={
+            suggestOrder > 0 && qty !== suggestOrder
+              ? `แนะนำ ${suggestOrder} หีบ`
+              : "พิมพ์จำนวนหีบ"
+          }
+          aria-label="จำนวนสั่ง"
+        />
+      ) : (
+        <span
+          className={cn(
+            "text-center font-bold tabular-nums text-slate-900 dark:text-white",
+            compact ? "min-w-[1.5rem] text-xs" : "w-8 text-sm"
+          )}
+          title={
+            suggestOrder > 0 && qty !== suggestOrder
+              ? `แนะนำ ${suggestOrder} หีบ`
+              : undefined
+          }
+        >
+          {qty}
+        </span>
+      )}
       <Button
         size="icon"
         variant="outline"

@@ -447,6 +447,10 @@ function OrderSummaryPromo({ line }: { line: EnrichedLine }) {
       variant="compact"
       currentPromo={line.promo.currentPromo}
       currentKind={line.promo.currentKind}
+      nextPromo={line.promo.nextPromo}
+      qtyToNext={line.promo.qtyToNext}
+      nextPromoQty={line.promo.nextPromoQty}
+      nextKind={line.promo.nextKind}
       hasPromoLadder={line.promo.hasPromoLadder}
       freeGood={line.freeGood}
     />

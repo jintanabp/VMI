@@ -225,9 +225,9 @@ function NextPromoHint({
     <span
       className={cn(
         chip,
-        "bg-slate-100 text-slate-600 ring-1 ring-slate-200 dark:bg-slate-700/40 dark:text-slate-300 dark:ring-slate-600/40"
+        "bg-sky-50 text-sky-800 ring-1 ring-sky-200 dark:bg-sky-500/15 dark:text-sky-200 dark:ring-sky-500/25"
       )}
-      title={label}
+      title={`มีโปรถัดไป — ยืนยันสั่งตามจำนวนนี้จะได้โปรปัจจุบัน · ${label}`}
     >
       <span className="truncate">{label}</span>
     </span>
