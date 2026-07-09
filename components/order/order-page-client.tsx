@@ -14,6 +14,11 @@ import {
 import { AppHeader } from "@/components/layout/app-header";
 import { PageShell } from "@/components/layout/page-shell";
 import { PromoDetailCell } from "@/components/promo/promo-detail-cell";
+import {
+  StockDiscountPerCaseCell,
+  StockListPriceCell,
+  StockNetPriceCell,
+} from "@/components/stock/stock-price-cells";
 import { Button } from "@/components/ui/button";
 import {
   MobileRow,
@@ -90,6 +95,8 @@ interface EnrichedLine {
   netUnitPrice: number | null;
   lineTotal: number | null;
   priceExpired: boolean;
+  discountBaht?: number | null;
+  discountPct?: number | null;
   freeGood: LineFreeGood | null;
   promoGroup?: string | null;
   promoGroupMembers?: number;
@@ -142,7 +149,7 @@ export function OrderPageClient({
           row,
           qty:
             qtyBySku[row.skuCode] ??
-            (row.suggestOrder > 0 ? row.suggestOrder : 1),
+            (row.suggestOrder > 0 ? row.suggestOrder : 0),
         }))
       );
     } catch {
@@ -204,9 +211,13 @@ export function OrderPageClient({
         : fallbackPromo;
 
       const unitPrice = api?.unitPrice ?? line.row.unitPrice ?? null;
+      const discountBaht =
+        api?.discountBaht ?? line.row.discountBahtPerCase ?? null;
+      const discountPct =
+        api?.discountPct ?? line.row.discountPctPerCase ?? null;
       const netUnitPrice =
         api?.netUnitPrice ??
-        calcNetUnitPrice(unitPrice, api?.discountBaht, api?.discountPct) ??
+        calcNetUnitPrice(unitPrice, discountBaht, discountPct) ??
         line.row.netUnitPrice ??
         unitPrice;
       const lineTotal =
@@ -223,6 +234,8 @@ export function OrderPageClient({
         netUnitPrice,
         lineTotal,
         priceExpired: api?.priceExpired ?? line.row.priceExpired ?? false,
+        discountBaht,
+        discountPct,
         freeGood: api?.freeGood ?? null,
         promoGroup: api?.promoGroup ?? line.row.promoGroup ?? null,
         promoGroupMembers:
@@ -264,7 +277,7 @@ export function OrderPageClient({
   function resetAllToSuggested() {
     const next = lines.map((line) => ({
       ...line,
-      qty: line.row.suggestOrder > 0 ? line.row.suggestOrder : 1,
+      qty: line.row.suggestOrder > 0 ? line.row.suggestOrder : 0,
     }));
     setLines(next);
     const qtyMap: Record<string, number> = {};
@@ -489,6 +502,28 @@ function OrderSummaryList({ lines }: { lines: EnrichedLine[] }) {
                     label="MIN / MAX"
                     value={`${formatNumber(line.row.minStock, 0)} / ${formatNumber(line.row.maxStock, 0)}`}
                   />
+                  <MobileStat label="ราคา/หีบ">
+                    <StockListPriceCell
+                      unitPrice={line.unitPrice}
+                      expired={line.priceExpired}
+                      compact
+                    />
+                  </MobileStat>
+                  <MobileStat label="ส่วนลด">
+                    <StockDiscountPerCaseCell
+                      discountBaht={line.discountBaht}
+                      discountPct={line.discountPct}
+                      compact
+                    />
+                  </MobileStat>
+                  <MobileStat label="ราคาสุทธิ/หีบ">
+                    <StockNetPriceCell
+                      unitPrice={line.unitPrice}
+                      netUnitPrice={line.netUnitPrice}
+                      expired={line.priceExpired}
+                      compact
+                    />
+                  </MobileStat>
                   <MobileStat label="รวม" value={formatBaht(line.lineTotal)} />
                   <MobileStat label="CVD" value={formatDays(line.cvdEst)} />
                 </MobileRowStats>
@@ -502,17 +537,33 @@ function OrderSummaryList({ lines }: { lines: EnrichedLine[] }) {
           </MobileRowList>
         </div>
 
-        <table className="vmi-data-table hidden w-full min-w-0 text-left xl:table">
+        <table className="vmi-data-table vmi-stock-fit-table hidden w-full min-w-0 table-fixed text-left xl:table">
+          <colgroup>
+            <col className="w-[3%]" />
+            <col className="w-[8%]" />
+            <col className="w-[18%]" />
+            <col className="w-[7%]" />
+            <col className="w-[8%]" />
+            <col className="w-[7%]" />
+            <col className="w-[7%]" />
+            <col className="w-[7%]" />
+            <col className="w-[8%]" />
+            <col className="w-[6%]" />
+            <col className="w-[21%]" />
+          </colgroup>
           <thead className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
             <tr>
-              <th className="px-3 py-3">#</th>
-              <th className="px-3 py-3">SKU</th>
-              <th className="px-3 py-3">ชื่อสินค้า</th>
-              <th className="px-3 py-3 text-right">จำนวน</th>
-              <th className="px-3 py-3 text-right">MIN / MAX</th>
-              <th className="px-3 py-3 text-right">รวม</th>
-              <th className="px-3 py-3 text-right">CVD</th>
-              <th className="px-3 py-3">โปรที่ได้</th>
+              <th className="px-2 py-3">#</th>
+              <th className="px-2 py-3">SKU</th>
+              <th className="px-2 py-3">ชื่อสินค้า</th>
+              <th className="px-2 py-3 text-right">จำนวน</th>
+              <th className="px-2 py-3 text-right">MIN / MAX</th>
+              <th className="px-2 py-3 text-right">ราคา/หีบ</th>
+              <th className="px-2 py-3 text-right">ส่วนลด</th>
+              <th className="px-2 py-3 text-right">ราคาสุทธิ/หีบ</th>
+              <th className="px-2 py-3 text-right">รวม</th>
+              <th className="px-2 py-3 text-right">CVD</th>
+              <th className="px-2 py-3">โปรที่ได้</th>
             </tr>
           </thead>
           <tbody>
@@ -534,11 +585,33 @@ function OrderSummaryList({ lines }: { lines: EnrichedLine[] }) {
                 <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
                   {line.qty} หีบ
                 </td>
-                <td className="px-3 py-2.5 text-right text-xs tabular-nums text-slate-600 dark:text-slate-400">
+                <td className="px-2 py-2.5 text-right text-xs tabular-nums text-slate-600 dark:text-slate-400">
                   {formatNumber(line.row.minStock, 0)} /{" "}
                   {formatNumber(line.row.maxStock, 0)}
                 </td>
-                <td className="px-3 py-2.5 text-right text-xs font-medium tabular-nums">
+                <td className="px-2 py-2.5 text-right">
+                  <StockListPriceCell
+                    unitPrice={line.unitPrice}
+                    expired={line.priceExpired}
+                    compact
+                  />
+                </td>
+                <td className="px-2 py-2.5 text-right">
+                  <StockDiscountPerCaseCell
+                    discountBaht={line.discountBaht}
+                    discountPct={line.discountPct}
+                    compact
+                  />
+                </td>
+                <td className="px-2 py-2.5 text-right">
+                  <StockNetPriceCell
+                    unitPrice={line.unitPrice}
+                    netUnitPrice={line.netUnitPrice}
+                    expired={line.priceExpired}
+                    compact
+                  />
+                </td>
+                <td className="px-2 py-2.5 text-right text-xs font-medium tabular-nums">
                   {formatBaht(line.lineTotal)}
                 </td>
                 <td className="px-3 py-2.5 text-right tabular-nums text-slate-600 dark:text-slate-400">
