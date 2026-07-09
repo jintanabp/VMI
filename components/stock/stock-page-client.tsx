@@ -494,7 +494,7 @@ export function StockPageClient({
         role="customer"
       />
 
-      <main className="vmi-stock-main mx-auto w-full min-w-0 max-w-[96rem] px-3 sm:px-4">
+      <main className="vmi-stock-main mx-auto w-full min-w-0 max-w-[88rem] px-3 sm:px-4">
         <div className="vmi-stock-stats shrink-0 py-2 xl:py-3">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
             <StockStatCard
@@ -924,7 +924,7 @@ export function StockPageClient({
       </main>
 
       <div className="vmi-action-bar">
-        <div className="mx-auto flex max-w-[96rem] flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+        <div className="mx-auto flex max-w-[88rem] flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
           <p className="min-w-0 flex-1 truncate text-center text-xs text-slate-600 sm:text-sm dark:text-slate-400">
             {selected.size > 0 ? (
               selectedRedCount > 0 ? (

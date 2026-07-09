@@ -360,7 +360,7 @@ export function OrderPageClient({
         role="customer"
       />
 
-      <main className="vmi-order-main mx-auto w-full min-w-0 max-w-[96rem] px-3 sm:px-4">
+      <main className="vmi-order-main mx-auto w-full min-w-0 max-w-[88rem] px-3 sm:px-4">
         <div className="vmi-order-stats grid shrink-0 grid-cols-2 gap-1.5 py-2 sm:grid-cols-3 sm:gap-2 lg:grid-cols-5 xl:py-3">
           <SummaryChip
             label="รายการ"
@@ -404,7 +404,7 @@ export function OrderPageClient({
       </main>
 
       <div className="vmi-action-bar">
-        <div className="mx-auto flex w-full max-w-[96rem] items-center justify-between gap-2 sm:gap-3">
+        <div className="mx-auto flex w-full max-w-[88rem] items-center justify-between gap-2 sm:gap-3">
           <Button
             variant="outline"
             size="sm"

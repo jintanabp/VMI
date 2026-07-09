@@ -44,7 +44,7 @@ export function AppHeader({
   backLabel,
   onBack,
 }: AppHeaderProps) {
-  const contentMaxWidth = wide ? "max-w-[96rem]" : "max-w-7xl";
+  const contentMaxWidth = wide ? "max-w-[88rem]" : "max-w-7xl";
   const pathname = usePathname();
   const { session } = useSalesSession();
   const adminPreview = useAdminPreview();
