@@ -575,7 +575,8 @@ export function StockPageClient({
             />
             <StockStatCard
               icon={<Boxes className="h-4 w-4" />}
-              label="หีบทั้งหมด"
+              label="หีบคงเหลือทั้งหมด"
+              title="สต็อกคงเหลือปัจจุบันรวมทุกสินค้า (หน่วยหีบ)"
               value={formatNumber(stats.totalStock, 0)}
             />
             <StockStatCard
