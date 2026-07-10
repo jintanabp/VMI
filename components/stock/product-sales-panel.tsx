@@ -41,6 +41,8 @@ function weekdayShort(date: string) {
 
 const cache = new Map<string, SalesResponse>();
 
+const DAY_OPTIONS = [7, 30] as const;
+
 export function ProductSalesPanel({
   skuCode,
   fromDb,
@@ -50,7 +52,8 @@ export function ProductSalesPanel({
   fromDb?: string | null;
   days?: number;
 }) {
-  const cacheKey = `${skuCode}|${fromDb ?? ""}|${days}`;
+  const [viewDays, setViewDays] = useState<number>(days);
+  const cacheKey = `${skuCode}|${fromDb ?? ""}|${viewDays}`;
   const [data, setData] = useState<SalesResponse | null>(
     () => cache.get(cacheKey) ?? null
   );
@@ -64,7 +67,7 @@ export function ProductSalesPanel({
     }
     let alive = true;
     setLoading(true);
-    const params = new URLSearchParams({ sku: skuCode, days: String(days) });
+    const params = new URLSearchParams({ sku: skuCode, days: String(viewDays) });
     if (fromDb) params.set("fromDb", fromDb);
     fetch(`/api/sales/daily?${params.toString()}`)
       .then((r) => r.json())
@@ -81,7 +84,30 @@ export function ProductSalesPanel({
     return () => {
       alive = false;
     };
-  }, [cacheKey, skuCode, fromDb, days]);
+  }, [cacheKey, skuCode, fromDb, viewDays]);
+
+  const dayToggle = (
+    <div className="inline-flex overflow-hidden rounded-md border border-slate-200 dark:border-slate-700">
+      {DAY_OPTIONS.map((d) => (
+        <button
+          key={d}
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setViewDays(d);
+          }}
+          className={cn(
+            "px-2 py-0.5 text-[11px] font-medium transition",
+            viewDays === d
+              ? "bg-teal-600 text-white"
+              : "bg-white text-slate-500 hover:bg-slate-100 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800"
+          )}
+        >
+          {d} วัน
+        </button>
+      ))}
+    </div>
+  );
 
   if (loading) {
     return (
@@ -102,9 +128,17 @@ export function ProductSalesPanel({
   const summary = data.summary;
   if (!summary || !summary.hasData) {
     return (
-      <p className="py-3 text-center text-xs text-slate-500 dark:text-slate-400">
-        ไม่พบยอดขายย้อนหลังของสินค้านี้
-      </p>
+      <div className="space-y-2 rounded-lg bg-slate-50/80 p-3 text-center dark:bg-slate-800/40">
+        <div className="flex items-center justify-center gap-2">
+          <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+            ยอดขายร้านนี้
+          </span>
+          {dayToggle}
+        </div>
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          ร้านนี้ไม่มียอดขายสินค้านี้ใน {viewDays} วันที่ผ่านมา
+        </p>
+      </div>
     );
   }
 
@@ -115,8 +149,9 @@ export function ProductSalesPanel({
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="inline-flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200">
           <BarChart3 className="h-3.5 w-3.5 text-teal-600" />
-          ยอดขาย {days} วัน
+          ยอดขาย {viewDays} วัน
         </span>
+        {dayToggle}
         <SummaryPill
           label="เฉลี่ย/วัน"
           value={formatNumber(summary.avgPerDay, 1)}
@@ -129,6 +164,12 @@ export function ProductSalesPanel({
         />
         <SummaryPill label="รวม" value={formatNumber(summary.total, 0)} />
       </div>
+
+      {summary.total === 0 && (
+        <p className="text-[11px] text-amber-600 dark:text-amber-400">
+          ไม่มียอดขายใน {viewDays} วันที่ผ่านมา (เคยขายก่อนหน้านี้)
+        </p>
+      )}
 
       <div className="space-y-1">
         {summary.series.map((d) => (
