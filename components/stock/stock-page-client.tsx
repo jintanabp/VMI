@@ -25,6 +25,9 @@ import {
   Boxes,
   Wallet,
   CalendarClock,
+  Bell,
+  Ban,
+  Sparkles,
   X,
   Check,
   Minus,
@@ -120,6 +123,13 @@ export function StockPageClient({
   });
   const [refreshing, setRefreshing] = useState(false);
   const [refreshMsg, setRefreshMsg] = useState("");
+  // สินค้าใหม่ + หยุดสั่ง (blocklist)
+  const [showNewOnly, setShowNewOnly] = useState(false);
+  const [stopOpen, setStopOpen] = useState(false);
+  const [stopReason, setStopReason] = useState("");
+  const [stopEffective, setStopEffective] = useState("");
+  const [stopSaving, setStopSaving] = useState(false);
+  const [stopErr, setStopErr] = useState("");
   const [sessionReady, setSessionReady] = useState(false);
 
   const { data, isLoading } = useQuery<StockApiResponse>({
@@ -208,8 +218,11 @@ export function StockPageClient({
     if (viewScope.section) {
       out = out.filter((r) => (r.section ?? "") === viewScope.section);
     }
+    if (showNewOnly) {
+      out = out.filter((r) => r.isNew);
+    }
     return out;
-  }, [enrichedRows, search, viewScope]);
+  }, [enrichedRows, search, viewScope, showNewOnly]);
 
   function toggleExpand(skuId: string) {
     setExpanded((prev) => {
@@ -248,10 +261,61 @@ export function StockPageClient({
     }
   }, [refreshing, queryClient]);
 
-  const displayRows = useMemo(
-    () => annotatePromoGroupStripes(sortRowsByPromoGroup(filtered)),
-    [filtered]
+  // สินค้าใหม่ลอยขึ้นบนสุด (คงการจัดกลุ่มโปรภายในแต่ละส่วน)
+  const displayRows = useMemo(() => {
+    const news = filtered.filter((r) => r.isNew);
+    const rest = filtered.filter((r) => !r.isNew);
+    return [
+      ...annotatePromoGroupStripes(sortRowsByPromoGroup(news)),
+      ...annotatePromoGroupStripes(sortRowsByPromoGroup(rest)),
+    ];
+  }, [filtered]);
+
+  const newCount = useMemo(
+    () => enrichedRows.filter((r) => r.isNew).length,
+    [enrichedRows]
   );
+
+  async function submitStop() {
+    if (selected.size === 0) return;
+    setStopSaving(true);
+    setStopErr("");
+    try {
+      const res = await fetch("/api/store/blocklist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          skuIds: [...selected],
+          reason: stopReason.trim(),
+          effectiveFrom: stopEffective || undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setStopErr(data.error ?? "บันทึกไม่สำเร็จ");
+        return;
+      }
+      setStopOpen(false);
+      setStopReason("");
+      setStopEffective("");
+      clearSelection();
+      await queryClient.invalidateQueries({ queryKey: ["stock"] });
+    } finally {
+      setStopSaving(false);
+    }
+  }
+
+  async function unblock(skuId: string) {
+    if (!confirm("ยกเลิกการหยุดสั่งสินค้านี้?")) return;
+    const res = await fetch("/api/store/blocklist", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ skuIds: [skuId] }),
+    });
+    if (res.ok) {
+      await queryClient.invalidateQueries({ queryKey: ["stock"] });
+    }
+  }
 
   function applyGroupStaged(staged: Record<string, number>) {
     setQtyOverrides((prev) => ({ ...prev, ...staged }));
@@ -582,6 +646,21 @@ export function StockPageClient({
                 setViewScope({ needsOnly: false, brand: null, section: null })
               }
             />
+            {newCount > 0 && (
+              <Button
+                variant={showNewOnly ? "default" : "outline"}
+                size="sm"
+                className="relative whitespace-nowrap"
+                onClick={() => setShowNewOnly((v) => !v)}
+                title={`สินค้าใหม่ ${newCount} รายการ`}
+              >
+                <Bell className="h-4 w-4" />
+                <span className="hidden sm:inline">สินค้าใหม่</span>
+                <span className="ml-0.5 inline-flex min-w-[1.1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-4 text-white">
+                  {newCount}
+                </span>
+              </Button>
+            )}
             {filteredNeedsOrder.length > 0 && (
               <Button
                 variant="secondary"
@@ -786,24 +865,46 @@ export function StockPageClient({
                         )}
                       </td>
                       <td className="px-1 py-1.5 text-slate-700 dark:text-slate-300">
-                        <button
-                          type="button"
-                          className={cn(
-                            "group flex w-full min-w-0 items-center gap-1 text-left hover:text-teal-700 dark:hover:text-teal-400",
-                            expanded.has(row.skuId) &&
-                              "font-medium text-teal-700 dark:text-teal-400"
+                        <div className="flex min-w-0 items-center gap-1">
+                          {row.isNew && (
+                            <span
+                              className="inline-flex shrink-0 items-center gap-0.5 rounded bg-sky-100 px-1 py-0.5 text-[9px] font-bold text-sky-700 dark:bg-sky-950/50 dark:text-sky-300"
+                              title="สินค้าใหม่ในระบบ"
+                            >
+                              <Sparkles className="h-2.5 w-2.5" />
+                              ใหม่
+                            </span>
                           )}
-                          onClick={() => toggleExpand(row.skuId)}
-                          title={row.skuName}
-                        >
-                          <span className="min-w-0 truncate text-xs">{row.skuName}</span>
-                          <BarChart3
+                          {row.blocked && (
+                            <button
+                              type="button"
+                              onClick={() => unblock(row.skuId)}
+                              className="inline-flex shrink-0 items-center gap-0.5 rounded bg-red-100 px-1 py-0.5 text-[9px] font-bold text-red-700 hover:bg-red-200 dark:bg-red-950/50 dark:text-red-300"
+                              title={`หยุดสั่ง: ${row.blockReason ?? ""} — กดเพื่อยกเลิก`}
+                            >
+                              <Ban className="h-2.5 w-2.5" />
+                              หยุดสั่ง
+                            </button>
+                          )}
+                          <button
+                            type="button"
                             className={cn(
-                              "h-3 w-3 shrink-0 text-slate-300 group-hover:text-teal-600 dark:text-slate-600",
-                              expanded.has(row.skuId) && "text-teal-600 dark:text-teal-400"
+                              "group flex min-w-0 flex-1 items-center gap-1 text-left hover:text-teal-700 dark:hover:text-teal-400",
+                              expanded.has(row.skuId) &&
+                                "font-medium text-teal-700 dark:text-teal-400"
                             )}
-                          />
-                        </button>
+                            onClick={() => toggleExpand(row.skuId)}
+                            title={row.skuName}
+                          >
+                            <span className="min-w-0 truncate text-xs">{row.skuName}</span>
+                            <BarChart3
+                              className={cn(
+                                "h-3 w-3 shrink-0 text-slate-300 group-hover:text-teal-600 dark:text-slate-600",
+                                expanded.has(row.skuId) && "text-teal-600 dark:text-teal-400"
+                              )}
+                            />
+                          </button>
+                        </div>
                       </td>
                       <td className="px-1 py-1.5 text-right tabular-nums text-xs">
                         {formatNumber(row.stock, 0)}
@@ -950,6 +1051,24 @@ export function StockPageClient({
               <>เลือกสินค้า ปรับจำนวน ตรวจโปร แล้วกดตรวจสอบคำสั่ง</>
             )}
           </p>
+          {selected.size > 0 && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="mx-auto shrink-0 border-red-200 text-red-600 hover:bg-red-50 sm:mx-0 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/30"
+              onClick={() => {
+                setStopErr("");
+                setStopReason("");
+                setStopEffective("");
+                setStopOpen(true);
+              }}
+              title="หยุดสั่ง / เอาออกจากคลัง สำหรับรายการที่เลือก"
+            >
+              <Ban className="h-4 w-4" />
+              <span className="hidden sm:inline">หยุดสั่ง</span>
+              {` (${selected.size})`}
+            </Button>
+          )}
           <Button
             size="sm"
             className="mx-auto shrink-0 sm:mx-0 sm:px-5"
@@ -974,6 +1093,75 @@ export function StockPageClient({
           </Button>
         </div>
       </div>
+
+      {stopOpen &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+            onClick={() => !stopSaving && setStopOpen(false)}
+          >
+            <div
+              className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-700 dark:bg-slate-900"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-slate-100">
+                <Ban className="h-4 w-4 text-red-500" />
+                หยุดสั่ง {selected.size} รายการ
+              </h3>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                ระบบจะไม่แนะนำสั่งสินค้าเหล่านี้ตั้งแต่วันที่กำหนด และแจ้งเซลล์ที่ดูแลร้าน
+              </p>
+
+              <label className="mt-4 block text-xs font-semibold text-slate-600 dark:text-slate-300">
+                เหตุผล
+              </label>
+              <textarea
+                value={stopReason}
+                onChange={(e) => setStopReason(e.target.value)}
+                rows={3}
+                placeholder="เช่น สินค้าเลิกขาย / ไม่มีที่เก็บ / ขายไม่ดี"
+                className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none ring-teal-500/30 focus:ring-2 dark:border-slate-700 dark:bg-slate-900"
+              />
+
+              <label className="mt-3 block text-xs font-semibold text-slate-600 dark:text-slate-300">
+                เริ่มหยุดสั่งตั้งแต่
+              </label>
+              <input
+                type="datetime-local"
+                value={stopEffective}
+                onChange={(e) => setStopEffective(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none ring-teal-500/30 focus:ring-2 dark:border-slate-700 dark:bg-slate-900"
+              />
+              <p className="mt-1 text-[11px] text-slate-400">
+                เว้นว่าง = เริ่มทันที
+              </p>
+
+              {stopErr && (
+                <p className="mt-2 text-xs text-red-600">{stopErr}</p>
+              )}
+
+              <div className="mt-5 flex justify-end gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setStopOpen(false)}
+                  disabled={stopSaving}
+                >
+                  ยกเลิก
+                </Button>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={submitStop}
+                  disabled={stopSaving || !stopReason.trim()}
+                >
+                  {stopSaving ? "กำลังบันทึก..." : "ยืนยันหยุดสั่ง"}
+                </Button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
     </PageShell>
   );
 }
