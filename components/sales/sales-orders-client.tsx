@@ -6,6 +6,7 @@ import { useSalesSession } from "@/hooks/use-sales-session";
 import { useSalesPreview } from "@/hooks/use-sales-preview";
 import { AppHeader } from "@/components/layout/app-header";
 import { PageShell } from "@/components/layout/page-shell";
+import { SalesNav } from "./sales-nav";
 import { StatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SalesRepFilter } from "@/components/sales/sales-rep-filter";
@@ -202,6 +203,7 @@ export function SalesOrdersClient() {
       />
 
       <main className="vmi-sales-orders-main mx-auto w-full min-w-0 max-w-[min(100%,96rem)] px-2 py-2 sm:px-3 sm:py-2 xl:px-6 xl:py-3">
+        <SalesNav />
         {noVdaAccess && (
           <div className="mb-2 shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800/50 dark:bg-amber-950/30 dark:text-amber-200">
             <p className="font-semibold">รหัสนี้ไม่มี VDA ที่ดูแล</p>
