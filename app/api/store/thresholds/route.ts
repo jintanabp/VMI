@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { getStoreSession } from "@/lib/auth/store-session";
 import { getRepositories } from "@/lib/repositories";
+import { bumpStockDataVersion } from "@/lib/fabric/data-version";
 import { CUSTOMER_STORE_COOKIE } from "@/lib/auth/roles";
 
 async function resolveStoreId(): Promise<{
@@ -72,6 +73,7 @@ export async function PATCH(request: Request) {
     await prisma.storeGroupThreshold.deleteMany({
       where: { storeId, section },
     });
+    bumpStockDataVersion();
 
     const skuIds: string[] = Array.isArray(body.skuIds)
       ? body.skuIds.map((id: unknown) => String(id)).filter(Boolean)
@@ -129,6 +131,7 @@ export async function PATCH(request: Request) {
     create: { storeId, section, minDays, maxDays },
     update: { minDays, maxDays },
   });
+  bumpStockDataVersion();
 
   return NextResponse.json({ success: true, scope: "section" });
 }

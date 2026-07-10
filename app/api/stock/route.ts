@@ -3,7 +3,6 @@ import { cookies } from "next/headers";
 import { getRepositories } from "@/lib/repositories";
 import { fabricStockReady } from "@/lib/fabric";
 import { buildFabricStockPayload } from "@/lib/fabric/stock-rows";
-import { ensureFabricMastersFresh } from "@/lib/fabric";
 import { getStockFilterConfig } from "@/lib/fabric/stock-filter-config";
 import {
   CUSTOMER_STORE_COOKIE,
@@ -24,7 +23,6 @@ export async function GET(request: Request) {
   }
 
   if (fabricStockReady() && storeCode) {
-    ensureFabricMastersFresh();
     const payload = await buildFabricStockPayload(storeId, storeCode, fromDb);
     return NextResponse.json(payload);
   }

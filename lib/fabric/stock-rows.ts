@@ -5,9 +5,11 @@ import {
   fabricPromoReady,
   fabricSkuMasterReady,
   ensureFabricMastersFresh,
+  fabricMastersMtimeSignature,
   getPromotionCreditDirectory,
   getSkuMasterDirectory,
 } from "./index";
+import { stockDataVersion } from "./data-version";
 import { resolvePromoContext } from "./promotion-context";
 import {
   filterCandidateRows,
@@ -96,25 +98,47 @@ export function listStockFromDbSources(config = getStockFilterConfig()): string[
   return getStockCoverDirectory().resolveSources(config);
 }
 
+// Cache ผลลัพธ์ payload ต่อ (store, fromDb) — payload เปลี่ยนเฉพาะเมื่อไฟล์ master เปลี่ยน
+// หรือมีการแก้ threshold เท่านั้น จึงไม่ต้อง recompute + query DB ทุก request
+const payloadCache = new Map<string, StockApiPayload>();
+let payloadCacheSignature = "";
+
+function currentPayloadSignature(): string {
+  return `${fabricMastersMtimeSignature()}|v${stockDataVersion()}`;
+}
+
 export async function buildFabricStockPayload(
   storeId: string,
   storeCode: string,
   requestedFromDb?: string | null
 ): Promise<StockApiPayload> {
   ensureFabricMastersFresh();
+
+  // ล้าง cache ทั้งชุดเมื่อ signature เปลี่ยน (sync ใหม่ / แก้ threshold) — bound memory ตามจำนวนร้าน
+  const signature = currentPayloadSignature();
+  if (signature !== payloadCacheSignature) {
+    payloadCache.clear();
+    payloadCacheSignature = signature;
+  }
+  const cacheKey = `${storeId}|${storeCode}|${requestedFromDb ?? ""}`;
+  const cached = payloadCache.get(cacheKey);
+  if (cached) return cached;
+
   const config = getStockFilterConfig();
   const dir = getStockCoverDirectory();
   const sources = dir.resolveSources(config);
   const activeFromDb = resolveActiveFromDb(sources, requestedFromDb, config);
 
   if (!activeFromDb) {
-    return {
+    const emptyPayload: StockApiPayload = {
       sources: [],
       activeFromDb: null,
       filterMode: config.filterMode,
       dataDate: null,
       rows: [],
     };
+    payloadCache.set(cacheKey, emptyPayload);
+    return emptyPayload;
   }
 
   // ของแถม: productcode ขึ้นต้นด้วย 0 — ไม่แสดงในหน้าสั่งซื้อของร้านค้า
@@ -286,11 +310,13 @@ export async function buildFabricStockPayload(
     );
   }
 
-  return {
+  const payload: StockApiPayload = {
     sources,
     activeFromDb,
     filterMode: config.filterMode,
     dataDate,
     rows,
   };
+  payloadCache.set(cacheKey, payload);
+  return payload;
 }

@@ -43,6 +43,13 @@ function trackedFabricPaths(): string[] {
   ];
 }
 
+/** ลายเซ็นของไฟล์ CSV master ทั้งหมด (mtime) — เปลี่ยนเมื่อมี sync ข้อมูลใหม่ */
+export function fabricMastersMtimeSignature(): string {
+  return trackedFabricPaths()
+    .map((p) => csvMtime(p) ?? 0)
+    .join("|");
+}
+
 /** โหลด cache ใหม่เมื่อไฟล์ CSV บนดิสก์เปลี่ยน (แก้ stale ข้าม worker / หลัง sync) */
 export function ensureFabricMastersFresh(): void {
   const paths = trackedFabricPaths();

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { fabricMastersReady } from "@/lib/fabric";
+import { bumpStockDataVersion } from "@/lib/fabric/data-version";
 import { mapStockRow } from "./stock-mapper";
 import {
   listFabricStores,
@@ -57,6 +58,7 @@ export const prismaStockRepository: StockRepository = {
         maxDays,
       },
     });
+    bumpStockDataVersion();
   },
 };
 

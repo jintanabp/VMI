@@ -115,6 +115,8 @@ function parsePromoRow(norm: Record<string, string>): PromoRow | null {
 
 export class PromotionCredit {
   private byKey = new Map<string, PromoRow[]>();
+  // (division|cusgroup|ASSORTEDPRODUCTGROUP) → rows, สร้างตอน load เพื่อให้ rowsForGroup เป็น O(1)
+  private byGroup = new Map<string, PromoRow[]>();
   private csvPath: string | null = null;
 
   get isLoaded() {
@@ -129,19 +131,7 @@ export class PromotionCredit {
   rowsForGroup(division: string, cusgroup: string, group: string): PromoRow[] {
     const g = group.trim();
     if (!g) return [];
-    const out: PromoRow[] = [];
-    for (const bucket of this.byKey.values()) {
-      for (const r of bucket) {
-        if (
-          r.division === division &&
-          r.cusgroup === cusgroup &&
-          (r.raw.ASSORTEDPRODUCTGROUP ?? "").trim() === g
-        ) {
-          out.push(r);
-        }
-      }
-    }
-    return out.sort((a, b) => a.fromQty - b.fromQty || a.toQty - b.toQty);
+    return this.byGroup.get(`${division}|${cusgroup}|${g}`) ?? [];
   }
 
   /** ASSORTEDPRODUCTGROUP for a SKU, if any (empty = standalone SKU promo). */
@@ -168,6 +158,7 @@ export class PromotionCredit {
     if (!fs.existsSync(csvPath)) {
       console.warn(`[PromotionCredit] CSV not found: ${csvPath}`);
       this.byKey = new Map();
+      this.byGroup = new Map();
       this.csvPath = csvPath;
       return;
     }
@@ -199,6 +190,23 @@ export class PromotionCredit {
     for (const bucket of byKey.values()) {
       bucket.sort((a, b) => a.fromQty - b.fromQty || a.toQty - b.toQty);
     }
+
+    // index ตาม ASSORTEDPRODUCTGROUP — ให้ rowsForGroup() ไม่ต้อง scan ทั้งชุดต่อ SKU
+    const byGroup = new Map<string, PromoRow[]>();
+    for (const bucket of byKey.values()) {
+      for (const r of bucket) {
+        const g = (r.raw.ASSORTEDPRODUCTGROUP ?? "").trim();
+        if (!g) continue;
+        const key = `${r.division}|${r.cusgroup}|${g}`;
+        const list = byGroup.get(key) ?? [];
+        list.push(r);
+        byGroup.set(key, list);
+      }
+    }
+    for (const list of byGroup.values()) {
+      list.sort((a, b) => a.fromQty - b.fromQty || a.toQty - b.toQty);
+    }
+    this.byGroup = byGroup;
 
     this.byKey = byKey;
     this.csvPath = csvPath;
