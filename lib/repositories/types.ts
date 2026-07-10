@@ -14,6 +14,8 @@ export interface StockRowComputed {
   brand?: string;
   stock: number;
   avgSales: number;
+  /** ยอดขายเฉลี่ยต่อวัน 7 วัน (avg_qty_out_L7 ดิบ) สำหรับแสดงในคอลัมน์ "ขายเฉลี่ย 7 วัน" */
+  avgQtyOutL7?: number;
   minDays: number;
   maxDays: number;
   minStock: number;

@@ -799,7 +799,12 @@ export function StockPageClient({
                 <th className="px-1 py-2">SKU</th>
                 <th className="px-1 py-2">ชื่อสินค้า</th>
                 <th className="px-1 py-2 text-right">สต็อก</th>
-                <th className="px-1 py-2 text-right">ขาย</th>
+                <th
+                  className="px-1 py-2 text-right leading-tight"
+                  title="ขายเฉลี่ยต่อวัน 7 วัน (avg_qty_out_L7)"
+                >
+                  ขายเฉลี่ย<br />7 วัน
+                </th>
                 <th className="px-1 py-2 text-right">CVD</th>
                 <th className="px-1 py-2 text-right">MIN / MAX</th>
                 <th className="px-1 py-2 text-center">จำนวนสั่ง</th>
@@ -910,7 +915,7 @@ export function StockPageClient({
                         {formatNumber(row.stock, 0)}
                       </td>
                       <td className="px-1 py-1.5 text-right tabular-nums text-xs">
-                        {formatNumber(row.avgSales, 1)}
+                        {formatNumber(row.avgQtyOutL7 ?? row.avgSales, 1)}
                       </td>
                       <td className="px-1 py-1.5 text-right tabular-nums text-xs">
                         {formatDays(row.stockCvd)}

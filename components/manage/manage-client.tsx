@@ -10,12 +10,14 @@ import {
   KeyRound,
   Layers,
   Loader2,
+  Pencil,
   RotateCcw,
   Save,
   Search,
   Settings2,
   Sparkles,
   Trash2,
+  X,
   Lock,
 } from "lucide-react";
 import { AppHeader } from "@/components/layout/app-header";
@@ -276,24 +278,29 @@ export function ManageClient({
               ไม่พบแบรนด์ที่ตรงกับคำค้นหา
             </p>
           ) : (
-            <div className="mt-3 space-y-2">
-              {filteredSections.map(({ section, items, newCount }) => (
-                <SectionCard
-                  key={section}
-                  section={section}
-                  items={items}
-                  newCount={newCount}
-                  canManage={canManage}
-                  saved={savedGroups.get(section)}
-                  expanded={expanded.has(section)}
-                  onToggle={() => toggle(section)}
-                  onChanged={() => {
-                    void queryClient.invalidateQueries({ queryKey: ["thresholds"] });
-                    void queryClient.invalidateQueries({ queryKey: ["stock"] });
-                  }}
-                />
-              ))}
-            </div>
+            <>
+              <p className="mt-3 text-[11px] text-slate-400">
+                {filteredSections.length} แบรนด์ — เลื่อนดูในกรอบนี้
+              </p>
+              <div className="mt-1 max-h-[55vh] space-y-2 overflow-y-auto rounded-lg border border-slate-100 p-2 dark:border-slate-800">
+                {filteredSections.map(({ section, items, newCount }) => (
+                  <SectionCard
+                    key={section}
+                    section={section}
+                    items={items}
+                    newCount={newCount}
+                    canManage={canManage}
+                    saved={savedGroups.get(section)}
+                    expanded={expanded.has(section)}
+                    onToggle={() => toggle(section)}
+                    onChanged={() => {
+                      void queryClient.invalidateQueries({ queryKey: ["thresholds"] });
+                      void queryClient.invalidateQueries({ queryKey: ["stock"] });
+                    }}
+                  />
+                ))}
+              </div>
+            </>
           )}
         </section>
 
@@ -312,35 +319,25 @@ interface BlockItem {
   createdAt: string;
 }
 
+function toDatetimeLocal(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 function StoreBlocklistSection({ canManage }: { canManage: boolean }) {
   const qc = useQueryClient();
-  const [removing, setRemoving] = useState<string | null>(null);
-
   const { data, isLoading } = useQuery<{ blocks: BlockItem[] }>({
     queryKey: ["store-blocklist"],
     queryFn: () => fetch("/api/store/blocklist").then((r) => r.json()),
   });
   const blocks = data?.blocks ?? [];
 
-  async function remove(skuId: string) {
-    if (!confirm("ยกเลิกการหยุดสั่งสินค้านี้? ระบบจะกลับมาแนะนำสั่งตามปกติ")) {
-      return;
-    }
-    setRemoving(skuId);
-    try {
-      const res = await fetch("/api/store/blocklist", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ skuIds: [skuId] }),
-      });
-      if (res.ok) {
-        await qc.invalidateQueries({ queryKey: ["store-blocklist"] });
-        await qc.invalidateQueries({ queryKey: ["stock"] });
-      }
-    } finally {
-      setRemoving(null);
-    }
-  }
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey: ["store-blocklist"] });
+    void qc.invalidateQueries({ queryKey: ["stock"] });
+  };
 
   return (
     <section className="mt-5 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
@@ -354,7 +351,7 @@ function StoreBlocklistSection({ canManage }: { canManage: boolean }) {
         )}
       </h2>
       <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-        สินค้าที่ร้านหยุดสั่ง — ระบบจะไม่แนะนำสั่งและได้แจ้งเซลล์แล้ว
+        สินค้าที่ร้านหยุดสั่ง — แก้เหตุผล/วันเริ่ม หรือยกเลิกได้ (แจ้งเซลล์อัตโนมัติ)
       </p>
 
       {isLoading ? (
@@ -366,50 +363,167 @@ function StoreBlocklistSection({ canManage }: { canManage: boolean }) {
       ) : (
         <ul className="mt-3 space-y-2">
           {blocks.map((b) => (
-            <li
+            <BlockRow
               key={b.skuId}
-              className="flex items-start justify-between gap-2 rounded-xl border border-slate-200 p-3 dark:border-slate-700"
-            >
-              <div className="min-w-0">
-                <p className="truncate text-sm text-slate-900 dark:text-slate-100">
-                  <span className="font-mono text-teal-700 dark:text-teal-400">
-                    {b.skuCode}
-                  </span>{" "}
-                  {b.skuName}
-                </p>
-                <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-300">
-                  เหตุผล: {b.reason}
-                </p>
-                <p className="mt-0.5 text-[11px] text-slate-400">
-                  เริ่มหยุด{" "}
-                  {new Date(b.effectiveFrom).toLocaleDateString("th-TH", {
-                    day: "2-digit",
-                    month: "short",
-                    year: "2-digit",
-                  })}
-                </p>
-              </div>
-              {canManage && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="shrink-0 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
-                  onClick={() => remove(b.skuId)}
-                  disabled={removing === b.skuId}
-                  title="ยกเลิกหยุดสั่ง"
-                >
-                  {removing === b.skuId ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Trash2 className="h-4 w-4" />
-                  )}
-                </Button>
-              )}
-            </li>
+              block={b}
+              canManage={canManage}
+              onChanged={refresh}
+            />
           ))}
         </ul>
       )}
     </section>
+  );
+}
+
+function BlockRow({
+  block,
+  canManage,
+  onChanged,
+}: {
+  block: BlockItem;
+  canManage: boolean;
+  onChanged: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [reason, setReason] = useState(block.reason);
+  const [effective, setEffective] = useState(toDatetimeLocal(block.effectiveFrom));
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setReason(block.reason);
+    setEffective(toDatetimeLocal(block.effectiveFrom));
+  }, [block.reason, block.effectiveFrom]);
+
+  async function save() {
+    if (!reason.trim()) return;
+    setBusy(true);
+    try {
+      const res = await fetch("/api/store/blocklist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          skuIds: [block.skuId],
+          reason: reason.trim(),
+          effectiveFrom: effective ? new Date(effective).toISOString() : undefined,
+        }),
+      });
+      if (res.ok) {
+        setEditing(false);
+        onChanged();
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    if (!confirm("ยกเลิกการหยุดสั่งสินค้านี้? ระบบจะกลับมาแนะนำสั่งตามปกติ")) return;
+    setBusy(true);
+    try {
+      const res = await fetch("/api/store/blocklist", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ skuIds: [block.skuId] }),
+      });
+      if (res.ok) onChanged();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <li className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+      <div className="flex items-start justify-between gap-2">
+        <p className="min-w-0 truncate text-sm text-slate-900 dark:text-slate-100">
+          <span className="font-mono text-teal-700 dark:text-teal-400">
+            {block.skuCode}
+          </span>{" "}
+          {block.skuName}
+        </p>
+        {canManage && !editing && (
+          <div className="flex shrink-0 gap-1">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setEditing(true)}
+              disabled={busy}
+              title="แก้ไข"
+            >
+              <Pencil className="h-4 w-4" />
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
+              onClick={remove}
+              disabled={busy}
+              title="ยกเลิกหยุดสั่ง"
+            >
+              {busy ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {editing ? (
+        <div className="mt-2 space-y-2">
+          <input
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="เหตุผล"
+            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none ring-teal-500/30 focus:ring-2 dark:border-slate-700 dark:bg-slate-900"
+          />
+          <input
+            type="datetime-local"
+            value={effective}
+            onChange={(e) => setEffective(e.target.value)}
+            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none ring-teal-500/30 focus:ring-2 dark:border-slate-700 dark:bg-slate-900"
+          />
+          <div className="flex justify-end gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setEditing(false);
+                setReason(block.reason);
+                setEffective(toDatetimeLocal(block.effectiveFrom));
+              }}
+              disabled={busy}
+            >
+              <X className="h-4 w-4" />
+              ยกเลิก
+            </Button>
+            <Button size="sm" onClick={save} disabled={busy || !reason.trim()}>
+              {busy ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4" />
+              )}
+              บันทึก
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-300">
+            เหตุผล: {block.reason}
+          </p>
+          <p className="mt-0.5 text-[11px] text-slate-400">
+            เริ่มหยุด{" "}
+            {new Date(block.effectiveFrom).toLocaleDateString("th-TH", {
+              day: "2-digit",
+              month: "short",
+              year: "2-digit",
+            })}
+          </p>
+        </>
+      )}
+    </li>
   );
 }
 

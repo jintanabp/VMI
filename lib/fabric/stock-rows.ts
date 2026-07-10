@@ -33,13 +33,12 @@ const NEW_PRODUCT_DAYS = Math.max(
   Number(process.env.NEW_PRODUCT_DAYS ?? 30) || 30
 );
 
+// ค่าที่ใช้ "คำนวณ" แนะนำสั่ง: L7 ถ้าว่างใช้ L30 (ไม่ floor เป็น 1 เพื่อไม่ให้สินค้าไม่มียอดขายถูกแนะนำ)
 function resolveAvgSales(row: {
   avgQtyOutL7: number | null;
   avgQtyOutL30: number | null;
 }): number {
-  const avg = row.avgQtyOutL7 ?? row.avgQtyOutL30;
-  if (avg != null && avg > 0) return avg;
-  return 1;
+  return row.avgQtyOutL7 ?? row.avgQtyOutL30 ?? 0;
 }
 
 async function ensureSkus(
@@ -310,6 +309,7 @@ export async function buildFabricStockPayload(
         skuId: item.sku.id,
         stock: item.cover.qtyAvailable,
         avgSales: item.avgSales,
+        avgQtyOutL7: item.cover.avgQtyOutL7 ?? 0,
         minDays: item.minDays,
         maxDays: item.maxDays,
         fromDb: item.cover.fromDb,
