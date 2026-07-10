@@ -20,6 +20,7 @@ export function mapStockRow(
     stock: number;
     avgSales: number;
     avgQtyOutL7?: number;
+    noSales30?: boolean;
     minDays: number;
     maxDays: number;
     fromDb?: string;
@@ -96,6 +97,7 @@ export function mapStockRow(
     stock: item.stock,
     avgSales: item.avgSales,
     avgQtyOutL7: item.avgQtyOutL7 ?? item.avgSales,
+    noSales30: item.noSales30 ?? false,
     minDays: item.minDays,
     maxDays: item.maxDays,
     minStock,

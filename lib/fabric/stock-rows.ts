@@ -310,6 +310,9 @@ export async function buildFabricStockPayload(
         stock: item.cover.qtyAvailable,
         avgSales: item.avgSales,
         avgQtyOutL7: item.cover.avgQtyOutL7 ?? 0,
+        noSales30:
+          !((item.cover.avgQtyOutL7 ?? 0) > 0) &&
+          !((item.cover.avgQtyOutL30 ?? 0) > 0),
         minDays: item.minDays,
         maxDays: item.maxDays,
         fromDb: item.cover.fromDb,

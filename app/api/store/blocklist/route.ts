@@ -57,15 +57,10 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const { storeId, email, canManage } = await resolveStore();
+  // การหยุดสั่งเป็นการจัดการ order suggestion ของร้านเอง — ร้านที่ล็อกอินจัดการได้ทุกบัญชี
+  const { storeId, email } = await resolveStore();
   if (!storeId) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
-  if (!canManage) {
-    return NextResponse.json(
-      { error: "ไม่มีสิทธิจัดการรายการหยุดสั่ง" },
-      { status: 403 }
-    );
   }
 
   const body = await request.json().catch(() => ({}));
@@ -110,15 +105,9 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const { storeId, canManage } = await resolveStore();
+  const { storeId } = await resolveStore();
   if (!storeId) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
-  if (!canManage) {
-    return NextResponse.json(
-      { error: "ไม่มีสิทธิจัดการรายการหยุดสั่ง" },
-      { status: 403 }
-    );
   }
 
   const body = await request.json().catch(() => ({}));

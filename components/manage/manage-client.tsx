@@ -73,6 +73,7 @@ export function ManageClient({
   email,
   canManage,
 }: ManageClientProps) {
+  const [tab, setTab] = useState<"minmax" | "blocklist" | "account">("minmax");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [resetMsg, setResetMsg] = useState("");
   const [resetting, setResetting] = useState(false);
@@ -88,6 +89,12 @@ export function ManageClient({
     queryKey: ["thresholds"],
     queryFn: () => fetch("/api/store/thresholds").then((r) => r.json()),
   });
+
+  const blocklistQuery = useQuery<{ blocks: unknown[] }>({
+    queryKey: ["store-blocklist"],
+    queryFn: () => fetch("/api/store/blocklist").then((r) => r.json()),
+  });
+  const blockCount = blocklistQuery.data?.blocks?.length ?? 0;
 
   const rows = useMemo(() => stockQuery.data?.rows ?? [], [stockQuery.data]);
 
@@ -181,7 +188,49 @@ export function ManageClient({
       />
 
       <main className="mx-auto w-full max-w-3xl px-3 py-4 sm:px-4">
-        <section className="mb-5 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+        <div className="mb-4 flex flex-wrap gap-1.5" role="tablist">
+          {(
+            [
+              { id: "minmax", label: "ตั้ง MIN / MAX", icon: Settings2, badge: 0 },
+              { id: "blocklist", label: "หยุดสั่ง", icon: Ban, badge: blockCount },
+              { id: "account", label: "รหัสผ่าน", icon: KeyRound, badge: 0 },
+            ] as const
+          ).map((t) => {
+            const active = tab === t.id;
+            const Icon = t.icon;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setTab(t.id)}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition",
+                  active
+                    ? "bg-teal-600 text-white"
+                    : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-100 dark:bg-slate-900 dark:text-slate-300 dark:ring-slate-700 dark:hover:bg-slate-800"
+                )}
+              >
+                <Icon className="h-4 w-4" />
+                {t.label}
+                {t.badge > 0 && (
+                  <span
+                    className={cn(
+                      "inline-flex min-w-[1.1rem] items-center justify-center rounded-full px-1 text-[10px] font-bold",
+                      active ? "bg-white text-teal-700" : "bg-red-500 text-white"
+                    )}
+                  >
+                    {t.badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {tab === "account" && (
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
           <h2 className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-slate-100">
             <KeyRound className="h-4 w-4 text-teal-600" />
             รหัสผ่าน
@@ -210,7 +259,9 @@ export function ManageClient({
             )}
           </div>
         </section>
+        )}
 
+        {tab === "minmax" && (
         <section className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
           <div className="flex items-center justify-between gap-2">
             <h2 className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-slate-100">
@@ -303,8 +354,9 @@ export function ManageClient({
             </>
           )}
         </section>
+        )}
 
-        <StoreBlocklistSection canManage={canManage} />
+        {tab === "blocklist" && <StoreBlocklistSection />}
       </main>
     </PageShell>
   );
@@ -326,7 +378,7 @@ function toDatetimeLocal(iso: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function StoreBlocklistSection({ canManage }: { canManage: boolean }) {
+function StoreBlocklistSection() {
   const qc = useQueryClient();
   const { data, isLoading } = useQuery<{ blocks: BlockItem[] }>({
     queryKey: ["store-blocklist"],
@@ -340,7 +392,7 @@ function StoreBlocklistSection({ canManage }: { canManage: boolean }) {
   };
 
   return (
-    <section className="mt-5 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
       <h2 className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-slate-100">
         <Ban className="h-4 w-4 text-red-500" />
         รายการหยุดสั่ง
@@ -363,12 +415,7 @@ function StoreBlocklistSection({ canManage }: { canManage: boolean }) {
       ) : (
         <ul className="mt-3 space-y-2">
           {blocks.map((b) => (
-            <BlockRow
-              key={b.skuId}
-              block={b}
-              canManage={canManage}
-              onChanged={refresh}
-            />
+            <BlockRow key={b.skuId} block={b} onChanged={refresh} />
           ))}
         </ul>
       )}
@@ -378,11 +425,9 @@ function StoreBlocklistSection({ canManage }: { canManage: boolean }) {
 
 function BlockRow({
   block,
-  canManage,
   onChanged,
 }: {
   block: BlockItem;
-  canManage: boolean;
   onChanged: () => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -441,7 +486,7 @@ function BlockRow({
           </span>{" "}
           {block.skuName}
         </p>
-        {canManage && !editing && (
+        {!editing && (
           <div className="flex shrink-0 gap-1">
             <Button
               size="sm"

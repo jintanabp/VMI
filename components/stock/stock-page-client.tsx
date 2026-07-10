@@ -28,6 +28,7 @@ import {
   Bell,
   Ban,
   Sparkles,
+  CalendarOff,
   X,
   Check,
   Minus,
@@ -890,6 +891,15 @@ export function StockPageClient({
                               <Ban className="h-2.5 w-2.5" />
                               หยุดสั่ง
                             </button>
+                          )}
+                          {row.noSales30 && !row.blocked && (
+                            <span
+                              className="inline-flex shrink-0 items-center gap-0.5 rounded bg-slate-200 px-1 py-0.5 text-[9px] font-semibold text-slate-500 dark:bg-slate-700 dark:text-slate-400"
+                              title="ไม่มียอดขายใน 1 เดือนที่ผ่านมา"
+                            >
+                              <CalendarOff className="h-2.5 w-2.5" />
+                              ไม่ขาย 1 ด.
+                            </span>
                           )}
                           <button
                             type="button"

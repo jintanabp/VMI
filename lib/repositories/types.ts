@@ -16,6 +16,8 @@ export interface StockRowComputed {
   avgSales: number;
   /** ยอดขายเฉลี่ยต่อวัน 7 วัน (avg_qty_out_L7 ดิบ) สำหรับแสดงในคอลัมน์ "ขายเฉลี่ย 7 วัน" */
   avgQtyOutL7?: number;
+  /** ไม่มียอดขายเลยใน 30 วันล่าสุด (ทั้ง L7 และ L30 = 0/ว่าง) — ใช้ mark ในตาราง */
+  noSales30?: boolean;
   minDays: number;
   maxDays: number;
   minStock: number;
