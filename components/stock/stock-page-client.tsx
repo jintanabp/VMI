@@ -514,7 +514,8 @@ export function StockPageClient({
             />
             <StockStatCard
               icon={<CalendarClock className="h-4 w-4" />}
-              label="CVD รวม"
+              label="วันที่สินค้าเพียงพอ (CVD)"
+              title="จำนวนวันรวมที่สินค้าเพียงพอ (Cover Day - CVD)"
               value={formatDays(stats.cvdAll)}
             />
             <StockStatCard
@@ -839,17 +840,19 @@ export function StockPageClient({
                       <td className="px-1 py-1.5 text-center">
                         {flag ? (
                           <div className="inline-flex flex-col items-center gap-0.5">
-                            <FlagBadge flag={flag} compact />
                             <span
                               className={cn(
-                                "text-[9px] tabular-nums",
+                                "text-sm font-bold leading-none tabular-nums",
                                 flag === "red"
-                                  ? "font-semibold text-red-600 dark:text-red-400"
-                                  : "text-slate-500 dark:text-slate-400"
+                                  ? "text-red-600 dark:text-red-400"
+                                  : flag === "yellow"
+                                    ? "text-amber-600 dark:text-amber-400"
+                                    : "text-emerald-600 dark:text-emerald-400"
                               )}
                             >
                               {formatDays(cvdEst)}
                             </span>
+                            <FlagBadge flag={flag} compact />
                           </div>
                         ) : (
                           <span className="text-slate-400">—</span>
@@ -1178,14 +1181,17 @@ function StockStatCard({
   label,
   value,
   tone = "default",
+  title,
 }: {
   icon: ReactNode;
   label: string;
   value: string | number;
   tone?: "default" | "amber";
+  title?: string;
 }) {
   return (
     <div
+      title={title}
       className={cn(
         "flex min-w-0 items-center gap-2.5 rounded-xl border px-3 py-2.5 shadow-sm",
         tone === "amber"

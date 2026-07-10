@@ -235,7 +235,7 @@ export function ManageClient({
                   saved={savedGroups.get(section)}
                   expanded={expanded.has(section)}
                   onToggle={() => toggle(section)}
-                  onReset={() => {
+                  onChanged={() => {
                     void queryClient.invalidateQueries({ queryKey: ["thresholds"] });
                     void queryClient.invalidateQueries({ queryKey: ["stock"] });
                   }}
@@ -256,7 +256,7 @@ function SectionCard({
   saved,
   expanded,
   onToggle,
-  onReset,
+  onChanged,
 }: {
   section: string;
   items: StockRowComputed[];
@@ -264,7 +264,7 @@ function SectionCard({
   saved?: GroupThreshold;
   expanded: boolean;
   onToggle: () => void;
-  onReset: () => void;
+  onChanged: () => void;
 }) {
   const [minDays, setMinDays] = useState(String(saved?.minDays ?? DEFAULT_MIN_DAYS));
   const [maxDays, setMaxDays] = useState(String(saved?.maxDays ?? DEFAULT_MAX_DAYS));
@@ -312,6 +312,8 @@ function SectionCard({
       }
       setSavedFlag(true);
       setTimeout(() => setSavedFlag(false), 2000);
+      // อัปเดตสินค้าย่อยในแบรนด์ให้สะท้อนค่ากลุ่มใหม่ทันที (แก้บั๊กค่าไม่เด้งตาม)
+      onChanged();
     } finally {
       setSaving(false);
     }
@@ -345,7 +347,7 @@ function SectionCard({
       }
       setMinDays(String(DEFAULT_MIN_DAYS));
       setMaxDays(String(DEFAULT_MAX_DAYS));
-      onReset();
+      onChanged();
     } finally {
       setResetting(false);
     }
@@ -453,7 +455,7 @@ function SectionCard({
               key={row.skuId}
               row={row}
               canManage={canManage}
-              onSaved={onReset}
+              onSaved={onChanged}
             />
           ))}
         </div>
