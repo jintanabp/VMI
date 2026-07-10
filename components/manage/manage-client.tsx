@@ -3,9 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Check,
   ChevronDown,
   ChevronRight,
   KeyRound,
+  Layers,
   Loader2,
   RotateCcw,
   Save,
@@ -111,6 +113,15 @@ export function ManageClient({
     [sections, brandSearch]
   );
 
+  // แบรนด์จริง (ตัด "ไม่มี Section") สำหรับตั้งค่าหลายแบรนด์พร้อมกัน
+  const bulkSections = useMemo(
+    () =>
+      sections
+        .filter((s) => s.section !== NO_SECTION)
+        .map((s) => ({ section: s.section, count: s.items.length })),
+    [sections]
+  );
+
   function toggle(section: string) {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -214,6 +225,16 @@ export function ManageClient({
             </div>
           )}
 
+          {canManage && bulkSections.length > 0 && (
+            <BulkBrandThresholds
+              sections={bulkSections}
+              onDone={() => {
+                void queryClient.invalidateQueries({ queryKey: ["thresholds"] });
+                void queryClient.invalidateQueries({ queryKey: ["stock"] });
+              }}
+            />
+          )}
+
           {loading ? (
             <p className="py-8 text-center text-sm text-slate-500">กำลังโหลด...</p>
           ) : sections.length === 0 ? (
@@ -246,6 +267,203 @@ export function ManageClient({
         </section>
       </main>
     </PageShell>
+  );
+}
+
+function BulkBrandThresholds({
+  sections,
+  onDone,
+}: {
+  sections: { section: string; count: number }[];
+  onDone: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [minDays, setMinDays] = useState(String(DEFAULT_MIN_DAYS));
+  const [maxDays, setMaxDays] = useState(String(DEFAULT_MAX_DAYS));
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [filter, setFilter] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [error, setError] = useState("");
+
+  const visible = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    if (!q) return sections;
+    return sections.filter((s) => s.section.toLowerCase().includes(q));
+  }, [sections, filter]);
+
+  function toggle(section: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(section)) next.delete(section);
+      else next.add(section);
+      return next;
+    });
+  }
+
+  const min = Number(minDays);
+  const max = Number(maxDays);
+  const invalid =
+    !Number.isFinite(min) || !Number.isFinite(max) || min < 0 || max < min;
+  const canApply = selected.size > 0 && !invalid && !saving;
+
+  async function apply() {
+    setSaving(true);
+    setMsg("");
+    setError("");
+    try {
+      const res = await fetch("/api/store/thresholds", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sections: [...selected],
+          minDays: min,
+          maxDays: max,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "บันทึกไม่สำเร็จ");
+        return;
+      }
+      setMsg(
+        `ตั้งค่า ${data.count ?? selected.size} แบรนด์แล้ว (MIN ${min} / MAX ${max} วัน)`
+      );
+      setSelected(new Set());
+      onDone();
+      setTimeout(() => setMsg(""), 3000);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="mt-3 rounded-xl border border-teal-200 bg-teal-50/40 dark:border-teal-900/50 dark:bg-teal-950/20">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-2 px-3 py-2.5 text-left"
+      >
+        {open ? (
+          <ChevronDown className="h-4 w-4 shrink-0 text-teal-600" />
+        ) : (
+          <ChevronRight className="h-4 w-4 shrink-0 text-teal-600" />
+        )}
+        <Layers className="h-4 w-4 shrink-0 text-teal-600" />
+        <span className="text-sm font-semibold text-teal-800 dark:text-teal-200">
+          ตั้งค่าหลายแบรนด์พร้อมกัน
+        </span>
+        {selected.size > 0 && (
+          <span className="ml-auto rounded-full bg-teal-600 px-2 py-0.5 text-[10px] font-bold text-white">
+            เลือก {selected.size}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div className="space-y-3 border-t border-teal-100 px-3 py-3 dark:border-teal-900/40">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
+              กำหนดจำนวนวัน
+            </span>
+            <LabeledDays label="MIN" value={minDays} onChange={setMinDays} />
+            <LabeledDays label="MAX" value={maxDays} onChange={setMaxDays} />
+            {invalid && (
+              <span className="text-[11px] text-red-500">
+                ค่าไม่ถูกต้อง (MAX ต้อง ≥ MIN)
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+              <input
+                type="search"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                placeholder="กรองแบรนด์..."
+                className="w-full rounded-lg border border-slate-200 bg-white py-1.5 pl-8 pr-2 text-xs outline-none ring-teal-500/30 focus:ring-2 dark:border-slate-700 dark:bg-slate-900"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() =>
+                setSelected((prev) => {
+                  const next = new Set(prev);
+                  for (const s of visible) next.add(s.section);
+                  return next;
+                })
+              }
+              className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-teal-700 hover:bg-teal-100 dark:text-teal-300 dark:hover:bg-teal-900/40"
+            >
+              เลือกที่แสดง
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelected(new Set())}
+              className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              ล้าง
+            </button>
+          </div>
+
+          <div className="max-h-52 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-900">
+            <div className="flex flex-wrap gap-1.5">
+              {visible.map((s) => {
+                const on = selected.has(s.section);
+                return (
+                  <button
+                    key={s.section}
+                    type="button"
+                    onClick={() => toggle(s.section)}
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition",
+                      on
+                        ? "border-teal-500 bg-teal-500 text-white"
+                        : "border-slate-200 bg-white text-slate-600 hover:border-teal-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                    )}
+                  >
+                    {on && <Check className="h-3 w-3 shrink-0" />}
+                    <span className="max-w-[10rem] truncate">{s.section}</span>
+                    <span
+                      className={cn(
+                        "tabular-nums",
+                        on ? "text-teal-100" : "text-slate-400"
+                      )}
+                    >
+                      ({s.count})
+                    </span>
+                  </button>
+                );
+              })}
+              {visible.length === 0 && (
+                <span className="px-1 py-2 text-xs text-slate-400">
+                  ไม่พบแบรนด์
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" onClick={apply} disabled={!canApply}>
+              {saving ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4" />
+              )}
+              ตั้งค่า{selected.size > 0 ? ` ${selected.size} แบรนด์` : ""}
+            </Button>
+            {msg && (
+              <span className="text-xs font-medium text-teal-700 dark:text-teal-300">
+                {msg}
+              </span>
+            )}
+            {error && <span className="text-xs text-red-600">{error}</span>}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

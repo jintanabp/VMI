@@ -117,6 +117,38 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ success: true, scope: "sku" });
   }
 
+  // bulk: หลายแบรนด์ (Section) พร้อมกัน
+  if (Array.isArray(body.sections)) {
+    const sections = [
+      ...new Set(
+        body.sections
+          .map((s: unknown) => String(s).trim())
+          .filter((s: string): s is string => s.length > 0)
+      ),
+    ] as string[];
+    if (sections.length === 0) {
+      return NextResponse.json(
+        { error: "ต้องเลือกอย่างน้อย 1 แบรนด์" },
+        { status: 400 }
+      );
+    }
+    await prisma.$transaction(
+      sections.map((section) =>
+        prisma.storeGroupThreshold.upsert({
+          where: { storeId_section: { storeId, section } },
+          create: { storeId, section, minDays, maxDays },
+          update: { minDays, maxDays },
+        })
+      )
+    );
+    bumpStockDataVersion();
+    return NextResponse.json({
+      success: true,
+      scope: "sections",
+      count: sections.length,
+    });
+  }
+
   // group (Section) default
   const section = String(body.section ?? "").trim();
   if (!section) {
