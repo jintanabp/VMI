@@ -53,17 +53,20 @@ export async function GET() {
     take: 200,
   });
 
-  const items = blocks.map((b) => ({
-    id: b.id,
-    storeCode: b.store.code,
-    storeName: b.store.name,
-    skuCode: b.sku.code,
-    skuName: b.sku.name,
-    reason: b.reason,
-    effectiveFrom: b.effectiveFrom.toISOString(),
-    createdAt: b.createdAt.toISOString(),
-    acknowledged: b.acknowledgedAt != null,
-  }));
+  const items = blocks
+    .map((b) => ({
+      id: b.id,
+      storeCode: b.store.code,
+      storeName: b.store.name,
+      skuCode: b.sku.code,
+      skuName: b.sku.name,
+      reason: b.reason,
+      effectiveFrom: b.effectiveFrom.toISOString(),
+      createdAt: b.createdAt.toISOString(),
+      acknowledged: b.acknowledgedAt != null,
+    }))
+    // ที่ยังไม่รับทราบขึ้นก่อน, ที่รับทราบแล้วไปอยู่ล่างสุด (คงลำดับ createdAt ในแต่ละกลุ่ม)
+    .sort((a, b) => Number(a.acknowledged) - Number(b.acknowledged));
 
   return NextResponse.json({
     items,

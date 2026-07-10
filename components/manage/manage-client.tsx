@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Ban,
   Check,
   ChevronDown,
   ChevronRight,
@@ -14,6 +15,7 @@ import {
   Search,
   Settings2,
   Sparkles,
+  Trash2,
   Lock,
 } from "lucide-react";
 import { AppHeader } from "@/components/layout/app-header";
@@ -294,8 +296,120 @@ export function ManageClient({
             </div>
           )}
         </section>
+
+        <StoreBlocklistSection canManage={canManage} />
       </main>
     </PageShell>
+  );
+}
+
+interface BlockItem {
+  skuId: string;
+  skuCode: string;
+  skuName: string;
+  reason: string;
+  effectiveFrom: string;
+  createdAt: string;
+}
+
+function StoreBlocklistSection({ canManage }: { canManage: boolean }) {
+  const qc = useQueryClient();
+  const [removing, setRemoving] = useState<string | null>(null);
+
+  const { data, isLoading } = useQuery<{ blocks: BlockItem[] }>({
+    queryKey: ["store-blocklist"],
+    queryFn: () => fetch("/api/store/blocklist").then((r) => r.json()),
+  });
+  const blocks = data?.blocks ?? [];
+
+  async function remove(skuId: string) {
+    if (!confirm("ยกเลิกการหยุดสั่งสินค้านี้? ระบบจะกลับมาแนะนำสั่งตามปกติ")) {
+      return;
+    }
+    setRemoving(skuId);
+    try {
+      const res = await fetch("/api/store/blocklist", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ skuIds: [skuId] }),
+      });
+      if (res.ok) {
+        await qc.invalidateQueries({ queryKey: ["store-blocklist"] });
+        await qc.invalidateQueries({ queryKey: ["stock"] });
+      }
+    } finally {
+      setRemoving(null);
+    }
+  }
+
+  return (
+    <section className="mt-5 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+      <h2 className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-slate-100">
+        <Ban className="h-4 w-4 text-red-500" />
+        รายการหยุดสั่ง
+        {blocks.length > 0 && (
+          <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700 dark:bg-red-950/50 dark:text-red-300">
+            {blocks.length}
+          </span>
+        )}
+      </h2>
+      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+        สินค้าที่ร้านหยุดสั่ง — ระบบจะไม่แนะนำสั่งและได้แจ้งเซลล์แล้ว
+      </p>
+
+      {isLoading ? (
+        <p className="py-6 text-center text-sm text-slate-500">กำลังโหลด...</p>
+      ) : blocks.length === 0 ? (
+        <p className="py-6 text-center text-sm text-slate-500">
+          ยังไม่มีสินค้าที่หยุดสั่ง
+        </p>
+      ) : (
+        <ul className="mt-3 space-y-2">
+          {blocks.map((b) => (
+            <li
+              key={b.skuId}
+              className="flex items-start justify-between gap-2 rounded-xl border border-slate-200 p-3 dark:border-slate-700"
+            >
+              <div className="min-w-0">
+                <p className="truncate text-sm text-slate-900 dark:text-slate-100">
+                  <span className="font-mono text-teal-700 dark:text-teal-400">
+                    {b.skuCode}
+                  </span>{" "}
+                  {b.skuName}
+                </p>
+                <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-300">
+                  เหตุผล: {b.reason}
+                </p>
+                <p className="mt-0.5 text-[11px] text-slate-400">
+                  เริ่มหยุด{" "}
+                  {new Date(b.effectiveFrom).toLocaleDateString("th-TH", {
+                    day: "2-digit",
+                    month: "short",
+                    year: "2-digit",
+                  })}
+                </p>
+              </div>
+              {canManage && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="shrink-0 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
+                  onClick={() => remove(b.skuId)}
+                  disabled={removing === b.skuId}
+                  title="ยกเลิกหยุดสั่ง"
+                >
+                  {removing === b.skuId ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-4 w-4" />
+                  )}
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
