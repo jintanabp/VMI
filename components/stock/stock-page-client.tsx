@@ -149,6 +149,12 @@ export function StockPageClient({
   });
 
   const rows = useMemo(() => data?.rows ?? [], [data?.rows]);
+  // map รหัสสินค้า -> จำนวนแนะนำสั่ง สำหรับ mark "แนะนำซื้อ" ใน modal โปรกลุ่ม
+  const suggestByProduct = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const r of rows) m[r.skuCode] = r.suggestOrder;
+    return m;
+  }, [rows]);
   const activeVda = data?.activeFromDb ?? storeCode;
   const dataDate = data?.dataDate ?? null;
 
@@ -746,6 +752,7 @@ export function StockPageClient({
                       orderCvd={cvdEst}
                       orderFlag={flag}
                       stagedQty={promoStagedQty}
+                      suggestByProduct={suggestByProduct}
                       onConfirmStaged={applyGroupStaged}
                       onAdjustQty={(d) => adjustLineQty(row.skuCode, d)}
                       onSetQty={(q) => setLineQty(row.skuCode, q)}
@@ -1017,6 +1024,7 @@ export function StockPageClient({
                               promoGroup: row.promoGroup,
                               promoGroupMembers: row.promoGroupMembers,
                               onConfirmStaged: applyGroupStaged,
+                              suggestByProduct,
                             }}
                           />
                         </div>
@@ -1189,6 +1197,7 @@ function StockMobileRow({
   orderCvd,
   orderFlag,
   stagedQty,
+  suggestByProduct,
   onConfirmStaged,
   onAdjustQty,
   onSetQty,
@@ -1204,6 +1213,7 @@ function StockMobileRow({
   orderCvd: number | null;
   orderFlag: CvdFlag | null;
   stagedQty: Record<string, number>;
+  suggestByProduct: Record<string, number>;
   onConfirmStaged: (staged: Record<string, number>) => void;
   onAdjustQty: (delta: number) => void;
   onSetQty: (qty: number) => void;
@@ -1354,6 +1364,7 @@ function StockMobileRow({
               promoGroup: row.promoGroup,
               promoGroupMembers: row.promoGroupMembers,
               onConfirmStaged,
+              suggestByProduct,
             }}
           />
         </MobileRowExtra>
@@ -1821,8 +1832,9 @@ function StockQtyStepper({
           }}
           onClick={(e) => e.stopPropagation()}
           className={cn(
-            "rounded-md border border-slate-200 bg-white text-center font-bold tabular-nums text-slate-900 outline-none ring-teal-500/30 focus:ring-2 dark:border-slate-600 dark:bg-slate-900 dark:text-white",
-            compact ? "h-6 w-10 text-xs" : "h-8 w-12 text-sm"
+            "rounded-md border border-slate-200 bg-white px-0.5 text-center font-bold tabular-nums text-slate-900 outline-none ring-teal-500/30 focus:ring-2 dark:border-slate-600 dark:bg-slate-900 dark:text-white",
+            "[appearance:textfield] [&::-webkit-inner-spin-button]:m-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none",
+            compact ? "h-6 w-14 text-xs" : "h-8 w-[4.5rem] text-sm"
           )}
           title={
             suggestOrder > 0 && qty !== suggestOrder

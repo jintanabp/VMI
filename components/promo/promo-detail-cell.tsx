@@ -34,6 +34,8 @@ interface PromoDetailCellProps {
     promoGroup?: string | null;
     promoGroupMembers?: number;
     onConfirmStaged?: (staged: Record<string, number>) => void;
+    /** map รหัสสินค้า -> จำนวนแนะนำสั่ง เพื่อ mark "แนะนำซื้อ" ใน modal กลุ่ม */
+    suggestByProduct?: Record<string, number>;
   };
 }
 
@@ -84,6 +86,7 @@ export function PromoDetailCell({
       storeCode={inspector!.storeCode}
       stagedQty={inspector!.stagedQty}
       onConfirmStaged={inspector!.onConfirmStaged}
+      suggestByProduct={inspector!.suggestByProduct}
     />
   ) : null;
 

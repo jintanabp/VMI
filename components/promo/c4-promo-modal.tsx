@@ -20,6 +20,8 @@ interface C4PromoModalProps {
   onClose: () => void;
   /** เมื่อมี callback จะแสดงปุ่มยืนยันเพื่อส่งจำนวนที่จำลองกลับหน้าหลัก */
   onConfirm?: (staged: Record<string, number>) => void;
+  /** map รหัสสินค้า -> จำนวนแนะนำสั่ง สำหรับ mark "แนะนำซื้อ" */
+  suggestByProduct?: Record<string, number>;
 }
 
 export function C4PromoModal({
@@ -28,6 +30,7 @@ export function C4PromoModal({
   stagedQty,
   onClose,
   onConfirm,
+  suggestByProduct,
 }: C4PromoModalProps) {
   const [data, setData] = useState<PromoInspectorResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -182,7 +185,18 @@ export function C4PromoModal({
                     สินค้าในกลุ่ม ({data.products.length} SKU)
                   </p>
                   <div className="space-y-2">
-                    {data.products.map((p) => (
+                    {[...data.products]
+                      .sort((a, b) => {
+                        const sa =
+                          (suggestByProduct?.[a.product] ?? 0) > 0 ? 0 : 1;
+                        const sb =
+                          (suggestByProduct?.[b.product] ?? 0) > 0 ? 0 : 1;
+                        if (sa !== sb) return sa - sb;
+                        return a.product.localeCompare(b.product, undefined, {
+                          numeric: true,
+                        });
+                      })
+                      .map((p) => (
                       <div
                         key={p.product}
                         className={cn(
@@ -193,8 +207,13 @@ export function C4PromoModal({
                         )}
                       >
                         <div className="min-w-0 flex-1">
-                          <p className="font-mono text-xs font-bold text-teal-700 dark:text-teal-400">
+                          <p className="flex items-center gap-1.5 font-mono text-xs font-bold text-teal-700 dark:text-teal-400">
                             {p.product}
+                            {(suggestByProduct?.[p.product] ?? 0) > 0 && (
+                              <span className="inline-flex items-center gap-0.5 rounded bg-amber-100 px-1 py-0.5 font-sans text-[9px] font-bold text-amber-700 dark:bg-amber-950/50 dark:text-amber-300">
+                                แนะนำ {suggestByProduct![p.product]} หีบ
+                              </span>
+                            )}
                           </p>
                           <p className="truncate text-xs text-slate-600 dark:text-slate-400">
                             {p.name}
@@ -333,6 +352,7 @@ interface PromoInspectorTriggerProps {
   storeCode: string;
   stagedQty?: Record<string, number>;
   onConfirmStaged?: (staged: Record<string, number>) => void;
+  suggestByProduct?: Record<string, number>;
   className?: string;
 }
 
@@ -341,6 +361,7 @@ export function PromoInspectorTrigger({
   storeCode,
   stagedQty = {},
   onConfirmStaged,
+  suggestByProduct,
   className,
 }: PromoInspectorTriggerProps) {
   const [open, setOpen] = useState(false);
@@ -369,6 +390,7 @@ export function PromoInspectorTrigger({
           storeCode={storeCode}
           stagedQty={stagedQty}
           onConfirm={onConfirmStaged}
+          suggestByProduct={suggestByProduct}
           onClose={() => setOpen(false)}
         />
       )}
