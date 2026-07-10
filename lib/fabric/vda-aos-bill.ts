@@ -118,10 +118,32 @@ export class VdaAosBillRegistry {
     this.customersByVda.get(vda)!.add(customerCode);
   }
 
-  /** รหัสลูกค้า (customercode, lowercased) ของ VDA — ใช้กรอง sold_history ที่ key ด้วย from_db=rXXX */
+  /** รหัสลูกค้า (customercode, lowercased) ของ VDA — ใช้กรอง sold_history รายร้าน */
   getCustomerCodesForVda(vdaCode: string): string[] {
     const set = this.customersByVda.get(normVda(vdaCode));
     return set ? [...set] : [];
+  }
+
+  hasCustomers(): boolean {
+    return this.customersByVda.size > 0;
+  }
+
+  /** fallback: map vda -> customercode จาก env VDA_CUSTOMER_MAP
+   *  รูปแบบ: "vda1:3231847,vda2:5042814,..." (หลายรหัสคั่นด้วย |) */
+  loadCustomerEnvFallback() {
+    const raw = process.env.VDA_CUSTOMER_MAP?.trim();
+    if (!raw) return;
+    for (const part of raw.split(",")) {
+      const [vda, codes] = part.split(":").map((s) => s.trim());
+      if (!vda || !codes) continue;
+      for (const c of codes.split("|")) {
+        const cc = normCustomer(c);
+        if (cc) this.addCustomer(normVda(vda), cc);
+      }
+    }
+    console.info(
+      `[VdaAosBill] Loaded customercodes for ${this.customersByVda.size} VDA(s) from VDA_CUSTOMER_MAP`
+    );
   }
 
   private addCode(vda: string, salesmanCode: string) {
@@ -180,6 +202,11 @@ export function reloadVdaAosBillRegistry(): void {
 
   if (!registry.isLoaded) {
     registry.loadEnvFallback();
+  }
+  // ถ้า CSV ไม่มี customercode (เช่น vda_aos_bill ยังไม่ถูก export เป็น CSV)
+  // ใช้ env VDA_CUSTOMER_MAP เพื่อกรองยอดขายรายวันรายร้านได้ทันที
+  if (!registry.hasCustomers()) {
+    registry.loadCustomerEnvFallback();
   }
 }
 
