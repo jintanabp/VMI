@@ -56,7 +56,7 @@ import {
   MobileRowTop,
   MobileStat,
 } from "@/components/ui/mobile-row";
-import { cn } from "@/lib/utils";
+import { cn, matchesProductSearch } from "@/lib/utils";
 import {
   calcCvdEstimate,
   formatDays,
@@ -211,10 +211,10 @@ export function StockPageClient({
   );
 
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = search.trim();
     let out = enrichedRows;
     if (q) {
-      out = out.filter((r) => r.skuName.toLowerCase().includes(q));
+      out = out.filter((r) => matchesProductSearch(q, r));
     }
     if (viewScope.needsOnly) {
       out = out.filter((r) => r.needsOrder);
@@ -636,7 +636,7 @@ export function StockPageClient({
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
             <Input
               className="h-8 pl-9 text-xs xl:h-9 xl:text-sm"
-              placeholder="ค้นหาชื่อสินค้า..."
+              placeholder="ค้นหาชื่อ / รหัส / บาร์โค้ด / แบรนด์..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />

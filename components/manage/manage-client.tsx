@@ -23,7 +23,7 @@ import {
 import { AppHeader } from "@/components/layout/app-header";
 import { PageShell } from "@/components/layout/page-shell";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { cn, matchesProductSearch } from "@/lib/utils";
 import type { StockRowComputed } from "@/lib/repositories/types";
 
 interface ManageClientProps {
@@ -57,12 +57,8 @@ function matchesBrandSearch(
   const q = query.trim().toLowerCase();
   if (!q) return true;
   if (section.toLowerCase().includes(q)) return true;
-  return items.some((item) => {
-    const brand = item.brand?.trim() ?? "";
-    if (brand && brand.toLowerCase().includes(q)) return true;
-    const sec = item.section?.trim() ?? "";
-    return sec && sec.toLowerCase().includes(q);
-  });
+  // ตรงกับสินค้าในกลุ่ม: ชื่อ / รหัส / บาร์โค้ด / แบรนด์
+  return items.some((item) => matchesProductSearch(query, item));
 }
 
 export function ManageClient({
@@ -296,7 +292,7 @@ export function ManageClient({
               type="search"
               value={brandSearch}
               onChange={(e) => setBrandSearch(e.target.value)}
-              placeholder="ค้นหาชื่อแบรนด์หรือ Section..."
+              placeholder="ค้นหาชื่อ / รหัส / บาร์โค้ด / แบรนด์..."
               className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm outline-none ring-teal-500/30 focus:ring-2 dark:border-slate-700 dark:bg-slate-900"
             />
           </div>
