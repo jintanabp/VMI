@@ -23,15 +23,18 @@ model Store {
   stockItems      StockItem[]
   orders          Order[]
   groupThresholds StoreGroupThreshold[]
+  skuBlocks       StoreSkuBlock[]
 }
 
 model Sku {
   id         String      @id @default(cuid())
   code       String      @unique
   name       String
+  createdAt  DateTime    @default(now())
   stockItems StockItem[]
   promoTiers PromoTier[]
   orderItems OrderItem[]
+  skuBlocks  StoreSkuBlock[]
 }
 
 model StockItem {
@@ -120,4 +123,21 @@ model StoreGroupThreshold {
   store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
   @@unique([storeId, section])
+}
+
+/// รายการ "หยุดสั่ง / เอาออกจากคลัง" ต่อร้านต่อ SKU — ระงับ suggest และแจ้งเซลล์
+model StoreSkuBlock {
+  id             String    @id @default(cuid())
+  storeId        String
+  skuId          String
+  reason         String
+  effectiveFrom  DateTime  @default(now()) // เริ่มหยุดสั่งตั้งแต่เมื่อไหร่ (อาจเป็นอนาคต)
+  createdBy      String    @default("")
+  createdAt      DateTime  @default(now())
+  acknowledgedAt DateTime?                 // เซลล์กดรับทราบเมื่อไหร่ (null = ยังไม่อ่าน)
+  store          Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  sku            Sku       @relation(fields: [skuId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, skuId])
+  @@index([storeId])
 }

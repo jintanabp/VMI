@@ -27,6 +27,12 @@ import {
 } from "./stock-filter-config";
 import { fabricStockReady, getStockCoverDirectory } from "./stock-cover";
 
+// สินค้าถือว่า "ใหม่" ถ้า Sku.createdAt อยู่ภายในกี่วันล่าสุด (default 30)
+const NEW_PRODUCT_DAYS = Math.max(
+  0,
+  Number(process.env.NEW_PRODUCT_DAYS ?? 30) || 30
+);
+
 function resolveAvgSales(row: {
   avgQtyOutL7: number | null;
   avgQtyOutL30: number | null;
@@ -169,6 +175,12 @@ export async function buildFabricStockPayload(
     groupThresholds.map((g) => [g.section, g])
   );
 
+  // blocklist ต่อร้าน — ระงับ suggest เมื่อถึงกำหนดหยุดสั่ง
+  const blocks = await prisma.storeSkuBlock.findMany({ where: { storeId } });
+  const blockBySkuId = new Map(blocks.map((b) => [b.skuId, b]));
+  const now = new Date();
+  const newCutoffMs = now.getTime() - NEW_PRODUCT_DAYS * 86_400_000;
+
   const rows: StockRowComputed[] = [];
   const pending: {
     cover: (typeof coverRows)[number];
@@ -186,6 +198,9 @@ export async function buildFabricStockPayload(
     meta: ReturnType<NonNullable<typeof skuDir>["metaForSku"]>;
     priceLookup: ReturnType<NonNullable<typeof skuDir>["getLookupPrice"]> | undefined;
     suggestOrder: number;
+    isNew: boolean;
+    blocked: boolean;
+    block: (typeof blocks)[number] | undefined;
   }[] = [];
 
   for (const cover of coverRows) {
@@ -244,12 +259,15 @@ export async function buildFabricStockPayload(
       : undefined;
     const minDays = stockItem?.minDays ?? groupThreshold?.minDays ?? 7;
     const maxDays = stockItem?.maxDays ?? groupThreshold?.maxDays ?? 15;
-    const suggestOrder = calcSuggestOrder(
-      cover.qtyAvailable,
-      avgSales,
-      minDays,
-      maxDays
-    );
+
+    // blocklist: ถ้าถึงกำหนดหยุดสั่งแล้ว ไม่ต้องแนะนำ (แต่ถ้า effectiveFrom เป็นอนาคต ยังแนะนำปกติ)
+    const block = blockBySkuId.get(sku.id);
+    const blocked = block != null && block.effectiveFrom <= now;
+    const isNew = sku.createdAt != null && sku.createdAt.getTime() >= newCutoffMs;
+
+    const suggestOrder = blocked
+      ? 0
+      : calcSuggestOrder(cover.qtyAvailable, avgSales, minDays, maxDays);
 
     pending.push({
       cover,
@@ -267,6 +285,9 @@ export async function buildFabricStockPayload(
       meta,
       priceLookup,
       suggestOrder,
+      isNew,
+      blocked,
+      block,
     });
   }
 
@@ -301,6 +322,10 @@ export async function buildFabricStockPayload(
         section: item.section,
         brand: item.meta?.brand ?? "",
         poolQtyForDiscount: poolQty,
+        isNew: item.isNew,
+        blocked: item.blocked,
+        blockReason: item.block?.reason ?? null,
+        blockEffectiveFrom: item.block?.effectiveFrom?.toISOString() ?? null,
         sku: {
           code: item.sku.code,
           name: item.skuName,

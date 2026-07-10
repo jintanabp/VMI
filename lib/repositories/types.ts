@@ -43,6 +43,14 @@ export interface StockRowComputed {
   needsOrder: boolean;
   /** แหล่งข้อมูล warehouse (จาก stock_cover_day.from_db) */
   fromDb?: string;
+  /** SKU เพิ่งเข้าใหม่ในข้อมูล Fabric (ภายใน NEW_PRODUCT_DAYS) */
+  isNew?: boolean;
+  /** อยู่ใน blocklist และถึงกำหนดหยุดสั่งแล้ว (effectiveFrom <= now) */
+  blocked?: boolean;
+  /** เหตุผลที่หยุดสั่ง */
+  blockReason?: string | null;
+  /** วันเวลาเริ่มหยุดสั่ง (ISO) — อาจเป็นอนาคต */
+  blockEffectiveFrom?: string | null;
 }
 
 export type StockItemWithSku = StockItem & { sku: Sku & { promoTiers: PromoTier[] } };

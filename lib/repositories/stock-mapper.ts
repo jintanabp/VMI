@@ -37,16 +37,18 @@ export function mapStockRow(
     };
     promoOverride?: PromoResult;
     poolQtyForDiscount?: number;
+    isNew?: boolean;
+    blocked?: boolean;
+    blockReason?: string | null;
+    blockEffectiveFrom?: string | null;
   }
 ): StockRowComputed {
   const minStock = calcMinStock(item.avgSales, item.minDays);
   const maxStock = calcMaxStock(item.avgSales, item.maxDays);
-  const suggestOrder = calcSuggestOrder(
-    item.stock,
-    item.avgSales,
-    item.minDays,
-    item.maxDays
-  );
+  // ถ้าอยู่ใน blocklist (ถึงกำหนดแล้ว) ไม่ต้องแนะนำสั่ง
+  const suggestOrder = item.blocked
+    ? 0
+    : calcSuggestOrder(item.stock, item.avgSales, item.minDays, item.maxDays);
 
   let discountBaht: number | null = null;
   let discountPct: number | null = null;
@@ -116,5 +118,9 @@ export function mapStockRow(
     priceExpired: item.priceExpired ?? false,
     needsOrder: suggestOrder > 0,
     fromDb: item.fromDb,
+    isNew: item.isNew ?? false,
+    blocked: item.blocked ?? false,
+    blockReason: item.blockReason ?? null,
+    blockEffectiveFrom: item.blockEffectiveFrom ?? null,
   };
 }
