@@ -12,6 +12,14 @@ const SALESMAN_COLUMNS = [
   "sales_code",
 ];
 
+const CUSTOMER_COLUMNS = [
+  "customercode",
+  "customer_code",
+  "custcode",
+  "cust_code",
+  "customer",
+];
+
 function normVda(code: string): string {
   return code.trim().toLowerCase();
 }
@@ -20,13 +28,21 @@ function normSalesman(code: string): string {
   return code.trim().toUpperCase();
 }
 
-function pickSalesmanColumn(headers: string[]): string | null {
+function pickColumn(headers: string[], candidates: string[]): string | null {
   const lower = new Map(headers.map((h) => [h.toLowerCase().trim(), h]));
-  for (const c of SALESMAN_COLUMNS) {
+  for (const c of candidates) {
     const hit = lower.get(c);
     if (hit) return hit;
   }
   return null;
+}
+
+function pickSalesmanColumn(headers: string[]): string | null {
+  return pickColumn(headers, SALESMAN_COLUMNS);
+}
+
+function normCustomer(code: string): string {
+  return code.trim().toLowerCase();
 }
 
 function parseEnvMap(raw: string): Map<string, string> {
@@ -41,6 +57,8 @@ function parseEnvMap(raw: string): Map<string, string> {
 export class VdaAosBillRegistry {
   private byVda = new Map<string, Map<string, number>>();
   private bySalesman = new Map<string, Set<string>>();
+  // vda -> รหัสลูกค้า (customercode) ที่อยู่ในบิลของ VDA นั้น — ใช้กรองยอดขายรายวัน
+  private customersByVda = new Map<string, Set<string>>();
 
   get isLoaded() {
     return this.byVda.size > 0;
@@ -49,6 +67,7 @@ export class VdaAosBillRegistry {
   clear() {
     this.byVda.clear();
     this.bySalesman.clear();
+    this.customersByVda.clear();
   }
 
   loadEnvFallback() {
@@ -70,18 +89,39 @@ export class VdaAosBillRegistry {
       console.warn(`[VdaAosBill] ${csvPath}: no salesmancode column`);
       return false;
     }
+    const custCol = pickColumn(headers, CUSTOMER_COLUMNS);
 
     const vda = normVda(vdaKey);
     let count = 0;
     for (const row of rows) {
       const sm = normSalesman(row[col] ?? "");
-      if (!sm) continue;
-      this.addCode(vda, sm);
-      count++;
+      if (sm) {
+        this.addCode(vda, sm);
+        count++;
+      }
+      if (custCol) {
+        const cust = normCustomer(row[custCol] ?? "");
+        if (cust) this.addCustomer(vda, cust);
+      }
     }
 
-    console.info(`[VdaAosBill] ${vda} ← ${count} rows from ${csvPath}`);
+    console.info(
+      `[VdaAosBill] ${vda} ← ${count} rows${custCol ? `, ${this.customersByVda.get(vda)?.size ?? 0} customers` : ""} from ${csvPath}`
+    );
     return count > 0;
+  }
+
+  private addCustomer(vda: string, customerCode: string) {
+    if (!this.customersByVda.has(vda)) {
+      this.customersByVda.set(vda, new Set());
+    }
+    this.customersByVda.get(vda)!.add(customerCode);
+  }
+
+  /** รหัสลูกค้า (customercode, lowercased) ของ VDA — ใช้กรอง sold_history ที่ key ด้วย from_db=rXXX */
+  getCustomerCodesForVda(vdaCode: string): string[] {
+    const set = this.customersByVda.get(normVda(vdaCode));
+    return set ? [...set] : [];
   }
 
   private addCode(vda: string, salesmanCode: string) {

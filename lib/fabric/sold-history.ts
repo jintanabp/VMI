@@ -194,6 +194,58 @@ export class SoldHistoryDirectory {
     };
   }
 
+  /** สรุปยอดขายเฉพาะชุด storeKey ที่ระบุ (เช่น customercode ของ VDA) — รวมเฉพาะ key เหล่านั้น
+   *  ไม่ fallback ไปรวมทุก store (ต่างจาก getSummary) เพื่อกรองรายร้านให้ถูกต้อง */
+  getSummaryForKeys(
+    productCode: string,
+    storeKeys: string[],
+    days = 7
+  ): SoldHistorySummary {
+    const empty: SoldHistorySummary = {
+      series: [],
+      total: 0,
+      avgPerDay: 0,
+      avgPerWeek: 0,
+      hasData: false,
+    };
+
+    const code = productCode.trim();
+    const byStore = this.data.get(code);
+    if (!byStore) return empty;
+
+    const merged = new Map<string, number>();
+    let matched = false;
+    for (const raw of storeKeys) {
+      const byDate = byStore.get(raw.trim().toLowerCase());
+      if (!byDate) continue;
+      matched = true;
+      for (const [date, qty] of byDate) {
+        merged.set(date, (merged.get(date) ?? 0) + qty);
+      }
+    }
+    if (!matched || merged.size === 0) return empty;
+
+    const end = this.latestDate || [...merged.keys()].sort().at(-1) || "";
+    if (!end) return empty;
+
+    const series: DailySale[] = [];
+    let total = 0;
+    for (let i = days - 1; i >= 0; i--) {
+      const date = addDays(end, -i);
+      const qty = merged.get(date) ?? 0;
+      total += qty;
+      series.push({ date, qty });
+    }
+    const avgPerDay = days > 0 ? total / days : 0;
+    return {
+      series,
+      total,
+      avgPerDay,
+      avgPerWeek: avgPerDay * 7,
+      hasData: true,
+    };
+  }
+
   load(csvPath: string): void {
     this.data = new Map();
     this.latestDate = "";
@@ -224,12 +276,15 @@ export class SoldHistoryDirectory {
       "qty_sold",
       "sum_qty",
     ]);
+    // customercode คือ key ที่ตรงกับ vda_aos_bill (กรองรายร้าน VDA ได้)
+    // เลือกก่อน from_db (which is warehouse-level) เพื่อให้กรองยอดขายต่อลูกค้าถูกต้อง
     const storeKey = pick(keys, [
+      "customercode",
+      "customer_code",
+      "custcode",
       "from_db",
       "storecode",
       "store_code",
-      "customercode",
-      "customer_code",
       "branch",
       "vda",
     ]);
