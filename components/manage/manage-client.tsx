@@ -13,6 +13,7 @@ import {
   Save,
   Search,
   Settings2,
+  Sparkles,
   Lock,
 } from "lucide-react";
 import { AppHeader } from "@/components/layout/app-header";
@@ -101,9 +102,23 @@ export function ManageClient({
       else bySection.set(key, [r]);
     }
     return [...bySection.entries()]
-      .map(([section, items]) => ({ section, items }))
-      .sort((a, b) => a.section.localeCompare(b.section, "th"));
+      .map(([section, items]) => ({
+        section,
+        items,
+        newCount: items.filter((i) => i.isNew).length,
+      }))
+      // section ที่มีสินค้าใหม่ลอยขึ้นบนสุด แล้วค่อยเรียงตามชื่อ
+      .sort(
+        (a, b) =>
+          (b.newCount > 0 ? 1 : 0) - (a.newCount > 0 ? 1 : 0) ||
+          a.section.localeCompare(b.section, "th")
+      );
   }, [rows]);
+
+  const totalNewCount = useMemo(
+    () => rows.filter((r) => r.isNew).length,
+    [rows]
+  );
 
   const filteredSections = useMemo(
     () =>
@@ -193,11 +208,17 @@ export function ManageClient({
         </section>
 
         <section className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <h2 className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-slate-100">
               <Settings2 className="h-4 w-4 text-teal-600" />
               ตั้งค่า MIN / MAX ตามแบรนด์
             </h2>
+            {totalNewCount > 0 && (
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-sky-100 px-2 py-0.5 text-xs font-bold text-sky-700 dark:bg-sky-950/50 dark:text-sky-300">
+                <Sparkles className="h-3.5 w-3.5" />
+                สินค้าใหม่ {totalNewCount}
+              </span>
+            )}
           </div>
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
             กำหนดจำนวนวันสำหรับสินค้าในกลุ่ม (ค่าเริ่มต้น MIN {DEFAULT_MIN_DAYS} / MAX{" "}
@@ -206,6 +227,13 @@ export function ManageClient({
               ? " — กดดูรายสินค้าเพื่อตั้งค่าพิเศษรายตัว"
               : " — บัญชีนี้ดูได้อย่างเดียว"}
           </p>
+
+          {totalNewCount > 0 && (
+            <div className="mt-3 flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50/70 px-3 py-2 text-xs text-sky-800 dark:border-sky-900/50 dark:bg-sky-950/20 dark:text-sky-200">
+              <Sparkles className="h-3.5 w-3.5 shrink-0" />
+              มีสินค้าใหม่ {totalNewCount} รายการเข้ามาในระบบ — แบรนด์ที่มีสินค้าใหม่ถูกจัดขึ้นบนสุดแล้ว
+            </div>
+          )}
 
           <div className="relative mt-3">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -247,11 +275,12 @@ export function ManageClient({
             </p>
           ) : (
             <div className="mt-3 space-y-2">
-              {filteredSections.map(({ section, items }) => (
+              {filteredSections.map(({ section, items, newCount }) => (
                 <SectionCard
                   key={section}
                   section={section}
                   items={items}
+                  newCount={newCount}
                   canManage={canManage}
                   saved={savedGroups.get(section)}
                   expanded={expanded.has(section)}
@@ -470,6 +499,7 @@ function BulkBrandThresholds({
 function SectionCard({
   section,
   items,
+  newCount,
   canManage,
   saved,
   expanded,
@@ -478,6 +508,7 @@ function SectionCard({
 }: {
   section: string;
   items: StockRowComputed[];
+  newCount: number;
   canManage: boolean;
   saved?: GroupThreshold;
   expanded: boolean;
@@ -606,6 +637,12 @@ function SectionCard({
           <span className="shrink-0 text-xs text-slate-400">
             ({items.length})
           </span>
+          {newCount > 0 && (
+            <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-bold text-sky-700 dark:bg-sky-950/50 dark:text-sky-300">
+              <Sparkles className="h-2.5 w-2.5" />
+              ใหม่ {newCount}
+            </span>
+          )}
           {isDefault && (
             <span className="shrink-0 rounded bg-slate-200 px-1.5 py-0.5 text-[10px] text-slate-500 dark:bg-slate-700 dark:text-slate-400">
               ค่าเริ่มต้น
@@ -757,6 +794,12 @@ function SkuOverrideRow({
     <div className="flex flex-wrap items-center gap-2 px-3 py-2">
       <div className="min-w-0 flex-1">
         <p className="truncate text-xs font-medium text-slate-800 dark:text-slate-200">
+          {row.isNew && (
+            <span className="mr-1 inline-flex items-center gap-0.5 rounded bg-sky-100 px-1 py-0.5 text-[9px] font-bold text-sky-700 dark:bg-sky-950/50 dark:text-sky-300">
+              <Sparkles className="h-2.5 w-2.5" />
+              ใหม่
+            </span>
+          )}
           <span className="font-mono text-teal-700 dark:text-teal-400">
             {row.skuCode}
           </span>{" "}
