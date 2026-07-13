@@ -32,22 +32,27 @@ export async function GET(request: Request) {
 
   const dir = getSoldHistoryDirectory();
 
-  // ร้าน VDA: sold_history key ด้วย from_db=customercode (rXXX) ไม่ใช่โค้ด vda
-  // จึงต้อง map vda -> customercode(s) จาก vda_aos_bill แล้วกรองเฉพาะลูกค้าของร้านนี้
-  // (ถ้ายังไม่มี mapping — เช่น vda_aos_bill ยังไม่ sync — fallback ใช้ from_db เดิม)
+  // ร้าน VDA: factsales_odoo key ด้วย source → normalize เป็น vda1..vda5
+  // ใช้ getSummaryForKeys เพื่อไม่ให้ fallback รวมยอดทุก VDA
+  // (ไฟล์เก่า cross_sold เคยใช้ customercode — ยังรองรับเป็น fallback)
   let summary;
   let filteredByCustomer = false;
   if (isVdaStoreCode(store.code)) {
-    const customerCodes = getVdaAosBillRegistry().getCustomerCodesForVda(
-      store.code
-    );
-    if (customerCodes.length > 0) {
-      summary = dir.getSummaryForKeys(sku, customerCodes, days);
+    summary = dir.getSummaryForKeys(sku, [store.code], days);
+    if (summary.hasData) {
       filteredByCustomer = true;
+    } else {
+      const customerCodes = getVdaAosBillRegistry().getCustomerCodesForVda(
+        store.code
+      );
+      if (customerCodes.length > 0) {
+        summary = dir.getSummaryForKeys(sku, customerCodes, days);
+        filteredByCustomer = summary.hasData;
+      }
     }
   }
   if (!summary) {
-    // ไม่ใช่ VDA หรือยังไม่มี customercode mapping — ใช้ from_db ของ catalog
+    // ไม่ใช่ VDA — ใช้ from_db ของ catalog
     summary = dir.getSummary(sku, fromDb || store.code, days);
   }
 

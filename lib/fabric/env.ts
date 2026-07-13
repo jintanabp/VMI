@@ -101,7 +101,7 @@ export function getStockOnelakeConfig(): StockOnelakeTarget | null {
   };
 }
 
-/** Ai_LH lakehouse — ประวัติยอดขายรายวัน (cross_sold_history_2y_qu)
+/** Ai_LH lakehouse — ประวัติยอดขายรายวัน (factsales_odoo)
  *  ใช้ค่าเฉพาะ AI_LH_* ก่อน ไม่งั้น fallback ไป masters config */
 export function getSoldHistoryOnelakeConfig(): MastersOnelakeTarget | null {
   const workspaceId =

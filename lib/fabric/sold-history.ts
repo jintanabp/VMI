@@ -43,6 +43,15 @@ function parseNum(raw: string | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/** แปลง source จาก factsales_odoo เช่น "VDA_1-พีเอส..." → "vda1" */
+function normalizeStoreKey(raw: string): string {
+  const s = raw.trim().toLowerCase();
+  if (!s) return "";
+  const vda = s.match(/^vda[_\s-]?(\d+)/);
+  if (vda) return `vda${vda[1]}`;
+  return s;
+}
+
 function parseDate(raw: string | undefined): string | null {
   const s = (raw ?? "").trim();
   if (!s) return null;
@@ -266,8 +275,16 @@ export class SoldHistoryDirectory {
       "item_code",
       "itemcode",
     ]);
-    const dateKey = pick(keys, ["date", "saledate", "sale_date", "day", "docdate"]);
+    const dateKey = pick(keys, [
+      "date_invoice",
+      "date",
+      "saledate",
+      "sale_date",
+      "day",
+      "docdate",
+    ]);
     const qtyKey = pick(keys, [
+      "unit_qty",
       "qty",
       "quantity",
       "sold_qty",
@@ -276,9 +293,9 @@ export class SoldHistoryDirectory {
       "qty_sold",
       "sum_qty",
     ]);
-    // customercode คือ key ที่ตรงกับ vda_aos_bill (กรองรายร้าน VDA ได้)
-    // เลือกก่อน from_db (which is warehouse-level) เพื่อให้กรองยอดขายต่อลูกค้าถูกต้อง
+    // factsales_odoo ใช้ source (VDA_N-ชื่อ); cross_sold ใช้ customercode / from_db
     const storeKey = pick(keys, [
+      "source",
       "customercode",
       "customer_code",
       "custcode",
@@ -310,7 +327,7 @@ export class SoldHistoryDirectory {
       const date = parseDate(n[dateKey]);
       if (!date || date < cutoffStr) continue;
       const qty = parseNum(n[qtyKey]);
-      const sKey = storeKey ? (n[storeKey] ?? "").toLowerCase() : "";
+      const sKey = storeKey ? normalizeStoreKey(n[storeKey] ?? "") : "";
       this.accumulate(productCode, sKey, date, qty);
       if (date > this.latestDate) this.latestDate = date;
       kept++;

@@ -42,7 +42,7 @@ export function getSkuMasterCsvPath() {
 export function getSoldHistoryCsvPath() {
   return (
     process.env.SOLD_HISTORY_CSV ??
-    path.join(getFabricCacheDir(), "cross_sold_history_2y_qu.csv")
+    path.join(getFabricCacheDir(), "factsales_odoo.csv")
   );
 }
 

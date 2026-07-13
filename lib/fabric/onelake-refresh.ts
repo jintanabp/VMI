@@ -331,14 +331,14 @@ export function buildSoldHistorySpec(localPath: string): RefreshSpec | null {
   if (!cfg) return null;
 
   return {
-    name: "cross_sold_history",
+    name: "factsales_odoo",
     localPath,
     workspaceId: cfg.workspaceId,
     onelakeItemId: cfg.lakehouseId,
     scanDir: cfg.scanDir,
     ...fixedOrAuto("SOLD_HISTORY_ONELAKE_PATH", cfg.scanDir),
-    columnSignature: ["productcode"],
-    requiredColumns: ["productcode"],
+    columnSignature: ["productcode", "date_invoice", "unit_qty"],
+    requiredColumns: ["productcode", "date_invoice", "unit_qty"],
     minRows: Number(process.env.SOLD_HISTORY_MIN_ROWS ?? "1"),
     authProfile:
       (process.env.SOLD_HISTORY_AUTH_PROFILE as OnelakeAuthProfile) ?? "stock",
@@ -425,7 +425,7 @@ export async function refreshAllMasters(
     try {
       await refreshOne(soldHistorySpec, options);
     } catch (err) {
-      console.warn("[cross_sold_history] refresh failed:", err);
+      console.warn("[factsales_odoo] refresh failed:", err);
     }
   }
 

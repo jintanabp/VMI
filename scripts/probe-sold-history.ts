@@ -1,11 +1,11 @@
 /**
- * ตรวจว่า cross_sold_history_2y_qu.csv อยู่ที่ lakehouse ไหน (stock vs Ai_LH)
+ * ตรวจว่า factsales_odoo.csv อยู่ที่ lakehouse ไหน
  * Usage: npx tsx --env-file=.env scripts/probe-sold-history.ts
  */
 import { getOnelakeToken } from "../lib/fabric/onelake-credential";
 
 const ONELAKE_HOST = "https://onelake.dfs.fabric.microsoft.com";
-const FILE = "cross_sold_history_2y_qu.csv";
+const FILE = "factsales_odoo.csv";
 
 async function listDir(
   workspaceId: string,
@@ -54,25 +54,18 @@ async function probe(
 }
 
 async function main() {
-  // 1) Stock lakehouse (SP stock)
   await probe(
     "Stock LH",
-    "650809d9-f661-4d2b-9e4b-0d50c00f17e1",
-    "9c46be00-802f-4b15-a1d2-60dc9d05114e",
+    process.env.STOCK_ONELAKE_WORKSPACE_ID || "650809d9-f661-4d2b-9e4b-0d50c00f17e1",
+    process.env.STOCK_ONELAKE_LAKEHOUSE_ID || "9c46be00-802f-4b15-a1d2-60dc9d05114e",
     "stock"
   );
-  // 2) Masters lakehouse (SP masters)
   await probe(
     "Masters LH",
-    "e037fd08-5f8d-4a6d-8c5e-f25886bd238d",
-    "7894759b-bb65-4a2b-963d-b19801542fa0",
+    process.env.ONELAKE_WORKSPACE_ID || "e037fd08-5f8d-4a6d-8c5e-f25886bd238d",
+    process.env.ONELAKE_LAKEHOUSE_ID || "7894759b-bb65-4a2b-963d-b19801542fa0",
     "masters"
   );
-  // 3) Ai_LH lakehouse — ลองทั้ง 2 SP
-  const AI_WS = "18ff6d42-8639-48a9-acd2-14a0c6b8ac9d";
-  const AI_LH = "0ddda3f7-213f-466b-9ba8-c04c48837f74";
-  await probe("Ai_LH (stock SP)", AI_WS, AI_LH, "stock");
-  await probe("Ai_LH (masters SP)", AI_WS, AI_LH, "masters");
 }
 
 main().catch((e) => {
