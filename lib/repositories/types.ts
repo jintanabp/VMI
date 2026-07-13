@@ -20,6 +20,8 @@ export interface StockRowComputed {
   noSales30?: boolean;
   minDays: number;
   maxDays: number;
+  /** ที่มาของ min/max: sku = แก้รายตัว, section = ตามแบรนด์, default = 7/15 */
+  thresholdSource?: "sku" | "section" | "default";
   minStock: number;
   maxStock: number;
   stockCvd: number | null;

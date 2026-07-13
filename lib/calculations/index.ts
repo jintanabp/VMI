@@ -1,5 +1,8 @@
 export const LEAD_TIME_DAYS = 3;
 
+/** CVD หลังสั่งเกิน MAX ได้ไม่เกินกี่วัน ยังถือว่าเขียว (เผื่อ lead time) */
+export const CVD_OVER_MAX_GREEN_DAYS = 4;
+
 export const FLAG_THRESHOLDS = {
   greenMin: 7,
   greenMax: 20,
@@ -46,13 +49,19 @@ export function calcCvdEstimate(
   return (stock + orderQty) / avgSales;
 }
 
-export function getCvdFlag(cvdEst: number | null): CvdFlag {
+export function getCvdFlag(
+  cvdEst: number | null,
+  minDays: number = FLAG_THRESHOLDS.greenMin,
+  maxDays: number = FLAG_THRESHOLDS.greenMax
+): CvdFlag {
   if (cvdEst === null) return "red";
-  if (cvdEst < FLAG_THRESHOLDS.greenMin || cvdEst > FLAG_THRESHOLDS.yellowMax) {
-    return "red";
-  }
-  if (cvdEst > FLAG_THRESHOLDS.greenMax) return "yellow";
-  return "green";
+  // เขียว = ไม่ต่ำกว่า MIN และเกิน MAX ได้ไม่เกิน ~3–4 วัน (เผื่อ lead time)
+  const greenCeil = maxDays + CVD_OVER_MAX_GREEN_DAYS;
+  if (cvdEst >= minDays && cvdEst <= greenCeil) return "green";
+  if (cvdEst < minDays) return "red";
+  const yellowCeil = greenCeil + Math.max(15, maxDays - minDays);
+  if (cvdEst <= yellowCeil) return "yellow";
+  return "red";
 }
 
 export type { PromoResult, PromoTierInput, PromoTierKind } from "./promo";

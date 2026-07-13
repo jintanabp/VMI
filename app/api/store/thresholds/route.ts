@@ -114,6 +114,7 @@ export async function PATCH(request: Request) {
       minDays,
       maxDays,
     });
+    bumpStockDataVersion();
     return NextResponse.json({ success: true, scope: "sku" });
   }
 

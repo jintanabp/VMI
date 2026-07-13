@@ -27,14 +27,16 @@ export function MobileRow({
   selected,
   warn,
   children,
+  ...rest
 }: {
   className?: string;
   selected?: boolean;
   warn?: boolean;
   children: React.ReactNode;
-}) {
+} & React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
+      {...rest}
       className={cn(
         "px-2 py-2.5 transition-colors sm:px-3",
         warn && "bg-amber-50/60 dark:bg-amber-950/30",

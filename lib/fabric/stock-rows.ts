@@ -33,7 +33,50 @@ const NEW_PRODUCT_DAYS = Math.max(
   Number(process.env.NEW_PRODUCT_DAYS ?? 30) || 30
 );
 
-// ค่าที่ใช้ "คำนวณ" แนะนำสั่ง: L7 ถ้าว่างใช้ L30 (ไม่ floor เป็น 1 เพื่อไม่ให้สินค้าไม่มียอดขายถูกแนะนำ)
+const DEFAULT_MIN_DAYS = 7;
+const DEFAULT_MAX_DAYS = 15;
+
+/** StockItem ใน DB มี default 7/15 เสมอ — ถือว่าเป็น "ยังไม่แก้รายตัว" ให้สืบทอดค่าแบรนด์ */
+function isSkuThresholdOverride(
+  stockItem: { minDays: number; maxDays: number } | undefined
+): boolean {
+  if (!stockItem) return false;
+  return (
+    stockItem.minDays !== DEFAULT_MIN_DAYS ||
+    stockItem.maxDays !== DEFAULT_MAX_DAYS
+  );
+}
+
+function resolveThresholdDays(
+  stockItem: { minDays: number; maxDays: number } | undefined,
+  groupThreshold: { minDays: number; maxDays: number } | undefined
+): {
+  minDays: number;
+  maxDays: number;
+  thresholdSource: "sku" | "section" | "default";
+} {
+  if (isSkuThresholdOverride(stockItem)) {
+    return {
+      minDays: stockItem!.minDays,
+      maxDays: stockItem!.maxDays,
+      thresholdSource: "sku",
+    };
+  }
+  if (groupThreshold) {
+    return {
+      minDays: groupThreshold.minDays,
+      maxDays: groupThreshold.maxDays,
+      thresholdSource: "section",
+    };
+  }
+  return {
+    minDays: DEFAULT_MIN_DAYS,
+    maxDays: DEFAULT_MAX_DAYS,
+    thresholdSource: "default",
+  };
+}
+
+// ค่าที่ใช้คำนวณ CVD / แนะนำสั่ง: L7 ถ้าว่างใช้ L30
 function resolveAvgSales(row: {
   avgQtyOutL7: number | null;
   avgQtyOutL30: number | null;
@@ -188,6 +231,7 @@ export async function buildFabricStockPayload(
     avgSales: number;
     minDays: number;
     maxDays: number;
+    thresholdSource: "sku" | "section" | "default";
     promoTiers: ReturnType<typeof promoRowsToTiers>;
     c4PromoRows: ReturnType<typeof filterCandidateRows> | undefined;
     promoGroup: string | null;
@@ -252,12 +296,14 @@ export async function buildFabricStockPayload(
     const meta = skuDir?.metaForSku(cover.productCode) ?? null;
     const section = meta?.section ?? "";
 
-    // ลำดับความสำคัญ: override รายตัว (StockItem) → กลุ่ม (Section) → default
+    // ลำดับ: แก้รายตัว (ไม่ใช่ค่า default 7/15) → แบรนด์ (Section) → default
     const groupThreshold = section
       ? thresholdBySection.get(section)
       : undefined;
-    const minDays = stockItem?.minDays ?? groupThreshold?.minDays ?? 7;
-    const maxDays = stockItem?.maxDays ?? groupThreshold?.maxDays ?? 15;
+    const { minDays, maxDays, thresholdSource } = resolveThresholdDays(
+      stockItem,
+      groupThreshold
+    );
 
     // blocklist: ถ้าถึงกำหนดหยุดสั่งแล้ว ไม่ต้องแนะนำ (แต่ถ้า effectiveFrom เป็นอนาคต ยังแนะนำปกติ)
     const block = blockBySkuId.get(sku.id);
@@ -275,6 +321,7 @@ export async function buildFabricStockPayload(
       avgSales,
       minDays,
       maxDays,
+      thresholdSource,
       promoTiers,
       c4PromoRows,
       promoGroup,
@@ -315,6 +362,7 @@ export async function buildFabricStockPayload(
           !((item.cover.avgQtyOutL30 ?? 0) > 0),
         minDays: item.minDays,
         maxDays: item.maxDays,
+        thresholdSource: item.thresholdSource,
         fromDb: item.cover.fromDb,
         unitPrice: item.priceLookup?.price ?? null,
         priceExpired: item.priceLookup?.expired ?? false,

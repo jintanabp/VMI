@@ -88,11 +88,28 @@ function applyTierPricing(
   };
 }
 
-/** รวมยอดโปรกลุ่ม (ASSORTEDPRODUCTGROUP) แล้วคำนวณส่วนลด/ข้อความโปรใหม่ */
-export function enrichStockRowsWithPooledPromo(
+function enrichOne(
+  row: StockRowComputed,
+  staged: StagedQtyMap | undefined,
+  groupPool: Map<string, number>
+): StockRowComputed {
+  if (!shouldShowPromo(row, staged)) {
+    return clearPromoFields(row);
+  }
+  const lineQty = lineQtyForRow(row, staged);
+  const pooled =
+    row.promoGroup &&
+    isPooledPromoGroup(row.promoGroup, row.promoGroupMembers)
+      ? groupPool.get(row.promoGroup.trim()) ?? lineQty
+      : lineQty;
+  const tierQty = pooled > 0 ? pooled : lineQty;
+  return applyTierPricing(row, tierQty, lineQty);
+}
+
+function buildGroupPool(
   rows: StockRowComputed[],
   staged?: StagedQtyMap
-): StockRowComputed[] {
+): Map<string, number> {
   const groupPool = new Map<string, number>();
   for (const row of rows) {
     if (!isPooledPromoGroup(row.promoGroup, row.promoGroupMembers)) continue;
@@ -101,27 +118,72 @@ export function enrichStockRowsWithPooledPromo(
     const key = row.promoGroup!.trim();
     groupPool.set(key, (groupPool.get(key) ?? 0) + qty);
   }
+  return groupPool;
+}
 
-  return rows.map((row) => {
-    if (!shouldShowPromo(row, staged)) {
-      return clearPromoFields(row);
+/** รวมยอดโปรกลุ่ม แล้วคำนวณส่วนลด/ข้อความโปร
+ *  ถ้าระบุ previous + changedSkuCodes จะคำนวณใหม่เฉพาะกลุ่มที่กระทบ (reuse อ้างอิงแถวอื่น) */
+export function enrichStockRowsWithPooledPromo(
+  rows: StockRowComputed[],
+  staged?: StagedQtyMap,
+  options?: {
+    previous?: StockRowComputed[];
+    changedSkuCodes?: ReadonlySet<string>;
+  }
+): StockRowComputed[] {
+  const groupPool = buildGroupPool(rows, staged);
+  const previous = options?.previous;
+  const changed = options?.changedSkuCodes;
+
+  if (!previous?.length || !changed?.size || previous.length !== rows.length) {
+    return rows.map((row) => enrichOne(row, staged, groupPool));
+  }
+
+  const prevByCode = new Map(previous.map((r) => [r.skuCode, r]));
+  const dirtyGroups = new Set<string>();
+  for (const code of changed) {
+    const row =
+      rows.find((r) => r.skuCode === code) ?? prevByCode.get(code);
+    if (row?.promoGroup && isPooledPromoGroup(row.promoGroup, row.promoGroupMembers)) {
+      dirtyGroups.add(row.promoGroup.trim());
     }
+  }
 
-    const lineQty = lineQtyForRow(row, staged);
-    const pooled =
+  return rows.map((row, i) => {
+    const groupKey =
       row.promoGroup &&
       isPooledPromoGroup(row.promoGroup, row.promoGroupMembers)
-        ? groupPool.get(row.promoGroup.trim()) ?? lineQty
-        : lineQty;
-    const tierQty = pooled > 0 ? pooled : lineQty;
+        ? row.promoGroup.trim()
+        : null;
+    const mustRecompute =
+      changed.has(row.skuCode) ||
+      (groupKey != null && dirtyGroups.has(groupKey));
 
-    return applyTierPricing(row, tierQty, lineQty);
+    if (!mustRecompute) {
+      const prev = previous[i];
+      if (prev && prev.skuId === row.skuId && prev.skuCode === row.skuCode) {
+        // ฐานข้อมูลแถวอาจเปลี่ยน (เช่น stock sync) — ถ้าระบุ fields หลักเดิมค่อย reuse promo
+        if (
+          prev.stock === row.stock &&
+          prev.avgSales === row.avgSales &&
+          prev.suggestOrder === row.suggestOrder &&
+          prev.unitPrice === row.unitPrice
+        ) {
+          return prev;
+        }
+      }
+    }
+    return enrichOne(row, staged, groupPool);
   });
 }
 
 /** รวม suggestOrder ต่อกลุ่มสำหรับ build ฝั่ง server */
 export function sumGroupSuggestQty(
-  items: { promoGroup?: string | null; promoGroupMembers?: number; suggestOrder: number }[]
+  items: {
+    promoGroup?: string | null;
+    promoGroupMembers?: number;
+    suggestOrder: number;
+  }[]
 ): Map<string, number> {
   const pools = new Map<string, number>();
   for (const item of items) {

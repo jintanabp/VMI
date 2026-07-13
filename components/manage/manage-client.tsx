@@ -49,18 +49,6 @@ const NO_SECTION = "(ไม่มี Section)";
 const DEFAULT_MIN_DAYS = 7;
 const DEFAULT_MAX_DAYS = 15;
 
-function matchesBrandSearch(
-  query: string,
-  section: string,
-  items: StockRowComputed[]
-): boolean {
-  const q = query.trim().toLowerCase();
-  if (!q) return true;
-  if (section.toLowerCase().includes(q)) return true;
-  // ตรงกับสินค้าในกลุ่ม: ชื่อ / รหัส / บาร์โค้ด / แบรนด์
-  return items.some((item) => matchesProductSearch(query, item));
-}
-
 export function ManageClient({
   storeCode,
   storeName,
@@ -78,12 +66,22 @@ export function ManageClient({
 
   const stockQuery = useQuery<StockApiResponse>({
     queryKey: ["stock"],
-    queryFn: () => fetch("/api/stock").then((r) => r.json()),
+    queryFn: () =>
+      fetch("/api/stock", { cache: "no-store" }).then((r) => r.json()),
+    staleTime: 60_000,
+    refetchOnMount: true,
+    refetchOnWindowFocus: false,
   });
 
   const thresholdsQuery = useQuery<{ groups: GroupThreshold[] }>({
     queryKey: ["thresholds"],
-    queryFn: () => fetch("/api/store/thresholds").then((r) => r.json()),
+    queryFn: () =>
+      fetch("/api/store/thresholds", { cache: "no-store" }).then((r) =>
+        r.json()
+      ),
+    staleTime: 60_000,
+    refetchOnMount: true,
+    refetchOnWindowFocus: false,
   });
 
   const blocklistQuery = useQuery<{ blocks: unknown[] }>({
@@ -129,9 +127,24 @@ export function ManageClient({
 
   const filteredSections = useMemo(
     () =>
-      sections.filter(({ section, items }) =>
-        matchesBrandSearch(brandSearch, section, items)
-      ),
+      sections
+        .map(({ section, items, newCount }) => {
+          const q = brandSearch.trim();
+          if (!q) return { section, items, newCount };
+          const matchedItems = items.filter((item) =>
+            matchesProductSearch(q, item)
+          );
+          const sectionHit = section.toLowerCase().includes(q.toLowerCase());
+          // ชื่อแบรนด์ตรง → โชว์ทั้งกลุ่ม; ไม่ตรง → โชว์เฉพาะสินค้าที่ match
+          if (sectionHit) return { section, items, newCount };
+          if (matchedItems.length === 0) return null;
+          return {
+            section,
+            items: matchedItems,
+            newCount: matchedItems.filter((i) => i.isNew).length,
+          };
+        })
+        .filter((s): s is NonNullable<typeof s> => s != null),
     [sections, brandSearch]
   );
 
@@ -293,8 +306,22 @@ export function ManageClient({
               value={brandSearch}
               onChange={(e) => setBrandSearch(e.target.value)}
               placeholder="ค้นหาชื่อ / รหัส / บาร์โค้ด / แบรนด์..."
-              className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm outline-none ring-teal-500/30 focus:ring-2 dark:border-slate-700 dark:bg-slate-900"
+              className={cn(
+                "w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 text-sm outline-none ring-teal-500/30 focus:ring-2 dark:border-slate-700 dark:bg-slate-900",
+                brandSearch ? "pr-9" : "pr-3"
+              )}
             />
+            {brandSearch ? (
+              <button
+                type="button"
+                onClick={() => setBrandSearch("")}
+                className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+                aria-label="ล้างการค้นหา"
+                title="ล้างการค้นหา"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
           </div>
 
           {!canManage && (
@@ -877,10 +904,7 @@ function SectionCard({
     (saved != null ||
       minDays !== String(DEFAULT_MIN_DAYS) ||
       maxDays !== String(DEFAULT_MAX_DAYS) ||
-      items.some(
-        (i) =>
-          i.minDays !== DEFAULT_MIN_DAYS || i.maxDays !== DEFAULT_MAX_DAYS
-      ));
+      items.some((i) => i.thresholdSource === "sku"));
 
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700">
@@ -1054,10 +1078,7 @@ function SkuOverrideRow({
     }
   }
 
-  const canResetSku =
-    canManage &&
-    (minDays !== String(DEFAULT_MIN_DAYS) ||
-      maxDays !== String(DEFAULT_MAX_DAYS));
+  const canResetSku = canManage && row.thresholdSource === "sku";
 
   return (
     <div className="flex flex-wrap items-center gap-2 px-3 py-2">
@@ -1074,9 +1095,21 @@ function SkuOverrideRow({
           </span>{" "}
           {row.skuName}
         </p>
-        {row.barcode && (
-          <p className="font-mono text-[10px] text-slate-400">{row.barcode}</p>
-        )}
+        <div className="flex flex-wrap items-center gap-1.5">
+          {row.barcode && (
+            <p className="font-mono text-[10px] text-slate-400">{row.barcode}</p>
+          )}
+          {row.thresholdSource === "section" && (
+            <span className="rounded bg-slate-100 px-1 py-0.5 text-[9px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+              ตามแบรนด์
+            </span>
+          )}
+          {row.thresholdSource === "sku" && (
+            <span className="rounded bg-teal-50 px-1 py-0.5 text-[9px] font-medium text-teal-700 dark:bg-teal-950/40 dark:text-teal-300">
+              แก้รายตัว
+            </span>
+          )}
+        </div>
       </div>
       <div className="flex items-center gap-1.5">
         <LabeledDays
@@ -1098,7 +1131,7 @@ function SkuOverrideRow({
               variant="ghost"
               onClick={save}
               disabled={saving || resetting}
-              title="บันทึก MIN / MAX"
+              title="บันทึก MIN / MAX รายตัว"
             >
               {saving ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1113,7 +1146,7 @@ function SkuOverrideRow({
               variant="ghost"
               onClick={resetSku}
               disabled={resetting || saving || !canResetSku}
-              title="รีเซ็ตเป็นค่าเริ่มต้น"
+              title="ล้างค่าแก้รายตัว กลับไปใช้ตามแบรนด์"
             >
               {resetting ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />

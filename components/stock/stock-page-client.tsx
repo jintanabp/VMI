@@ -2,7 +2,9 @@
 
 import {
   Fragment,
+  memo,
   useCallback,
+  useDeferredValue,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -14,6 +16,7 @@ import {
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   Search,
   ShoppingCart,
@@ -39,6 +42,7 @@ import { AppHeader } from "@/components/layout/app-header";
 import { PageShell } from "@/components/layout/page-shell";
 import { PromoDetailCell } from "@/components/promo/promo-detail-cell";
 import { ProductSalesPanel } from "@/components/stock/product-sales-panel";
+import { StopOrderModal } from "@/components/stock/stop-order-modal";
 import {
   StockDiscountPerCaseCell,
   StockListPriceCell,
@@ -115,6 +119,7 @@ export function StockPageClient({
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
+  const deferredSearch = useDeferredValue(search);
   const [qtyOverrides, setQtyOverrides] = useState<Record<string, number>>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [viewScope, setViewScope] = useState<ViewScope>({
@@ -127,16 +132,15 @@ export function StockPageClient({
   // สินค้าใหม่ + หยุดสั่ง (blocklist)
   const [showNewOnly, setShowNewOnly] = useState(false);
   const [stopOpen, setStopOpen] = useState(false);
-  const [stopReason, setStopReason] = useState("");
-  const [stopEffective, setStopEffective] = useState("");
-  const [stopSaving, setStopSaving] = useState(false);
-  const [stopErr, setStopErr] = useState("");
   const [sessionReady, setSessionReady] = useState(false);
+  const [pendingFocusSku, setPendingFocusSku] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery<StockApiResponse>({
     queryKey: ["stock"],
     queryFn: async () => {
-      const raw = await fetch("/api/stock").then((r) => r.json());
+      const raw = await fetch("/api/stock", { cache: "no-store" }).then((r) =>
+        r.json()
+      );
       if (isStockPayload(raw)) return raw;
       return {
         sources: [],
@@ -146,7 +150,20 @@ export function StockPageClient({
         rows: Array.isArray(raw) ? raw : [],
       };
     },
+    staleTime: 60_000,
+    refetchOnMount: true,
+    refetchOnWindowFocus: false,
   });
+
+  /** true = desktop table (≥1280px); false = mobile list — เรนเดอร์อย่างเดียวลดงานครึ่งหนึ่ง */
+  const [isDesktop, setIsDesktop] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1280px)");
+    const apply = () => setIsDesktop(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
 
   const rows = useMemo(() => data?.rows ?? [], [data?.rows]);
   // map รหัสสินค้า -> จำนวนแนะนำสั่ง สำหรับ mark "แนะนำซื้อ" ใน modal โปรกลุ่ม
@@ -205,13 +222,32 @@ export function StockPageClient({
     return m;
   }, [rows, qtyOverrides]);
 
-  const enrichedRows = useMemo(
-    () => enrichStockRowsWithPooledPromo(rows, promoStagedQty),
-    [rows, promoStagedQty]
-  );
+  const enrichedPrevRef = useRef<StockRowComputed[]>([]);
+  const stagedPrevRef = useRef<Record<string, number>>({});
+
+  const enrichedRows = useMemo(() => {
+    const prevStaged = stagedPrevRef.current;
+    const changed = new Set<string>();
+    const codes = new Set([
+      ...Object.keys(promoStagedQty),
+      ...Object.keys(prevStaged),
+    ]);
+    for (const code of codes) {
+      if ((promoStagedQty[code] ?? 0) !== (prevStaged[code] ?? 0)) {
+        changed.add(code);
+      }
+    }
+    const next = enrichStockRowsWithPooledPromo(rows, promoStagedQty, {
+      previous: enrichedPrevRef.current,
+      changedSkuCodes: changed,
+    });
+    enrichedPrevRef.current = next;
+    stagedPrevRef.current = promoStagedQty;
+    return next;
+  }, [rows, promoStagedQty]);
 
   const filtered = useMemo(() => {
-    const q = search.trim();
+    const q = deferredSearch.trim();
     let out = enrichedRows;
     if (q) {
       out = out.filter((r) => matchesProductSearch(q, r));
@@ -229,7 +265,7 @@ export function StockPageClient({
       out = out.filter((r) => r.isNew);
     }
     return out;
-  }, [enrichedRows, search, viewScope, showNewOnly]);
+  }, [enrichedRows, deferredSearch, viewScope, showNewOnly]);
 
   function toggleExpand(skuId: string) {
     setExpanded((prev) => {
@@ -278,39 +314,72 @@ export function StockPageClient({
     ];
   }, [filtered]);
 
+  const tableScrollRef = useRef<HTMLDivElement>(null);
+  const shouldVirtualize = isDesktop && !isLoading && displayRows.length >= 40;
+  const rowVirtualizer = useVirtualizer({
+    count: shouldVirtualize ? displayRows.length : 0,
+    getScrollElement: () => tableScrollRef.current,
+    estimateSize: (index) => {
+      const row = displayRows[index];
+      if (!row) return 44;
+      let h = 44;
+      if (row.promoGroupIsFirst && row.promoGroupStripe != null) h += 28;
+      if (expanded.has(row.skuId)) h += 200;
+      return h;
+    },
+    overscan: 10,
+  });
+  const virtualItems = shouldVirtualize
+    ? rowVirtualizer.getVirtualItems()
+    : null;
+
+  useEffect(() => {
+    if (shouldVirtualize) rowVirtualizer.measure();
+  }, [expanded, shouldVirtualize, displayRows.length, rowVirtualizer]);
+
+  /** โฟกัส SKU จากหน้า order (กดรหัสสินค้า) */
+  useEffect(() => {
+    if (!sessionReady) return;
+    try {
+      const focus = sessionStorage.getItem("vmi_focus_sku");
+      if (!focus) return;
+      sessionStorage.removeItem("vmi_focus_sku");
+      setSearch(focus);
+      setViewScope({ needsOnly: false, brand: null, section: null });
+      setShowNewOnly(false);
+      setPendingFocusSku(focus);
+    } catch {
+      /* ignore */
+    }
+  }, [sessionReady]);
+
+  useEffect(() => {
+    if (!pendingFocusSku || isLoading) return;
+    const idx = displayRows.findIndex((r) => r.skuCode === pendingFocusSku);
+    if (idx < 0) return;
+
+    if (shouldVirtualize) {
+      rowVirtualizer.scrollToIndex(idx, { align: "center" });
+    } else {
+      requestAnimationFrame(() => {
+        document
+          .querySelector(`[data-sku-code="${CSS.escape(pendingFocusSku)}"]`)
+          ?.scrollIntoView({ block: "center", behavior: "smooth" });
+      });
+    }
+    setPendingFocusSku(null);
+  }, [
+    pendingFocusSku,
+    displayRows,
+    isLoading,
+    shouldVirtualize,
+    rowVirtualizer,
+  ]);
+
   const newCount = useMemo(
     () => enrichedRows.filter((r) => r.isNew).length,
     [enrichedRows]
   );
-
-  async function submitStop() {
-    if (selected.size === 0) return;
-    setStopSaving(true);
-    setStopErr("");
-    try {
-      const res = await fetch("/api/store/blocklist", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          skuIds: [...selected],
-          reason: stopReason.trim(),
-          effectiveFrom: stopEffective || undefined,
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setStopErr(data.error ?? "บันทึกไม่สำเร็จ");
-        return;
-      }
-      setStopOpen(false);
-      setStopReason("");
-      setStopEffective("");
-      clearSelection();
-      await queryClient.invalidateQueries({ queryKey: ["stock"] });
-    } finally {
-      setStopSaving(false);
-    }
-  }
 
   async function unblock(skuId: string) {
     if (!confirm("ยกเลิกการหยุดสั่งสินค้านี้?")) return;
@@ -360,11 +429,13 @@ export function StockPageClient({
   } {
     const qty = evalQty(row);
     if (qty <= 0) return { cvdEst: null, flag: null };
+    // ไม่มีขายเฉลี่ย = ประเมิน CVD ไม่ได้ — ไม่ติดธงแดงกั้นสั่ง
+    if (row.avgSales <= 0) return { cvdEst: null, flag: null };
     const cvdEst = calcCvdEstimate(row.stock, qty, row.avgSales);
-    return { cvdEst, flag: getCvdFlag(cvdEst) };
+    return { cvdEst, flag: getCvdFlag(cvdEst, row.minDays, row.maxDays) };
   }
 
-  /** ปรับจำนวนเท่านั้น — ไม่เลือกสินค้าให้อัตโนมัติ */
+  /** ปรับจำนวนเท่านั้น — ไม่ติ๊กเลือกอัตโนมัติ */
   function setLineQty(skuCode: string, qty: number) {
     const nextQty = Math.max(0, Math.floor(qty));
     setQtyOverrides((prev) => ({
@@ -514,7 +585,14 @@ export function StockPageClient({
     for (const item of selectedItems) {
       const qty = resolveLineQty(item);
       if (qty <= 0) continue;
-      if (getCvdFlag(calcCvdEstimate(item.stock, qty, item.avgSales)) === "red") {
+      if (item.avgSales <= 0) continue;
+      if (
+        getCvdFlag(
+          calcCvdEstimate(item.stock, qty, item.avgSales),
+          item.minDays,
+          item.maxDays
+        ) === "red"
+      ) {
         n++;
       }
     }
@@ -528,17 +606,25 @@ export function StockPageClient({
 
   useEffect(() => {
     if (!sessionReady) return;
-    if (selectedItems.length === 0) {
-      sessionStorage.removeItem("vmi_order_draft");
-      sessionStorage.removeItem("vmi_order_qty");
-      return;
-    }
-    sessionStorage.setItem("vmi_order_draft", JSON.stringify(selectedItems));
-    const qtyMap: Record<string, number> = {};
-    for (const item of selectedItems) {
-      qtyMap[item.skuCode] = resolveLineQty(item);
-    }
-    sessionStorage.setItem("vmi_order_qty", JSON.stringify(qtyMap));
+    const timer = window.setTimeout(() => {
+      if (selectedItems.length === 0) {
+        sessionStorage.removeItem("vmi_order_draft");
+        sessionStorage.removeItem("vmi_order_qty");
+        return;
+      }
+      // เก็บเฉพาะฟิลด์ที่หน้า order ต้องใช้ — ลด JSON ใหญ่ทุกครั้งที่เลือก/เปลี่ยนจำนวน
+      const draft = selectedItems.map((r) => ({
+        ...r,
+        promoTiers: r.promoTiers?.length ? r.promoTiers : [],
+      }));
+      sessionStorage.setItem("vmi_order_draft", JSON.stringify(draft));
+      const qtyMap: Record<string, number> = {};
+      for (const item of selectedItems) {
+        qtyMap[item.skuCode] = resolveLineQty(item);
+      }
+      sessionStorage.setItem("vmi_order_qty", JSON.stringify(qtyMap));
+    }, 200);
+    return () => window.clearTimeout(timer);
   }, [sessionReady, selectedItems, qtyOverrides, resolveLineQty]);
 
   function goToOrder() {
@@ -634,13 +720,27 @@ export function StockPageClient({
 
         <div className="vmi-stock-toolbar shrink-0 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
           <div className="relative min-w-0 flex-1">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
             <Input
-              className="h-8 pl-9 text-xs xl:h-9 xl:text-sm"
+              className={cn(
+                "h-8 pl-9 text-xs xl:h-9 xl:text-sm",
+                search && "pr-9"
+              )}
               placeholder="ค้นหาชื่อ / รหัส / บาร์โค้ด / แบรนด์..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
+            {search ? (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+                aria-label="ล้างการค้นหา"
+                title="ล้างการค้นหา"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
           </div>
           <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
             <StockFilterDropdown
@@ -733,8 +833,12 @@ export function StockPageClient({
         )}
 
         <div className="vmi-table-wrap vmi-stock-table-wrap min-h-0 flex-1 max-xl:flex-none">
-          <div className="vmi-table-scroll vmi-stock-table-scroll overflow-x-hidden">
-            <div className="xl:hidden">
+          <div
+            ref={tableScrollRef}
+            className="vmi-table-scroll vmi-stock-table-scroll overflow-x-hidden"
+          >
+            {!isDesktop ? (
+            <div>
               {isLoading ? (
                 <p className="px-3 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
                   กำลังโหลด...
@@ -772,8 +876,8 @@ export function StockPageClient({
                 </MobileRowList>
               )}
             </div>
-
-            <table className="vmi-data-table vmi-stock-fit-table hidden w-full table-fixed text-left xl:table">
+            ) : (
+            <table className="vmi-data-table vmi-stock-fit-table w-full table-fixed text-left">
             <colgroup>
               <col className="w-[2.5%]" />
               <col className="w-[7%]" />
@@ -810,14 +914,27 @@ export function StockPageClient({
                 <th className="px-1 py-2 text-right">สต็อก</th>
                 <th
                   className="px-1 py-2 text-right leading-tight"
-                  title="ขายเฉลี่ยต่อวัน 7 วัน (avg_qty_out_L7)"
+                  title="ขายเฉลี่ยต่อวัน 7 วัน จาก stock_cover (avg_qty_out_L7) — ไม่ใช่ยอดบิล factsales"
                 >
-                  ขายเฉลี่ย<br />7 วัน
+                  ขายเฉลี่ย<br />
+                  <span className="font-normal text-[9px] text-slate-400">
+                    7 วัน · คลัง
+                  </span>
                 </th>
                 <th className="px-1 py-2 text-right">CVD</th>
-                <th className="px-1 py-2 text-right">MIN / MAX</th>
+                <th
+                  className="px-1 py-2 text-right"
+                  title="เป้าหมาย CVD ต่ำสุด / สูงสุด (วัน) ตามที่ตั้งในหน้าจัดการ"
+                >
+                  MIN / MAX
+                </th>
                 <th className="px-1 py-2 text-center">จำนวนสั่ง</th>
-                <th className="px-1 py-2 text-center">หลังสั่ง</th>
+                <th
+                  className="px-1 py-2 text-center"
+                  title="CVD หลังสั่ง — เกิน MAX ได้ไม่เกิน 4 วันยังถือว่าเหมาะสม"
+                >
+                  หลังสั่ง
+                </th>
                 <th className="px-1 py-2 text-right">ราคา/หีบ</th>
                 <th className="px-1 py-2 text-right">ส่วนลด</th>
                 <th className="px-1 py-2 text-right">ราคาสุทธิ/หีบ</th>
@@ -832,11 +949,27 @@ export function StockPageClient({
                   </td>
                 </tr>
               )}
-              {!isLoading &&
-                displayRows.map((row) => {
+              {!isLoading && (
+                <>
+                  {virtualItems && (virtualItems[0]?.start ?? 0) > 0 && (
+                    <tr aria-hidden>
+                      <td
+                        colSpan={13}
+                        style={{
+                          height: virtualItems[0]!.start,
+                          padding: 0,
+                          border: "none",
+                        }}
+                      />
+                    </tr>
+                  )}
+                  {(virtualItems
+                    ? virtualItems.map((v) => displayRows[v.index]!)
+                    : displayRows
+                  ).map((row) => {
                   const lowStock =
                     row.needsOrder ||
-                    (row.stockCvd !== null && row.stockCvd < 7);
+                    (row.stockCvd !== null && row.stockCvd < row.minDays);
                   const isExpanded = expanded.has(row.skuId);
                   const { cvdEst, flag } = orderCvdFlag(row);
                   return (
@@ -856,6 +989,7 @@ export function StockPageClient({
                       </tr>
                     )}
                     <tr
+                      data-sku-code={row.skuCode}
                       className={cn(
                         "border-t border-slate-100 text-slate-800 transition-colors hover:bg-slate-50/60 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-800/40",
                         promoGroupRowBgClass(row.promoGroupStripe),
@@ -940,10 +1074,9 @@ export function StockPageClient({
                       </td>
                       <td
                         className="px-1 py-1.5 text-right tabular-nums text-[11px] text-slate-500 dark:text-slate-400"
-                        title={`MIN ${formatNumber(row.minStock, 0)} / MAX ${formatNumber(row.maxStock, 0)}`}
+                        title={`เป้าหมาย CVD ${row.minDays}–${row.maxDays} วัน`}
                       >
-                        {formatNumber(row.minStock, 0)}/
-                        {formatNumber(row.maxStock, 0)}
+                        {row.minDays}/{row.maxDays} วัน
                       </td>
                       <td className="px-1 py-1.5 text-center">
                         <StockQtyStepper
@@ -1045,8 +1178,30 @@ export function StockPageClient({
                     </Fragment>
                   );
                 })}
+                  {virtualItems &&
+                    (() => {
+                      const last = virtualItems[virtualItems.length - 1];
+                      if (!last) return null;
+                      const bottom = rowVirtualizer.getTotalSize() - last.end;
+                      if (bottom <= 0) return null;
+                      return (
+                        <tr aria-hidden>
+                          <td
+                            colSpan={13}
+                            style={{
+                              height: bottom,
+                              padding: 0,
+                              border: "none",
+                            }}
+                          />
+                        </tr>
+                      );
+                    })()}
+                </>
+              )}
             </tbody>
           </table>
+            )}
           </div>
         </div>
       </main>
@@ -1080,12 +1235,7 @@ export function StockPageClient({
               size="sm"
               variant="outline"
               className="mx-auto shrink-0 border-red-200 text-red-600 hover:bg-red-50 sm:mx-0 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/30"
-              onClick={() => {
-                setStopErr("");
-                setStopReason("");
-                setStopEffective("");
-                setStopOpen(true);
-              }}
+              onClick={() => setStopOpen(true)}
               title="หยุดสั่ง / เอาออกจากคลัง สำหรับรายการที่เลือก"
             >
               <Ban className="h-4 w-4" />
@@ -1118,79 +1268,21 @@ export function StockPageClient({
         </div>
       </div>
 
-      {stopOpen &&
-        createPortal(
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-            onClick={() => !stopSaving && setStopOpen(false)}
-          >
-            <div
-              className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-700 dark:bg-slate-900"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <h3 className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-slate-100">
-                <Ban className="h-4 w-4 text-red-500" />
-                หยุดสั่ง {selected.size} รายการ
-              </h3>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                ระบบจะไม่แนะนำสั่งสินค้าเหล่านี้ตั้งแต่วันที่กำหนด และแจ้งเซลล์ที่ดูแลร้าน
-              </p>
-
-              <label className="mt-4 block text-xs font-semibold text-slate-600 dark:text-slate-300">
-                เหตุผล
-              </label>
-              <textarea
-                value={stopReason}
-                onChange={(e) => setStopReason(e.target.value)}
-                rows={3}
-                placeholder="เช่น สินค้าเลิกขาย / ไม่มีที่เก็บ / ขายไม่ดี"
-                className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none ring-teal-500/30 focus:ring-2 dark:border-slate-700 dark:bg-slate-900"
-              />
-
-              <label className="mt-3 block text-xs font-semibold text-slate-600 dark:text-slate-300">
-                เริ่มหยุดสั่งตั้งแต่
-              </label>
-              <input
-                type="datetime-local"
-                value={stopEffective}
-                onChange={(e) => setStopEffective(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none ring-teal-500/30 focus:ring-2 dark:border-slate-700 dark:bg-slate-900"
-              />
-              <p className="mt-1 text-[11px] text-slate-400">
-                เว้นว่าง = เริ่มทันที
-              </p>
-
-              {stopErr && (
-                <p className="mt-2 text-xs text-red-600">{stopErr}</p>
-              )}
-
-              <div className="mt-5 flex justify-end gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setStopOpen(false)}
-                  disabled={stopSaving}
-                >
-                  ยกเลิก
-                </Button>
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  onClick={submitStop}
-                  disabled={stopSaving || !stopReason.trim()}
-                >
-                  {stopSaving ? "กำลังบันทึก..." : "ยืนยันหยุดสั่ง"}
-                </Button>
-              </div>
-            </div>
-          </div>,
-          document.body
-        )}
+      <StopOrderModal
+        open={stopOpen}
+        selectedCount={selected.size}
+        skuIds={[...selected]}
+        onClose={() => setStopOpen(false)}
+        onSuccess={async () => {
+          clearSelection();
+          await queryClient.invalidateQueries({ queryKey: ["stock"] });
+        }}
+      />
     </PageShell>
   );
 }
 
-function StockMobileRow({
+const StockMobileRow = memo(function StockMobileRow({
   row,
   storeCode,
   qty,
@@ -1224,13 +1316,14 @@ function StockMobileRow({
   onToggle: () => void;
 }) {
   const lowStock =
-    row.needsOrder || (row.stockCvd !== null && row.stockCvd < 7);
+    row.needsOrder || (row.stockCvd !== null && row.stockCvd < row.minDays);
   const hasPromo = Boolean(
     row.currentPromo || row.nextPromo || row.hasPromoLadder
   );
 
   return (
     <MobileRow
+      data-sku-code={row.skuCode}
       selected={selected}
       warn={
         (orderFlag === "red" || lowStock) && row.promoGroupStripe == null
@@ -1302,6 +1395,11 @@ function StockMobileRow({
       </MobileRowTop>
       <MobileRowStats className="pl-7">
         <MobileStat label="สต็อก" value={formatNumber(row.stock, 0)} />
+        <MobileStat
+          label="ขายเฉลี่ย · คลัง"
+          value={formatNumber(row.avgQtyOutL7 ?? row.avgSales, 1)}
+          title="จาก stock_cover (avg_qty_out_L7) — ไม่ใช่ยอดบิล"
+        />
         <MobileStat label="CVD" value={formatDays(row.stockCvd)} />
         {orderFlag && (
           <MobileStat label="หลังสั่ง">
@@ -1377,7 +1475,7 @@ function StockMobileRow({
       )}
     </MobileRow>
   );
-}
+});
 
 function formatDataDate(iso: string) {
   const d = new Date(iso);

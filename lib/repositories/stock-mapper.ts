@@ -23,6 +23,7 @@ export function mapStockRow(
     noSales30?: boolean;
     minDays: number;
     maxDays: number;
+    thresholdSource?: "sku" | "section" | "default";
     fromDb?: string;
     unitPrice?: number | null;
     priceExpired?: boolean;
@@ -100,6 +101,7 @@ export function mapStockRow(
     noSales30: item.noSales30 ?? false,
     minDays: item.minDays,
     maxDays: item.maxDays,
+    thresholdSource: item.thresholdSource ?? "default",
     minStock,
     maxStock,
     stockCvd: calcStockCvd(item.stock, item.avgSales),
