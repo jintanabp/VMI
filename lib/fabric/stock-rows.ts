@@ -9,7 +9,7 @@ import {
   getPromotionCreditDirectory,
   getSkuMasterDirectory,
 } from "./index";
-import { stockDataVersion } from "./data-version";
+import { storeDataVersion } from "./data-version";
 import { resolvePromoContext } from "./promotion-context";
 import {
   filterCandidateRows,
@@ -76,18 +76,26 @@ function resolveThresholdDays(
   };
 }
 
-// ค่าที่ใช้คำนวณ CVD / แนะนำสั่ง: L7 ถ้าว่างใช้ L30
+// ค่าที่ใช้คำนวณ CVD / แนะนำสั่ง: L7 ถ้าว่าง "หรือเป็น 0" ให้ใช้ L30
+// (ค่า 0 = ช่วง 7 วันล่าสุดเงียบ — ไม่ควรบล็อกดีมานด์จาก 30 วัน ไม่งั้นจะไม่แนะนำสั่งเลย)
 function resolveAvgSales(row: {
   avgQtyOutL7: number | null;
   avgQtyOutL30: number | null;
 }): number {
-  return row.avgQtyOutL7 ?? row.avgQtyOutL30 ?? 0;
+  const l7 = row.avgQtyOutL7;
+  if (l7 != null && l7 > 0) return l7;
+  return row.avgQtyOutL30 ?? l7 ?? 0;
 }
 
 async function ensureSkus(
   coverRows: { productCode: string; productName: string }[]
 ) {
-  const codes = [...new Set(coverRows.map((c) => c.productCode))];
+  // index ชื่อสินค้าตาม productCode ครั้งเดียว (เลิก coverRows.find ใน loop = O(n²))
+  const nameByCode = new Map<string, string>();
+  for (const r of coverRows) {
+    if (!nameByCode.has(r.productCode)) nameByCode.set(r.productCode, r.productName);
+  }
+  const codes = [...nameByCode.keys()];
   if (codes.length === 0) return [];
 
   const existing = await prisma.sku.findMany({
@@ -98,28 +106,34 @@ async function ensureSkus(
 
   const toCreate = codes
     .filter((code) => !byCode.has(code))
-    .map((code) => {
-      const cover = coverRows.find((r) => r.productCode === code)!;
-      return { code, name: cover.productName };
-    });
+    .map((code) => ({ code, name: nameByCode.get(code)! }));
 
   if (toCreate.length > 0) {
-    await prisma.sku.createMany({ data: toCreate });
+    // ตาราง Sku ว่างมาก่อน = bulk import ครั้งแรก → ไม่มีประวัติว่าตัวไหน "ใหม่จริง"
+    // backdate createdAt ให้พ้นหน้าต่าง NEW_PRODUCT_DAYS กัน "ทุกสินค้าขึ้นป้ายใหม่พร้อมกัน"
+    // (ครั้งถัดไปที่มี code ใหม่จริงในแคตตาล็อกที่ตั้งไว้แล้ว จะได้ createdAt = ตอนนี้ตามปกติ)
+    const isInitialSeed = (await prisma.sku.count()) === 0;
+    const data = isInitialSeed
+      ? toCreate.map((s) => ({
+          ...s,
+          createdAt: new Date(Date.now() - (NEW_PRODUCT_DAYS + 1) * 86_400_000),
+        }))
+      : toCreate;
+    await prisma.sku.createMany({ data });
   }
 
-  const namesToUpdate = codes
-    .map((code) => {
-      const cover = coverRows.find((r) => r.productCode === code)!;
-      const sku = byCode.get(code);
-      if (sku && sku.name !== cover.productName) {
-        return { id: sku.id, name: cover.productName };
-      }
-      return null;
-    })
-    .filter((x): x is { id: string; name: string } => x != null);
+  // ชื่อที่เปลี่ยน — เทียบจาก Map (O(n)) เฉพาะ sku ที่มีอยู่แล้ว
+  const namesToUpdate: { id: string; name: string }[] = [];
+  for (const [code, sku] of byCode) {
+    const name = nameByCode.get(code);
+    if (name != null && sku.name !== name) {
+      namesToUpdate.push({ id: sku.id, name });
+    }
+  }
 
   if (namesToUpdate.length > 0) {
-    await Promise.all(
+    // batch เป็น transaction เดียว (แทน Promise.all ของ update อิสระ N ตัว — ลด round-trip + กัน SQLite lock)
+    await prisma.$transaction(
       namesToUpdate.map((u) =>
         prisma.sku.update({ where: { id: u.id }, data: { name: u.name } })
       )
@@ -149,11 +163,7 @@ export function listStockFromDbSources(config = getStockFilterConfig()): string[
 // Cache ผลลัพธ์ payload ต่อ (store, fromDb) — payload เปลี่ยนเฉพาะเมื่อไฟล์ master เปลี่ยน
 // หรือมีการแก้ threshold เท่านั้น จึงไม่ต้อง recompute + query DB ทุก request
 const payloadCache = new Map<string, StockApiPayload>();
-let payloadCacheSignature = "";
-
-function currentPayloadSignature(): string {
-  return `${fabricMastersMtimeSignature()}|v${stockDataVersion()}`;
-}
+let payloadCacheMtime = "";
 
 export async function buildFabricStockPayload(
   storeId: string,
@@ -162,15 +172,23 @@ export async function buildFabricStockPayload(
 ): Promise<StockApiPayload> {
   ensureFabricMastersFresh();
 
-  // ล้าง cache ทั้งชุดเมื่อ signature เปลี่ยน (sync ใหม่ / แก้ threshold) — bound memory ตามจำนวนร้าน
-  const signature = currentPayloadSignature();
-  if (signature !== payloadCacheSignature) {
+  // ล้าง cache ทั้งชุดเฉพาะเมื่อไฟล์ master เปลี่ยน (sync ใหม่) — ข้อมูลใหม่ทั้งกระดาน
+  const mtimeSig = fabricMastersMtimeSignature();
+  if (mtimeSig !== payloadCacheMtime) {
     payloadCache.clear();
-    payloadCacheSignature = signature;
+    payloadCacheMtime = mtimeSig;
   }
-  const cacheKey = `${storeId}|${storeCode}|${requestedFromDb ?? ""}`;
+
+  // cacheKey ผูกกับ version ของร้านนั้น — แก้ threshold/blocklist ของร้านหนึ่ง
+  // จะ bust cache เฉพาะร้านนั้น (ไม่กระทบ cache ร้านอื่น)
+  const prefix = `${storeId}|${storeCode}|${requestedFromDb ?? ""}|`;
+  const cacheKey = `${prefix}v${storeDataVersion(storeId)}`;
   const cached = payloadCache.get(cacheKey);
   if (cached) return cached;
+  // ลบ entry เวอร์ชันเก่าของ (store, fromDb) เดียวกัน กัน cache โตจากการแก้ threshold ซ้ำ ๆ
+  for (const k of payloadCache.keys()) {
+    if (k.startsWith(prefix) && k !== cacheKey) payloadCache.delete(k);
+  }
 
   const config = getStockFilterConfig();
   const dir = getStockCoverDirectory();

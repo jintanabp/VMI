@@ -11,6 +11,7 @@ import {
 } from "@/lib/calculations";
 import { activePromoRowAtQty } from "@/lib/fabric/promotion-lookup";
 import type { PromoRow } from "@/lib/fabric/promotion-credit";
+import { bangkokDateStr, isoDateStr, daysBetweenIso } from "@/lib/fabric/bkk-date";
 import type { StockRowComputed } from "./types";
 
 export function mapStockRow(
@@ -87,6 +88,19 @@ export function mapStockRow(
 
   const showPromo = suggestOrder > 0;
 
+  // จำนวนวันที่โปร active จะหมด (นับวันที่ใกล้สุดในบรรดา c4PromoRows ที่ active อยู่)
+  let currentPromoEndsInDays: number | null = null;
+  if (item.c4PromoRows?.length) {
+    const today = bangkokDateStr(new Date());
+    for (const r of item.c4PromoRows) {
+      if (!r.toDate) continue;
+      const d = daysBetweenIso(today, isoDateStr(r.toDate));
+      if (d >= 0 && (currentPromoEndsInDays === null || d < currentPromoEndsInDays)) {
+        currentPromoEndsInDays = d;
+      }
+    }
+  }
+
   return {
     storeId,
     skuId: item.skuId,
@@ -113,6 +127,7 @@ export function mapStockRow(
     currentPromoKind: showPromo ? promo.currentKind : null,
     nextPromoKind: showPromo ? promo.nextKind : null,
     hasPromoLadder: showPromo ? promo.hasPromoLadder : false,
+    currentPromoEndsInDays,
     promoGroup: item.promoGroup ?? null,
     promoGroupMembers: item.promoGroupMembers ?? 0,
     promoTiers: item.sku.promoTiers,

@@ -33,6 +33,8 @@ export interface StockRowComputed {
   currentPromoKind?: PromoTierKind | null;
   nextPromoKind?: PromoTierKind | null;
   hasPromoLadder?: boolean;
+  /** จำนวนวันที่โปรที่กำลังใช้อยู่จะหมด (นับจากวันนี้ โซนไทย) — null = ไม่มีวันหมด/ไม่มีโปร */
+  currentPromoEndsInDays?: number | null;
   /** รหัส ASSORTEDPRODUCTGROUP จาก C4 (ว่าง = โปรราย SKU เดียว) */
   promoGroup?: string | null;
   /** จำนวน SKU ในกลุ่มจาก master C4 */
@@ -78,6 +80,9 @@ export interface OrderItemInput {
   suggestedQty: number;
   finalQty: number;
   cvdEstimate: number | null;
+  /** threshold ที่ร้านใช้ตอนสั่ง — เก็บไว้ให้ฝั่งเซลส์คำนวณสีธงตรงกัน */
+  minDays?: number | null;
+  maxDays?: number | null;
 }
 
 export interface OrderRepository {

@@ -20,6 +20,8 @@ const orderItemSchema = z.object({
   suggestedQty: z.number().int().min(0),
   finalQty: z.number().int().min(1),
   cvdEstimate: z.number().nullable(),
+  minDays: z.number().int().nullable().optional(),
+  maxDays: z.number().int().nullable().optional(),
 });
 
 const createOrderSchema = z.object({

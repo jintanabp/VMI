@@ -50,25 +50,48 @@ export function fabricMastersMtimeSignature(): string {
     .join("|");
 }
 
-/** โหลด cache ใหม่เมื่อไฟล์ CSV บนดิสก์เปลี่ยน (แก้ stale ข้าม worker / หลัง sync) */
-export function ensureFabricMastersFresh(): void {
-  const paths = trackedFabricPaths();
-  let stale = fabricCacheMtimes.size === 0;
-  for (const p of paths) {
-    const mtime = csvMtime(p);
-    if (mtime == null) continue;
-    if (fabricCacheMtimes.get(p) !== mtime) {
-      stale = true;
-      break;
-    }
-  }
-  if (!stale) return;
-
-  reloadFabricMasters();
+function primeMtimes(paths: string[]): void {
   fabricCacheMtimes.clear();
   for (const p of paths) {
     const mtime = csvMtime(p);
     if (mtime != null) fabricCacheMtimes.set(p, mtime);
+  }
+}
+
+/** มี master ตัวหลักถูกโหลดแล้วหรือไม่ (จาก preload ตอน boot หรือ lazy getter) */
+function anyMasterLoaded(): boolean {
+  return (
+    (customerDir?.isLoaded ?? false) ||
+    (skuMaster?.isLoaded ?? false) ||
+    (soldHistory?.isLoaded ?? false)
+  );
+}
+
+/** โหลด cache ใหม่เมื่อไฟล์ CSV บนดิสก์เปลี่ยน (แก้ stale ข้าม worker / หลัง sync) */
+export function ensureFabricMastersFresh(): void {
+  const paths = trackedFabricPaths();
+
+  // ครั้งแรก (ยังไม่เคย track mtime)
+  if (fabricCacheMtimes.size === 0) {
+    // ถ้ามี master ถูกโหลดไว้แล้ว (preload ตอน boot หรือ lazy getter) → แค่ prime mtime
+    // ไม่ต้อง reloadFabricMasters ซ้ำ (กัน parse ไฟล์ 68MB บน request แรก)
+    if (anyMasterLoaded()) {
+      primeMtimes(paths);
+      return;
+    }
+    // ยังไม่มีอะไรโหลดเลย → โหลดครั้งแรก (reload จะ prime mtime ให้เอง)
+    reloadFabricMasters();
+    return;
+  }
+
+  // ครั้งถัดไป: reload เฉพาะเมื่อไฟล์เปลี่ยน (หลัง sync)
+  for (const p of paths) {
+    const mtime = csvMtime(p);
+    if (mtime == null) continue;
+    if (fabricCacheMtimes.get(p) !== mtime) {
+      reloadFabricMasters();
+      return;
+    }
   }
 }
 
@@ -180,6 +203,15 @@ export function reloadFabricMasters(): void {
     const mtime = csvMtime(p);
     if (mtime != null) fabricCacheMtimes.set(p, mtime);
   }
+}
+
+/** โหลด master ทั้งหมดล่วงหน้าตอน boot (นอก request path)
+ *  reloadFabricMasters() จะ prime ทั้ง directory และ fabricCacheMtimes ให้
+ *  → request แรกที่เรียก ensureFabricMastersFresh() จะเห็น "ไม่ stale" แล้วข้าม reload
+ *  (กัน request แรก/หลัง sync ต้อง parse ไฟล์ SKU 68MB แบบ sync บน request thread) */
+export function warmFabricMasters(): void {
+  if (!fabricMastersEnabled()) return;
+  reloadFabricMasters();
 }
 
 export function fabricMastersReady(): boolean {

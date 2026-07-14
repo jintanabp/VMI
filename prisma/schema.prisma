@@ -77,6 +77,10 @@ model OrderItem {
   suggestedQty Int
   finalQty     Int
   cvdEstimate  Float?
+  // threshold ที่ร้านใช้ตอนสั่ง — "แช่แข็ง" ไว้ให้ฝั่งเซลส์คำนวณสีธง CVD ตรงกับที่ร้านเห็น
+  // (null = ออเดอร์เก่าก่อนมีฟีเจอร์นี้ → getCvdFlag ใช้ค่า default เดิม)
+  minDays      Int?
+  maxDays      Int?
   order        Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
   sku          Sku    @relation(fields: [skuId], references: [id])
 }

@@ -37,12 +37,16 @@ export function SalesNotificationsClient() {
   const qc = useQueryClient();
   const [acking, setAcking] = useState(false);
 
-  const { data, isLoading } = useQuery<{
+  const { data, isLoading, isError, refetch } = useQuery<{
     items: NotiItem[];
     unseenCount: number;
   }>({
     queryKey: ["sales-notifications"],
-    queryFn: () => fetch("/api/sales/notifications").then((r) => r.json()),
+    queryFn: async () => {
+      const res = await fetch("/api/sales/notifications");
+      if (!res.ok) throw new Error(`โหลดการแจ้งเตือนไม่สำเร็จ (${res.status})`);
+      return (await res.json()) as { items: NotiItem[]; unseenCount: number };
+    },
   });
 
   const items = data?.items ?? [];
@@ -103,6 +107,17 @@ export function SalesNotificationsClient() {
 
           {isLoading ? (
             <p className="py-10 text-center text-sm text-slate-500">กำลังโหลด...</p>
+          ) : isError ? (
+            <div className="flex flex-col items-center gap-2 py-10 text-center text-sm text-red-600 dark:text-red-400">
+              <span>โหลดการแจ้งเตือนไม่สำเร็จ</span>
+              <button
+                type="button"
+                onClick={() => refetch()}
+                className="rounded bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700"
+              >
+                ลองใหม่
+              </button>
+            </div>
           ) : items.length === 0 ? (
             <p className="py-10 text-center text-sm text-slate-500">
               ยังไม่มีรายการหยุดสั่ง

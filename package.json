@@ -18,6 +18,7 @@
     "sync:masters:daily": "scripts\\sync-masters-daily.bat",
     "backup:db": "node scripts/backup-db.mjs",
     "probe:stock-onelake": "tsx --env-file=.env scripts/probe-stock-onelake.ts",
+    "verify:sales-cover": "tsx --env-file=.env scripts/verify-sales-cover.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {

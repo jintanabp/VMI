@@ -1,5 +1,6 @@
 import fs from "fs";
-import { readCsvFile } from "./csv";
+import { streamCsvFile } from "./csv";
+import { bangkokDateStr, isoDateStr } from "./bkk-date";
 
 export interface PriceRecord {
   fromDate: Date;
@@ -22,14 +23,6 @@ export interface SkuMeta {
   brand: string;
 }
 
-function normKeys(row: Record<string, string>): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(row)) {
-    out[k.toLowerCase().trim()] = (v ?? "").trim();
-  }
-  return out;
-}
-
 function splitCodeName(value: string): string {
   const s = value.trim();
   if (!s.includes(" - ")) return s;
@@ -50,14 +43,14 @@ function parseNum(raw: string | undefined): number {
 }
 
 export class SkuMasterDirectory {
-  private rows: SkuMasterRow[] = [];
+  private loadedCount = 0;
   private nameByCode = new Map<string, string>();
   private metaByCode = new Map<string, SkuMeta>();
   private pricesByCode = new Map<string, PriceRecord[]>();
   private csvPath: string | null = null;
 
   get isLoaded() {
-    return this.rows.length > 0;
+    return this.loadedCount > 0;
   }
 
   nameForSku(code: string): string {
@@ -88,7 +81,11 @@ export class SkuMasterDirectory {
     const candidates = this.pricesByCode.get(code) ?? [];
     if (candidates.length === 0) return { price: null, expired: false };
 
-    const active = candidates.filter((r) => r.fromDate <= on && on <= r.toDate);
+    // เทียบเป็นวันที่โซนไทย (inclusive) กัน off-by-one/เลื่อน 7 ชม. ให้ตรงกับ promoActiveOn
+    const onStr = bangkokDateStr(on);
+    const active = candidates.filter(
+      (r) => isoDateStr(r.fromDate) <= onStr && onStr <= isoDateStr(r.toDate)
+    );
     if (active.length > 0) {
       const best = active.reduce((a, b) =>
         a.fromDate > b.fromDate ? a : b
@@ -96,7 +93,7 @@ export class SkuMasterDirectory {
       return { price: best.creditPrice, expired: false };
     }
 
-    const expired = candidates.filter((r) => r.toDate < on);
+    const expired = candidates.filter((r) => isoDateStr(r.toDate) < onStr);
     if (expired.length > 0) {
       const best = expired.reduce((a, b) => (a.toDate > b.toDate ? a : b));
       return { price: best.creditPrice, expired: true };
@@ -108,22 +105,21 @@ export class SkuMasterDirectory {
   load(csvPath: string): void {
     if (!fs.existsSync(csvPath)) {
       console.warn(`[SkuMaster] CSV not found: ${csvPath}`);
-      this.rows = [];
+      this.loadedCount = 0;
       this.csvPath = csvPath;
       return;
     }
 
-    const { rows } = readCsvFile(csvPath);
-    const parsedRows: SkuMasterRow[] = [];
     const nameByCode = new Map<string, string>();
     const metaByCode = new Map<string, SkuMeta>();
     const pricesByCode = new Map<string, PriceRecord[]>();
+    let count = 0;
 
-    for (const row of rows) {
-      const n = normKeys(row);
+    // stream ทีละแถว — ไม่เก็บ array 110k แถว, คีย์ถูก lower-case ให้แล้ว (n = row)
+    streamCsvFile(csvPath, (n) => {
       const productCode =
         n.productcode || n.sku || n.product_code || n.item_code || "";
-      if (!productCode) continue;
+      if (!productCode) return;
 
       const barcode = n.barcode || n.ean || "";
       const name =
@@ -143,7 +139,7 @@ export class SkuMasterDirectory {
         n.brand ||
         "";
 
-      parsedRows.push({ productCode, barcode, name, section, brand });
+      count++;
       if (!nameByCode.has(productCode)) {
         nameByCode.set(productCode, name);
       }
@@ -173,16 +169,16 @@ export class SkuMasterDirectory {
         bucket.push(rec);
         pricesByCode.set(productCode, bucket);
       }
-    }
+    });
 
-    this.rows = parsedRows;
+    this.loadedCount = count;
     this.nameByCode = nameByCode;
     this.metaByCode = metaByCode;
     this.pricesByCode = pricesByCode;
     this.csvPath = csvPath;
 
     console.info(
-      `[SkuMaster] Loaded ${parsedRows.length} rows, ${pricesByCode.size} priced SKUs from ${csvPath}`
+      `[SkuMaster] Loaded ${count} rows, ${pricesByCode.size} priced SKUs from ${csvPath}`
     );
   }
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { formatNumber } from "@/lib/calculations";
+import { formatBaht } from "@/lib/calculations";
 
 export interface OrderConfirmLine {
   row: { skuId: string; skuCode: string; skuName: string };
@@ -16,11 +16,6 @@ interface OrderConfirmModalProps {
   pending: boolean;
   onCancel: () => void;
   onConfirm: () => void;
-}
-
-function formatBaht(value: number | null | undefined) {
-  if (value == null) return "—";
-  return `฿${formatNumber(value, 0)}`;
 }
 
 export function OrderConfirmModal({

@@ -1,5 +1,6 @@
 import fs from "fs";
 import { readCsvFile } from "./csv";
+import { bangkokDateStr, isoDateStr } from "./bkk-date";
 
 const REQUIRED = [
   "DIVISIONSALE",
@@ -70,8 +71,10 @@ export function hasPremium(row: PromoRow): boolean {
 }
 
 export function promoActiveOn(row: PromoRow, day: Date): boolean {
-  if (row.fromDate && day < row.fromDate) return false;
-  if (row.toDate && day > row.toDate) return false;
+  // เทียบเป็นวันที่โซนไทย (inclusive ทั้งวันเริ่ม-วันสิ้นสุด) กัน off-by-one/เลื่อน 7 ชม.
+  const d = bangkokDateStr(day);
+  if (row.fromDate && d < isoDateStr(row.fromDate)) return false;
+  if (row.toDate && d > isoDateStr(row.toDate)) return false;
   return true;
 }
 

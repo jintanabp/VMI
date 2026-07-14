@@ -1,13 +1,13 @@
-// ตัวนับเวอร์ชันข้อมูล stock — bump ทุกครั้งที่มีการแก้ threshold (per-SKU หรือ Section)
-// ใช้เป็นส่วนหนึ่งของ cache signature ใน buildFabricStockPayload เพื่อ bust cache ให้ถูกต้อง
+// version ข้อมูล stock "ต่อร้าน" — bump ทุกครั้งที่แก้ threshold (per-SKU/Section) หรือ blocklist ของร้านนั้น
+// ผูกไว้ใน cacheKey ของ payload เพื่อ bust cache เฉพาะร้านที่เปลี่ยน (ไม่ล้าง cache ร้านอื่น)
 // ตั้งใจให้ไม่มี dependency อื่น เพื่อกัน circular import (repository/route/fabric เรียกได้หมด)
 
-let version = 0;
+const versions = new Map<string, number>();
 
-export function bumpStockDataVersion(): void {
-  version++;
+export function bumpStoreDataVersion(storeId: string): void {
+  versions.set(storeId, (versions.get(storeId) ?? 0) + 1);
 }
 
-export function stockDataVersion(): number {
-  return version;
+export function storeDataVersion(storeId: string): number {
+  return versions.get(storeId) ?? 0;
 }

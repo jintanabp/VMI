@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { fabricMastersReady } from "@/lib/fabric";
-import { bumpStockDataVersion } from "@/lib/fabric/data-version";
+import { bumpStoreDataVersion } from "@/lib/fabric/data-version";
 import { mapStockRow } from "./stock-mapper";
 import {
   listFabricStores,
@@ -58,7 +58,7 @@ export const prismaStockRepository: StockRepository = {
         maxDays,
       },
     });
-    bumpStockDataVersion();
+    bumpStoreDataVersion(storeId);
   },
 };
 
@@ -74,6 +74,8 @@ export const prismaOrderRepository: OrderRepository = {
             suggestedQty: item.suggestedQty,
             finalQty: item.finalQty,
             cvdEstimate: item.cvdEstimate,
+            minDays: item.minDays ?? null,
+            maxDays: item.maxDays ?? null,
           })),
         },
       },

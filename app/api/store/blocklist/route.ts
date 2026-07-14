@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { getStoreSession } from "@/lib/auth/store-session";
-import { bumpStockDataVersion } from "@/lib/fabric/data-version";
+import { bumpStoreDataVersion } from "@/lib/fabric/data-version";
 import { CUSTOMER_STORE_COOKIE } from "@/lib/auth/roles";
 
 async function resolveStore(): Promise<{
@@ -99,7 +99,7 @@ export async function POST(request: Request) {
       })
     )
   );
-  bumpStockDataVersion();
+  bumpStoreDataVersion(storeId);
 
   return NextResponse.json({ success: true, count: validIds.length });
 }
@@ -122,7 +122,7 @@ export async function DELETE(request: Request) {
   const result = await prisma.storeSkuBlock.deleteMany({
     where: { storeId, skuId: { in: skuIds } },
   });
-  bumpStockDataVersion();
+  bumpStoreDataVersion(storeId);
 
   return NextResponse.json({ success: true, count: result.count });
 }

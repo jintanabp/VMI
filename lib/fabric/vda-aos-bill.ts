@@ -1,6 +1,7 @@
 import fs from "fs";
 import { readCsvFile } from "./csv";
 import { getVdaAosCsvPath } from "./paths";
+import { normalizeStoreKey } from "./store-key";
 
 const VDA_KEYS = ["vda1", "vda2", "vda3", "vda4", "vda5"] as const;
 
@@ -21,7 +22,8 @@ const CUSTOMER_COLUMNS = [
 ];
 
 function normVda(code: string): string {
-  return code.trim().toLowerCase();
+  // ใช้ normalizer ตัวเดียวกับ sold-history — รองรับ "VDA_1" → "vda1" ด้วย (เดิม lowercase อย่างเดียว)
+  return normalizeStoreKey(code);
 }
 
 function normSalesman(code: string): string {

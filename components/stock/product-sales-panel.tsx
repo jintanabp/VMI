@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { BarChart3, TrendingUp } from "lucide-react";
 import { formatNumber } from "@/lib/calculations";
 import { cn } from "@/lib/utils";
@@ -65,8 +66,6 @@ function toWeeklyBuckets(series: DailySale[]): WeekBucket[] {
   return weeks;
 }
 
-const cache = new Map<string, SalesResponse>();
-
 const DAY_OPTIONS = [7, 30] as const;
 
 export function ProductSalesPanel({
@@ -79,42 +78,25 @@ export function ProductSalesPanel({
   days?: number;
 }) {
   const [viewDays, setViewDays] = useState<number>(days);
-  const cacheKey = `${skuCode}|${fromDb ?? ""}|${viewDays}`;
-  const [data, setData] = useState<SalesResponse | null>(
-    () => cache.get(cacheKey) ?? null
-  );
-  const [loading, setLoading] = useState(!cache.has(cacheKey));
 
-  useEffect(() => {
-    if (cache.has(cacheKey)) {
-      setData(cache.get(cacheKey)!);
-      setLoading(false);
-      return;
-    }
-    let alive = true;
-    setLoading(true);
-    const params = new URLSearchParams({ sku: skuCode, days: String(viewDays) });
-    if (fromDb) params.set("fromDb", fromDb);
-    fetch(`/api/sales/daily?${params.toString()}`)
-      .then((r) => r.json())
-      .then((payload: SalesResponse) => {
-        cache.set(cacheKey, payload);
-        if (alive) setData(payload);
-      })
-      .catch(() => {
-        if (alive) setData({ available: false, summary: null });
-      })
-      .finally(() => {
-        if (alive) setLoading(false);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [cacheKey, skuCode, fromDb, viewDays]);
+  // react-query: key ผูก sku/fromDb/days → ปุ่มรีเฟรช invalidate ["sales-daily"] ได้
+  // และไม่รั่วข้ามร้าน (ต่างจาก module Map เดิม) + ได้ gc/staleTime ฟรี
+  const { data, isLoading: loading } = useQuery<SalesResponse>({
+    queryKey: ["sales-daily", skuCode, fromDb ?? "", viewDays],
+    queryFn: async () => {
+      const params = new URLSearchParams({ sku: skuCode, days: String(viewDays) });
+      if (fromDb) params.set("fromDb", fromDb);
+      const r = await fetch(`/api/sales/daily?${params.toString()}`);
+      if (!r.ok) throw new Error("failed to load daily sales");
+      return (await r.json()) as SalesResponse;
+    },
+    staleTime: 5 * 60_000,
+    gcTime: 10 * 60_000,
+  });
 
   const summary = data?.summary;
   const everSold = Boolean(summary?.hasData);
-  const series = summary?.series ?? [];
+  const series = useMemo(() => summary?.series ?? [], [summary]);
   const total = summary?.total ?? 0;
   const avgPerDay = summary?.avgPerDay ?? 0;
   const avgPerWeek = summary?.avgPerWeek ?? 0;
@@ -175,9 +157,12 @@ export function ProductSalesPanel({
   return (
     <div className="space-y-2.5 rounded-lg bg-slate-50/80 p-3 dark:bg-slate-800/40">
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <span className="inline-flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200">
+        <span
+          className="inline-flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200"
+          title="ยอดขายจริงจากบิล (factsales) — คนละชุดกับคอลัมน์ 'ขายเฉลี่ย·คลัง' ที่มาจาก stock_cover"
+        >
           <BarChart3 className="h-3.5 w-3.5 text-teal-600" />
-          ยอดขาย {viewDays} วัน
+          ยอดขาย {viewDays} วัน · บิล
         </span>
         {dayToggle}
         <SummaryPill label="เฉลี่ย/วัน" value={formatNumber(avgPerDay, 1)} />

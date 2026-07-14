@@ -18,6 +18,8 @@ interface OrderItem {
   finalQty: number;
   suggestedQty: number;
   cvdEstimate: number | null;
+  minDays?: number | null;
+  maxDays?: number | null;
   sku: { code: string; name: string };
 }
 
@@ -148,9 +150,18 @@ export function SalesOrdersClient() {
     return `/api/orders${qs ? `?${qs}` : ""}`;
   }, [statusFilter, salesRepFilter, vdaFilter, allPersonVdas, isAdmin]);
 
-  const { data: orders = [], isLoading } = useQuery<Order[]>({
+  const {
+    data: orders = [],
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery<Order[]>({
     queryKey: ["orders", statusFilter, salesRepFilter, vdaFilter, allPersonVdas, isAdmin],
-    queryFn: () => fetch(ordersUrl).then((r) => r.json()),
+    queryFn: async () => {
+      const res = await fetch(ordersUrl);
+      if (!res.ok) throw new Error(`โหลดออเดอร์ไม่สำเร็จ (${res.status})`);
+      return (await res.json()) as Order[];
+    },
   });
 
   const sorted = useMemo(() => {
@@ -333,7 +344,19 @@ export function SalesOrdersClient() {
             {isLoading && (
               <p className="text-sm text-slate-500 dark:text-slate-400">กำลังโหลด...</p>
             )}
-            {!isLoading && sorted.length === 0 && (
+            {isError && (
+              <div className="flex items-center justify-between gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
+                <span>โหลดออเดอร์ไม่สำเร็จ</span>
+                <button
+                  type="button"
+                  onClick={() => refetch()}
+                  className="rounded bg-red-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-red-700"
+                >
+                  ลองใหม่
+                </button>
+              </div>
+            )}
+            {!isLoading && !isError && sorted.length === 0 && (
               <div className="rounded-xl border border-dashed border-slate-200 px-4 py-8 text-center dark:border-slate-700">
                 <p className="text-sm font-medium text-slate-600 dark:text-slate-400">
                   {noVdaAccess

@@ -25,6 +25,8 @@ interface PromoDetailCellProps {
   nextKind?: PromoTierKind | null;
   freeGood?: PromoFreeGoodDetail | null;
   hasPromoLadder?: boolean;
+  /** จำนวนวันที่โปรปัจจุบันจะหมด — โชว์ป้ายเตือนเมื่อ ≤ 7 วัน */
+  endsInDays?: number | null;
   onApplyNext?: (qty: number) => void;
   variant?: "table" | "card" | "embedded" | "compact";
   inspector?: {
@@ -47,6 +49,7 @@ export function PromoDetailCell({
   nextPromoQty,
   freeGood,
   hasPromoLadder,
+  endsInDays,
   onApplyNext,
   variant = "table",
   inspector,
@@ -143,6 +146,19 @@ export function PromoDetailCell({
           <span className="truncate">แถม {freeGood.premiumName} ×{freeGood.qty}</span>
         </span>
       )}
+      {(showCurrentPromo || showFreeGood) &&
+        endsInDays != null &&
+        endsInDays <= 7 && (
+          <span
+            className={cn(
+              chipBase,
+              "bg-orange-100 text-orange-800 ring-1 ring-orange-300 dark:bg-orange-500/20 dark:text-orange-200 dark:ring-orange-500/30"
+            )}
+            title="โปรใกล้หมด — สั่งก่อนหมดเขต"
+          >
+            ⏰ {endsInDays <= 0 ? "หมดวันนี้" : `หมดใน ${endsInDays} วัน`}
+          </span>
+        )}
       {atMaxPromo && (
         <span
           className={cn(

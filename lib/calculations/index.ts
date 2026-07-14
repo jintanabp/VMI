@@ -85,3 +85,9 @@ export function formatDays(value: number | null): string {
   if (value === null) return "-";
   return `${formatNumber(value, 1)} วัน`;
 }
+
+/** จำนวนเงินบาท (จำนวนเต็ม) — รูปแบบเดียวทั้งแอป */
+export function formatBaht(value: number | null | undefined): string {
+  if (value == null) return "-";
+  return `${formatNumber(value, 0)} บาท`;
+}

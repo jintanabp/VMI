@@ -1,5 +1,6 @@
 import fs from "fs";
 import { readCsvFile } from "./csv";
+import { normalizeStoreKey } from "./store-key";
 
 export interface DailySale {
   /** วันที่ในรูปแบบ YYYY-MM-DD */
@@ -43,14 +44,6 @@ function parseNum(raw: string | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-/** แปลง source จาก factsales_odoo เช่น "VDA_1-พีเอส..." → "vda1" */
-function normalizeStoreKey(raw: string): string {
-  const s = raw.trim().toLowerCase();
-  if (!s) return "";
-  const vda = s.match(/^vda[_\s-]?(\d+)/);
-  if (vda) return `vda${vda[1]}`;
-  return s;
-}
 
 function parseDate(raw: string | undefined): string | null {
   const s = (raw ?? "").trim();
@@ -143,21 +136,10 @@ export class SoldHistoryDirectory {
     return all.slice(0, days);
   }
 
-  /** รวมยอดทุก store ของสินค้า (date -> qty) เมื่อไม่มี storeKey ตรง */
-  private aggregateByDate(productCode: string): Map<string, number> | null {
-    const byStore = this.data.get(productCode.trim());
-    if (!byStore) return null;
-    const merged = new Map<string, number>();
-    for (const byDate of byStore.values()) {
-      for (const [date, qty] of byDate) {
-        merged.set(date, (merged.get(date) ?? 0) + qty);
-      }
-    }
-    return merged.size > 0 ? merged : null;
-  }
-
   /** สรุปยอดขาย: series เติม 0 ครบทุกวัน + เฉลี่ยต่อวัน/สัปดาห์
-   *  storeKey ที่ไม่ตรงจะ fallback ไปรวมทุก store */
+   *  ใช้เฉพาะ storeKey ที่ตรง หรือ bucket ว่าง (ไฟล์ที่ไม่มีคอลัมน์ร้าน) —
+   *  ไม่ fallback ไปรวมทุก store เพราะจะทำให้ร้านที่ไม่มีข้อมูล (เช่น non-VDA)
+   *  เห็นยอดรวมของร้านอื่นผิด ๆ */
   getSummary(
     productCode: string,
     storeKey: string,
@@ -176,8 +158,7 @@ export class SoldHistoryDirectory {
     if (!byStore) return empty;
 
     const key = storeKey.trim().toLowerCase();
-    const byDate =
-      byStore.get(key) ?? byStore.get("") ?? this.aggregateByDate(code);
+    const byDate = byStore.get(key) ?? byStore.get("");
     if (!byDate || byDate.size === 0) return empty;
 
     // จุดสิ้นสุดช่วง: วันล่าสุดในไฟล์ (ไม่ใช่วันนี้ กัน timezone/ข้อมูลล่าช้า)
@@ -314,10 +295,18 @@ export class SoldHistoryDirectory {
     }
     this.hasStoreKey = !!storeKey;
 
-    // ตัดเฉพาะช่วงล่าสุดเพื่อ bound memory
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - MAX_DAYS_KEPT);
-    const cutoffStr = cutoff.toISOString().slice(0, 10);
+    // หาวันล่าสุดในไฟล์ก่อน แล้วคิด cutoff ถอยจากวันนั้น (ไม่ใช่ now) — กันข้อมูลค้าง/สแตชทำให้
+    // ช่วง window ยาว (สูงสุด 90 วัน) หลุด cutoff แล้วอ่านเป็น 0 เงียบ ๆ
+    let fileMaxDate = "";
+    for (const row of rows) {
+      const d = parseDate(normKeys(row)[dateKey]);
+      if (d && d > fileMaxDate) fileMaxDate = d;
+    }
+    const cutoffBase = fileMaxDate
+      ? new Date(fileMaxDate + "T00:00:00Z")
+      : new Date();
+    cutoffBase.setUTCDate(cutoffBase.getUTCDate() - MAX_DAYS_KEPT);
+    const cutoffStr = cutoffBase.toISOString().slice(0, 10);
 
     let kept = 0;
     for (const row of rows) {

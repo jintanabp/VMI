@@ -13,7 +13,7 @@ import {
   MobileRowTop,
   MobileStat,
 } from "@/components/ui/mobile-row";
-import { formatNumber, getCvdFlag } from "@/lib/calculations";
+import { formatBaht, getCvdFlag } from "@/lib/calculations";
 import type { PromoTierKind } from "@/lib/calculations";
 import {
   formatQtyPair,
@@ -30,6 +30,8 @@ interface ReviewOrderItem {
   finalQty: number;
   suggestedQty: number;
   cvdEstimate: number | null;
+  minDays?: number | null;
+  maxDays?: number | null;
   sku: { code: string; name: string };
 }
 
@@ -69,11 +71,6 @@ interface PromoApiLine {
 
 function hasActivePromo(api: PromoApiLine | undefined) {
   return Boolean(api?.currentPromo || api?.freeGood);
-}
-
-function formatBaht(value: number | null | undefined): string {
-  if (value == null) return "-";
-  return `${formatNumber(value, 0)} บาท`;
 }
 
 function PriceBlock({
@@ -298,7 +295,7 @@ export function OrderReviewTable({ storeCode, items }: OrderReviewTableProps) {
               <MobileRowList grid>
                 {displayItems.map((item, index) => {
                   const api = promoBySku.get(item.sku.code);
-                  const flag = getCvdFlag(item.cvdEstimate);
+                  const flag = getCvdFlag(item.cvdEstimate, item.minDays ?? undefined, item.maxDays ?? undefined);
                   const rowNum = promoOnly
                     ? index + 1
                     : items.findIndex((i) => i.id === item.id) + 1;
@@ -410,7 +407,7 @@ export function OrderReviewTable({ storeCode, items }: OrderReviewTableProps) {
               )}
               {displayItems.map((item, index) => {
                 const api = promoBySku.get(item.sku.code);
-                const flag = getCvdFlag(item.cvdEstimate);
+                const flag = getCvdFlag(item.cvdEstimate, item.minDays ?? undefined, item.maxDays ?? undefined);
                 const rowNum = promoOnly
                   ? index + 1
                   : items.findIndex((i) => i.id === item.id) + 1;

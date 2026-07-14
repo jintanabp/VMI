@@ -749,3 +749,10 @@ body {
     font-size: 0.75rem;
   }
 }
+
+/* การ์ดที่อยู่นอกจอไม่ต้อง layout/paint — ลดต้นทุน render รายการยาวบนมือถือ
+   (contain-intrinsic-size ให้ขนาด placeholder เพื่อ scrollbar เสถียร) */
+.vmi-cv-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 140px;
+}

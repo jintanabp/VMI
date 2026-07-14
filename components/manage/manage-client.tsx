@@ -792,6 +792,52 @@ function BulkBrandThresholds({
   );
 }
 
+const clampDays = (n: number, lo: number, hi: number) =>
+  Math.max(lo, Math.min(hi, Math.round(n)));
+
+/** แนะนำ MIN/MAX ของแบรนด์จากพฤติกรรมสต็อกจริง (data-driven, โปร่งใส)
+ *  - สินค้าใกล้หมดเยอะ → เพิ่ม buffer · ค้างสต็อกเยอะ → ลด · ไม่งั้นคงเดิม (คืน null) */
+function suggestThreshold(
+  items: StockRowComputed[],
+  curMin: number,
+  curMax: number
+): { minDays: number; maxDays: number; rationale: string } | null {
+  const selling = items.filter((i) => i.avgSales > 0);
+  if (selling.length < 3) return null; // ข้อมูลน้อยเกินไป
+
+  const withCvd = selling.filter((i) => i.stockCvd !== null);
+  if (withCvd.length < 3) return null;
+
+  const critical = withCvd.filter((i) => (i.stockCvd as number) < i.minDays).length;
+  const overstock = withCvd.filter(
+    (i) => (i.stockCvd as number) > i.maxDays * 1.5
+  ).length;
+  const criticalShare = critical / withCvd.length;
+  const overstockShare = overstock / withCvd.length;
+
+  if (criticalShare >= 0.35) {
+    const minDays = clampDays(curMin + 2, 3, 14);
+    const maxDays = clampDays(curMax + 3, minDays + 4, 30);
+    if (minDays === curMin && maxDays === curMax) return null;
+    return {
+      minDays,
+      maxDays,
+      rationale: `${Math.round(criticalShare * 100)}% ของสินค้าที่ขายใกล้หมดสต็อก — แนะนำเพิ่ม buffer`,
+    };
+  }
+  if (overstockShare >= 0.4) {
+    const minDays = clampDays(curMin - 1, 3, 14);
+    const maxDays = clampDays(curMax - 2, minDays + 4, 30);
+    if (minDays === curMin && maxDays === curMax) return null;
+    return {
+      minDays,
+      maxDays,
+      rationale: `${Math.round(overstockShare * 100)}% ของสินค้าค้างสต็อกมาก — แนะนำลดเพื่อคืนทุน`,
+    };
+  }
+  return null; // ค่าปัจจุบันเหมาะสมแล้ว
+}
+
 function SectionCard({
   section,
   items,
@@ -835,6 +881,47 @@ function SectionCard({
   }, [saved?.minDays, saved?.maxDays]);
 
   const isDefault = !saved && section !== NO_SECTION;
+
+  // แนะนำ MIN/MAX จากพฤติกรรมสต็อกจริงของแบรนด์นี้
+  const suggestion = useMemo(
+    () =>
+      suggestThreshold(
+        items,
+        saved?.minDays ?? DEFAULT_MIN_DAYS,
+        saved?.maxDays ?? DEFAULT_MAX_DAYS
+      ),
+    [items, saved?.minDays, saved?.maxDays]
+  );
+
+  async function applySuggestion() {
+    if (!suggestion) return;
+    setSaving(true);
+    setError("");
+    setSavedFlag(false);
+    try {
+      const res = await fetch("/api/store/thresholds", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          section,
+          minDays: suggestion.minDays,
+          maxDays: suggestion.maxDays,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "บันทึกไม่สำเร็จ");
+        return;
+      }
+      setMinDays(String(suggestion.minDays));
+      setMaxDays(String(suggestion.maxDays));
+      setSavedFlag(true);
+      setTimeout(() => setSavedFlag(false), 2000);
+      onChanged();
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function save() {
     setSaving(true);
@@ -990,6 +1077,31 @@ function SectionCard({
           )}
         </div>
       </div>
+      {canSaveGroup && suggestion && (
+        <div className="flex flex-wrap items-center gap-2 border-t border-teal-100 bg-teal-50/60 px-3 py-2 dark:border-teal-900/40 dark:bg-teal-950/20">
+          <Sparkles className="h-3.5 w-3.5 shrink-0 text-teal-600 dark:text-teal-400" />
+          <span className="min-w-0 flex-1 text-[11px] text-teal-800 dark:text-teal-200">
+            แนะนำ{" "}
+            <span className="font-bold tabular-nums">
+              {suggestion.minDays}/{suggestion.maxDays} วัน
+            </span>{" "}
+            <span className="text-teal-600/80 dark:text-teal-300/70">
+              — {suggestion.rationale}
+            </span>
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 shrink-0 border-teal-300 bg-white px-2 text-xs text-teal-700 hover:bg-teal-100 dark:border-teal-800 dark:bg-transparent dark:text-teal-300"
+            onClick={applySuggestion}
+            disabled={saving || resetting}
+            title={`ตั้ง MIN/MAX เป็น ${suggestion.minDays}/${suggestion.maxDays} วัน`}
+          >
+            ใช้ค่านี้
+          </Button>
+        </div>
+      )}
+
       {error && (
         <p className="bg-red-50 px-3 py-1 text-xs text-red-600 dark:bg-red-950/30">
           {error}

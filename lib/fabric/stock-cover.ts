@@ -28,7 +28,8 @@ function normKeys(row: Record<string, string>): Record<string, string> {
 function parseNum(raw: string | undefined): number | null {
   const s = (raw ?? "").trim();
   if (!s || s.toUpperCase() === "NULL") return null;
-  const n = Number(s);
+  // ตัด thousands separator ให้ตรงกับ parser ตัวอื่น (กัน "1,234" → NaN → null → stock 0 เงียบ ๆ)
+  const n = Number(s.replace(/,/g, ""));
   return Number.isFinite(n) ? n : null;
 }
 

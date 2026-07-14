@@ -34,8 +34,8 @@ import {
   calcCvdEstimate,
   calcLineAmount,
   calcNetUnitPrice,
+  formatBaht,
   formatDays,
-  formatNumber,
   getCvdFlag,
   getPromoForQty,
   type PromoResult,
@@ -106,11 +106,6 @@ interface EnrichedLine {
   skuCode?: string;
   promoGroupStripe?: PromoGroupStripe | null;
   promoGroupIsFirst?: boolean;
-}
-
-function formatBaht(value: number | null | undefined): string {
-  if (value == null) return "-";
-  return `${formatNumber(value, 0)} บาท`;
 }
 
 export function OrderPageClient({
@@ -317,6 +312,8 @@ export function OrderPageClient({
             suggestedQty: l.row.suggestOrder,
             finalQty: l.qty,
             cvdEstimate: l.cvdEst,
+            minDays: l.row.minDays,
+            maxDays: l.row.maxDays,
           })),
         }),
       });

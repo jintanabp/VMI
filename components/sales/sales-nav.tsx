@@ -16,8 +16,21 @@ export function SalesNav() {
   });
   const unseen = data?.unseenCount ?? 0;
 
+  // จำนวนออเดอร์รอตรวจ (badge บนแท็บคำสั่งซื้อ) — poll เหมือนการแจ้งเตือน
+  const { data: pending } = useQuery<{ id: string }[]>({
+    queryKey: ["orders", "pending_approval", "nav-count"],
+    queryFn: async () => {
+      const r = await fetch("/api/orders?status=pending_approval");
+      if (!r.ok) return [];
+      const d = await r.json();
+      return Array.isArray(d) ? d : [];
+    },
+    refetchInterval: 60_000,
+  });
+  const pendingCount = pending?.length ?? 0;
+
   const tabs = [
-    { href: "/sales/orders", label: "คำสั่งซื้อ", icon: ClipboardList, badge: 0 },
+    { href: "/sales/orders", label: "คำสั่งซื้อ", icon: ClipboardList, badge: pendingCount },
     { href: "/sales/notifications", label: "การแจ้งเตือน", icon: Bell, badge: unseen },
   ];
 

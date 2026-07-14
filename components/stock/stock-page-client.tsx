@@ -29,6 +29,7 @@ import {
   Wallet,
   CalendarClock,
   Bell,
+  AlertTriangle,
   Ban,
   Sparkles,
   CalendarOff,
@@ -104,6 +105,16 @@ function isStockPayload(data: unknown): data is StockApiResponse {
 
 type ViewScope = { needsOnly: boolean; brand: string | null; section: string | null };
 
+/** สต็อกวิกฤต: จะหมดก่อนถึงจำนวนวันขั้นต่ำ (CVD < MIN) ทั้งที่ยังมีการขาย → เสี่ยงขาดสต็อก
+ *  (stockCvd เป็น null อยู่แล้วเมื่อ avgSales = 0 จึงถือว่า "มีการขาย" โดยปริยาย) */
+function isCriticalStock(r: {
+  stockCvd: number | null;
+  minDays: number;
+  avgSales: number;
+}): boolean {
+  return r.stockCvd !== null && r.avgSales > 0 && r.stockCvd < r.minDays;
+}
+
 type DisplayRow = StockRowComputed & {
   promoGroupStripe?: PromoGroupStripe | null;
   promoGroupIsFirst?: boolean;
@@ -131,16 +142,17 @@ export function StockPageClient({
   const [refreshMsg, setRefreshMsg] = useState("");
   // สินค้าใหม่ + หยุดสั่ง (blocklist)
   const [showNewOnly, setShowNewOnly] = useState(false);
+  const [showCriticalOnly, setShowCriticalOnly] = useState(false);
   const [stopOpen, setStopOpen] = useState(false);
   const [sessionReady, setSessionReady] = useState(false);
   const [pendingFocusSku, setPendingFocusSku] = useState<string | null>(null);
 
-  const { data, isLoading } = useQuery<StockApiResponse>({
+  const { data, isLoading, isError, refetch } = useQuery<StockApiResponse>({
     queryKey: ["stock"],
     queryFn: async () => {
-      const raw = await fetch("/api/stock", { cache: "no-store" }).then((r) =>
-        r.json()
-      );
+      const res = await fetch("/api/stock", { cache: "no-store" });
+      if (!res.ok) throw new Error(`โหลดสต็อกไม่สำเร็จ (${res.status})`);
+      const raw = await res.json();
       if (isStockPayload(raw)) return raw;
       return {
         sources: [],
@@ -264,8 +276,11 @@ export function StockPageClient({
     if (showNewOnly) {
       out = out.filter((r) => r.isNew);
     }
+    if (showCriticalOnly) {
+      out = out.filter(isCriticalStock);
+    }
     return out;
-  }, [enrichedRows, deferredSearch, viewScope, showNewOnly]);
+  }, [enrichedRows, deferredSearch, viewScope, showNewOnly, showCriticalOnly]);
 
   function toggleExpand(skuId: string) {
     setExpanded((prev) => {
@@ -300,6 +315,8 @@ export function StockPageClient({
       setRefreshMsg("รีเฟรชไม่สำเร็จ — ลองใหม่อีกครั้ง");
     } finally {
       await queryClient.invalidateQueries({ queryKey: ["stock"] });
+      // รีเฟรชยอดขายรายวันในแผงที่กางอยู่ด้วย (เดิม module cache ไม่ถูกล้าง)
+      await queryClient.invalidateQueries({ queryKey: ["sales-daily"] });
       setRefreshing(false);
     }
   }, [refreshing, queryClient]);
@@ -315,6 +332,8 @@ export function StockPageClient({
   }, [filtered]);
 
   const tableScrollRef = useRef<HTMLDivElement>(null);
+  // ความสูงจริงของแผงที่กางออก ต่อ skuId — วัดด้วย ResizeObserver แล้ว feed เข้า estimateSize
+  const expandedHeights = useRef<Map<string, number>>(new Map());
   const shouldVirtualize = isDesktop && !isLoading && displayRows.length >= 40;
   const rowVirtualizer = useVirtualizer({
     count: shouldVirtualize ? displayRows.length : 0,
@@ -324,7 +343,8 @@ export function StockPageClient({
       if (!row) return 44;
       let h = 44;
       if (row.promoGroupIsFirst && row.promoGroupStripe != null) h += 28;
-      if (expanded.has(row.skuId)) h += 200;
+      // ใช้ความสูงที่วัดได้จริง (ถ้ามี) แทนค่าคงที่ — กัน scroll กระโดดตอน expand / toggle 7↔30
+      if (expanded.has(row.skuId)) h += expandedHeights.current.get(row.skuId) ?? 220;
       return h;
     },
     overscan: 10,
@@ -332,6 +352,18 @@ export function StockPageClient({
   const virtualItems = shouldVirtualize
     ? rowVirtualizer.getVirtualItems()
     : null;
+
+  // อัปเดตความสูงแผงที่กางออกจาก ResizeObserver แล้ว re-measure virtualizer (ใช้ ref ไม่ trigger re-render)
+  const measureExpanded = useCallback(
+    (skuId: string, height: number) => {
+      const prev = expandedHeights.current.get(skuId);
+      if (prev == null || Math.abs(prev - height) > 2) {
+        expandedHeights.current.set(skuId, height);
+        if (shouldVirtualize) rowVirtualizer.measure();
+      }
+    },
+    [rowVirtualizer, shouldVirtualize]
+  );
 
   useEffect(() => {
     if (shouldVirtualize) rowVirtualizer.measure();
@@ -347,6 +379,7 @@ export function StockPageClient({
       setSearch(focus);
       setViewScope({ needsOnly: false, brand: null, section: null });
       setShowNewOnly(false);
+      setShowCriticalOnly(false);
       setPendingFocusSku(focus);
     } catch {
       /* ignore */
@@ -378,6 +411,11 @@ export function StockPageClient({
 
   const newCount = useMemo(
     () => enrichedRows.filter((r) => r.isNew).length,
+    [enrichedRows]
+  );
+  // สต็อกวิกฤต = จะหมดก่อนถึงจำนวนวันขั้นต่ำ (CVD < MIN) ทั้งที่ยังมีการขาย → เสี่ยงขาดสต็อก
+  const criticalCount = useMemo(
+    () => enrichedRows.filter(isCriticalStock).length,
     [enrichedRows]
   );
 
@@ -653,7 +691,7 @@ export function StockPageClient({
 
       <main className="vmi-stock-main mx-auto w-full min-w-0 max-w-[88rem] px-3 sm:px-4">
         <div className="vmi-stock-stats shrink-0 py-2 xl:py-3">
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
             <StockStatCard
               icon={<Package className="h-4 w-4" />}
               label="จำนวน SKU"
@@ -681,6 +719,24 @@ export function StockPageClient({
               label="ควรสั่ง"
               value={formatNumber(stats.needsOrder, 0)}
               tone="amber"
+              title="กดเพื่อกรองเฉพาะรายการที่ควรสั่ง"
+              active={viewScope.needsOnly}
+              onClick={() =>
+                setViewScope((v) => ({ ...v, needsOnly: !v.needsOnly }))
+              }
+            />
+            <StockStatCard
+              icon={<AlertTriangle className="h-4 w-4" />}
+              label="สต็อกวิกฤต"
+              value={formatNumber(criticalCount, 0)}
+              tone="red"
+              title="จะหมดก่อนถึงจำนวนวันขั้นต่ำ (กดเพื่อกรอง)"
+              active={showCriticalOnly}
+              onClick={
+                criticalCount > 0
+                  ? () => setShowCriticalOnly((v) => !v)
+                  : undefined
+              }
             />
           </div>
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
@@ -754,6 +810,26 @@ export function StockPageClient({
                 setViewScope({ needsOnly: false, brand: null, section: null })
               }
             />
+            {criticalCount > 0 && (
+              <Button
+                variant={showCriticalOnly ? "default" : "outline"}
+                size="sm"
+                className={cn(
+                  "relative whitespace-nowrap",
+                  showCriticalOnly
+                    ? "bg-red-600 text-white hover:bg-red-700"
+                    : "border-red-300 text-red-700 hover:bg-red-50 dark:border-red-900/60 dark:text-red-300 dark:hover:bg-red-950/30"
+                )}
+                onClick={() => setShowCriticalOnly((v) => !v)}
+                title={`สต็อกวิกฤต ${criticalCount} รายการ (จะหมดก่อนถึงจำนวนวันขั้นต่ำ)`}
+              >
+                <AlertTriangle className="h-4 w-4" />
+                <span className="hidden sm:inline">สต็อกวิกฤต</span>
+                <span className="ml-0.5 inline-flex min-w-[1.1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-4 text-white">
+                  {criticalCount}
+                </span>
+              </Button>
+            )}
             {newCount > 0 && (
               <Button
                 variant={showNewOnly ? "default" : "outline"}
@@ -830,6 +906,19 @@ export function StockPageClient({
           <p className="mb-2 shrink-0 text-xs font-medium text-teal-700 dark:text-teal-400">
             เลือกแล้ว {selected.size} รายการ · หน่วย หีบ
           </p>
+        )}
+
+        {isError && (
+          <div className="mx-2 mb-2 flex items-center justify-between gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
+            <span>โหลดข้อมูลสต็อกไม่สำเร็จ</span>
+            <button
+              type="button"
+              onClick={() => refetch()}
+              className="rounded bg-red-600 px-2 py-0.5 font-medium text-white hover:bg-red-700"
+            >
+              ลองใหม่
+            </button>
+          </div>
         )}
 
         <div className="vmi-table-wrap vmi-stock-table-wrap min-h-0 flex-1 max-xl:flex-none">
@@ -1148,6 +1237,7 @@ export function StockPageClient({
                             nextPromoQty={row.nextPromoQty}
                             nextKind={row.nextPromoKind}
                             hasPromoLadder={row.hasPromoLadder}
+                            endsInDays={row.currentPromoEndsInDays}
                             onApplyNext={(qty) =>
                               setLineQty(row.skuCode, qty)
                             }
@@ -1168,10 +1258,15 @@ export function StockPageClient({
                       <tr className="bg-slate-50/40 dark:bg-slate-900/30">
                         <td />
                         <td colSpan={12} className="px-2 pb-3 pt-0">
-                          <ProductSalesPanel
-                            skuCode={row.skuCode}
-                            fromDb={row.fromDb ?? activeVda}
-                          />
+                          <ExpandedMeasure
+                            skuId={row.skuId}
+                            onMeasure={measureExpanded}
+                          >
+                            <ProductSalesPanel
+                              skuCode={row.skuCode}
+                              fromDb={row.fromDb ?? activeVda}
+                            />
+                          </ExpandedMeasure>
                         </td>
                       </tr>
                     )}
@@ -1282,6 +1377,30 @@ export function StockPageClient({
   );
 }
 
+/** วัดความสูงจริงของแผงที่กางออก แล้วแจ้ง parent (ให้ virtualizer ปรับ spacer ให้ตรง)
+ *  ยิงตอน mount และทุกครั้งที่ความสูงเปลี่ยน (เช่น toggle 7↔30 ในแผง) ผ่าน ResizeObserver */
+function ExpandedMeasure({
+  skuId,
+  onMeasure,
+  children,
+}: {
+  skuId: string;
+  onMeasure: (skuId: string, height: number) => void;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      onMeasure(skuId, el.getBoundingClientRect().height);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [skuId, onMeasure]);
+  return <div ref={ref}>{children}</div>;
+}
+
 const StockMobileRow = memo(function StockMobileRow({
   row,
   storeCode,
@@ -1329,6 +1448,7 @@ const StockMobileRow = memo(function StockMobileRow({
         (orderFlag === "red" || lowStock) && row.promoGroupStripe == null
       }
       className={cn(
+        "vmi-cv-auto",
         promoGroupRowBgClass(row.promoGroupStripe ?? null),
         orderFlag === "red"
           ? "bg-red-50/70 dark:bg-red-950/25"
@@ -1455,6 +1575,7 @@ const StockMobileRow = memo(function StockMobileRow({
             nextPromoQty={row.nextPromoQty}
             nextKind={row.nextPromoKind}
             hasPromoLadder={row.hasPromoLadder}
+            endsInDays={row.currentPromoEndsInDays}
             onApplyNext={onSetQty}
             inspector={{
               skuCode: row.skuCode,
@@ -1495,21 +1616,36 @@ function StockStatCard({
   value,
   tone = "default",
   title,
+  onClick,
+  active = false,
 }: {
   icon: ReactNode;
   label: string;
   value: string | number;
-  tone?: "default" | "amber";
+  tone?: "default" | "amber" | "red";
   title?: string;
+  onClick?: () => void;
+  active?: boolean;
 }) {
+  const clickable = typeof onClick === "function";
   return (
-    <div
+    <button
+      type="button"
       title={title}
+      onClick={onClick}
+      disabled={!clickable}
       className={cn(
-        "flex min-w-0 items-center gap-2.5 rounded-xl border px-3 py-2.5 shadow-sm",
+        "flex min-w-0 items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left shadow-sm transition",
+        clickable && "cursor-pointer hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-400",
         tone === "amber"
           ? "border-amber-200 bg-amber-50/70 dark:border-amber-500/25 dark:bg-amber-950/20"
-          : "border-slate-200/80 bg-white dark:border-slate-800 dark:bg-slate-900/50"
+          : tone === "red"
+            ? "border-red-200 bg-red-50/70 dark:border-red-500/25 dark:bg-red-950/25"
+            : "border-slate-200/80 bg-white dark:border-slate-800 dark:bg-slate-900/50",
+        active && "ring-2 ring-offset-1 dark:ring-offset-slate-950",
+        active && tone === "red" && "ring-red-400",
+        active && tone === "amber" && "ring-amber-400",
+        active && tone === "default" && "ring-teal-400"
       )}
     >
       <span
@@ -1517,7 +1653,9 @@ function StockStatCard({
           "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
           tone === "amber"
             ? "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300"
-            : "bg-teal-50 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400"
+            : tone === "red"
+              ? "bg-red-100 text-red-600 dark:bg-red-500/20 dark:text-red-300"
+              : "bg-teal-50 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400"
         )}
       >
         {icon}
@@ -1531,13 +1669,15 @@ function StockStatCard({
             "truncate text-base font-bold tabular-nums leading-tight",
             tone === "amber"
               ? "text-amber-700 dark:text-amber-300"
-              : "text-slate-800 dark:text-slate-100"
+              : tone === "red"
+                ? "text-red-700 dark:text-red-300"
+                : "text-slate-800 dark:text-slate-100"
           )}
         >
           {value}
         </p>
       </div>
-    </div>
+    </button>
   );
 }
 
