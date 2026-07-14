@@ -194,3 +194,4 @@
 - 2026-07-14 — ✅ Phase 3 ครบ 6/6: 3.2 comma parse · 3.6 cutoff จาก latestDate · 3.4 รวม store-key + formatBaht · 3.1 react-query cache · 3.5 error/retry states · 3.3 popup self-describing · build + verify:sales-cover PASS · **🎉 Phase 3 เสร็จ**
 - 2026-07-14 — ✅ 4.1 แจ้งเตือนสต็อกวิกฤต (badge + filter, critical 149/804 บน vda1) · build + server 200
 - 2026-07-14 — ✅ ชุดฟีเจอร์: 4.7 badge คำสั่งซื้อรอตรวจ · 4.9 KPI สต็อกวิกฤต + tile กดกรอง · 4.8 badge โปรหมดใน Xวัน · 4.5 smart min/max หน้าจัดการ · build + verify:sales-cover PASS · ไม่มีไฟล์ temp · server 200
+- 2026-07-14 — ✅ เก็บกวาด lint (ลบ import ที่ไม่ใช้ + wrap series ใน useMemo) → **No ESLint warnings or errors** · ✅ **visual QA โดยผู้ใช้: ทุกฟีเจอร์ UI (B/C/E/A) โชว์ถูกต้อง**
