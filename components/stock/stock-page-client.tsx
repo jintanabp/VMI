@@ -43,6 +43,10 @@ import { AppHeader } from "@/components/layout/app-header";
 import { PageShell } from "@/components/layout/page-shell";
 import { PromoDetailCell } from "@/components/promo/promo-detail-cell";
 import {
+  buildGroupMemberSkusMap,
+  PromoGroupHeader,
+} from "@/components/promo/promo-group-header";
+import {
   FreeGoodMobileCard,
   FreeGoodStockTableRow,
 } from "@/components/promo/free-good-subrow";
@@ -65,7 +69,7 @@ import {
   MobileRowTop,
   MobileStat,
 } from "@/components/ui/mobile-row";
-import { cn, matchesProductSearch } from "@/lib/utils";
+import { cn, looksLikeProductCodeQuery, matchesProductSearch } from "@/lib/utils";
 import {
   calcCvdEstimate,
   formatDays,
@@ -75,14 +79,18 @@ import {
 } from "@/lib/calculations";
 import {
   annotatePromoGroupStripes,
-  promoGroupBadgeClass,
+  followsPooledPromoGroup,
+  isPooledPromoGroup,
   promoGroupRowBgClass,
-  sortRowsByPromoGroup,
+  sortStockDisplayRows,
   type PromoGroupStripe,
 } from "@/lib/promo/promo-group-display";
 import {
   enrichStockRowsWithPooledPromo,
   isFreeGoodHostRow,
+  buildSuggestByProduct,
+  mapGroupStagedToMemberSkus,
+  mapStagedQtyToSkuCodes,
 } from "@/lib/promo/stock-pooled-promo";
 import type { StockRowComputed } from "@/lib/repositories/types";
 
@@ -186,11 +194,7 @@ export function StockPageClient({
 
   const rows = useMemo(() => data?.rows ?? [], [data?.rows]);
   // map รหัสสินค้า -> จำนวนแนะนำสั่ง สำหรับ mark "แนะนำซื้อ" ใน modal โปรกลุ่ม
-  const suggestByProduct = useMemo(() => {
-    const m: Record<string, number> = {};
-    for (const r of rows) m[r.skuCode] = r.suggestOrder;
-    return m;
-  }, [rows]);
+  const suggestByProduct = useMemo(() => buildSuggestByProduct(rows), [rows]);
   const activeVda = data?.activeFromDb ?? storeCode;
   const dataDate = data?.dataDate ?? null;
 
@@ -232,8 +236,8 @@ export function StockPageClient({
     const m: Record<string, number> = {};
     for (const r of rows) {
       const o = qtyOverrides[r.skuCode];
-      if (o != null && o > 0) {
-        m[r.skuCode] = o;
+      if (o != null) {
+        m[r.skuCode] = Math.max(0, Math.floor(o));
       } else if (r.suggestOrder > 0) {
         m[r.skuCode] = r.suggestOrder;
       }
@@ -267,10 +271,13 @@ export function StockPageClient({
 
   const filtered = useMemo(() => {
     const q = deferredSearch.trim();
+    const skuLookup = looksLikeProductCodeQuery(q);
     let out = enrichedRows;
     if (q) {
       out = out.filter((r) => matchesProductSearch(q, r));
     }
+    // ค้นหารหัส SKU ตรง ๆ — ไม่กรองซ้อน (กัน filter ค้างทำให้ไม่เจอ)
+    if (skuLookup) return out;
     if (viewScope.needsOnly) {
       out = out.filter((r) => r.needsOrder);
     }
@@ -328,15 +335,15 @@ export function StockPageClient({
     }
   }, [refreshing, queryClient]);
 
-  // สินค้าใหม่ลอยขึ้นบนสุด (คงการจัดกลุ่มโปรภายในแต่ละส่วน)
+  // สินค้าใหม่ลอยขึ้นบนสุด แต่ต้องจัดกลุ่มโปรครั้งเดียวทั้งตาราง (แยก new/rest ทำให้สินค้าไม่มีกลุ่มไปต่อท้ายกลุ่มโปร)
   const displayRows = useMemo(() => {
-    const news = filtered.filter((r) => r.isNew);
-    const rest = filtered.filter((r) => !r.isNew);
-    return [
-      ...annotatePromoGroupStripes(sortRowsByPromoGroup(news)),
-      ...annotatePromoGroupStripes(sortRowsByPromoGroup(rest)),
-    ];
+    return annotatePromoGroupStripes(sortStockDisplayRows(filtered));
   }, [filtered]);
+
+  const groupMemberSkusMap = useMemo(
+    () => buildGroupMemberSkusMap(displayRows),
+    [displayRows]
+  );
 
   const tableScrollRef = useRef<HTMLDivElement>(null);
   // ความสูงจริงของแผงที่กางออก ต่อ skuId — วัดด้วย ResizeObserver แล้ว feed เข้า estimateSize
@@ -377,6 +384,14 @@ export function StockPageClient({
     if (shouldVirtualize) rowVirtualizer.measure();
   }, [expanded, shouldVirtualize, displayRows, rowVirtualizer]);
 
+  /** เลื่อนขึ้นบนเมื่อค้นหา/กรองเปลี่ยน — กัน virtual scroll ค้างล่างแล้วมองไม่เห็นผลลัพธ์ */
+  useEffect(() => {
+    tableScrollRef.current?.scrollTo({ top: 0 });
+    if (shouldVirtualize) {
+      rowVirtualizer.scrollToOffset(0);
+    }
+  }, [deferredSearch, viewScope, showNewOnly, showCriticalOnly, shouldVirtualize, rowVirtualizer]);
+
   /** โฟกัส SKU จากหน้า order (กดรหัสสินค้า) */
   useEffect(() => {
     if (!sessionReady) return;
@@ -396,7 +411,11 @@ export function StockPageClient({
 
   useEffect(() => {
     if (!pendingFocusSku || isLoading) return;
-    const idx = displayRows.findIndex((r) => r.skuCode === pendingFocusSku);
+    const idx = displayRows.findIndex(
+      (r) =>
+        r.skuCode === pendingFocusSku ||
+        r.skuCode.replace(/^0+/, "") === pendingFocusSku.replace(/^0+/, "")
+    );
     if (idx < 0) return;
 
     if (shouldVirtualize) {
@@ -439,9 +458,19 @@ export function StockPageClient({
     }
   }
 
-  function applyGroupStaged(staged: Record<string, number>) {
-    setQtyOverrides((prev) => ({ ...prev, ...staged }));
-  }
+  const [promoApplyVersion, setPromoApplyVersion] = useState(0);
+
+  const applyGroupStaged = useCallback(
+    (staged: Record<string, number>, memberSkus?: string[]) => {
+      const mapped =
+        memberSkus && memberSkus.length > 0
+          ? mapGroupStagedToMemberSkus(rows, memberSkus, staged)
+          : mapStagedQtyToSkuCodes(rows, staged);
+      setQtyOverrides((prev) => ({ ...prev, ...mapped }));
+      setPromoApplyVersion((v) => v + 1);
+    },
+    [rows]
+  );
 
   const resolveLineQty = useCallback(
     (row: StockRowComputed) => {
@@ -488,6 +517,15 @@ export function StockPageClient({
       ...prev,
       [skuCode]: nextQty,
     }));
+  }
+
+  function resetLineQty(skuCode: string) {
+    setQtyOverrides((prev) => {
+      if (!(skuCode in prev)) return prev;
+      const next = { ...prev };
+      delete next[skuCode];
+      return next;
+    });
   }
 
   function adjustLineQty(skuCode: string, delta: number) {
@@ -940,6 +978,12 @@ export function StockPageClient({
                 <p className="px-3 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
                   กำลังโหลด...
                 </p>
+              ) : displayRows.length === 0 ? (
+                <p className="px-3 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                  {deferredSearch.trim()
+                    ? `ไม่พบสินค้าที่ตรงกับ "${deferredSearch.trim()}"`
+                    : "ไม่มีรายการตามตัวกรอง"}
+                </p>
               ) : (
                 <MobileRowList grid>
                   {displayRows.map((row, index) => {
@@ -948,6 +992,7 @@ export function StockPageClient({
                     <StockMobileRow
                       key={row.skuId}
                       row={row}
+                      afterPromoGroup={followsPooledPromoGroup(displayRows, index)}
                       storeCode={activeVda}
                       qty={lineQty(row)}
                       selected={selected.has(row.skuId)}
@@ -956,14 +1001,17 @@ export function StockPageClient({
                       stagedQty={promoStagedQty}
                       suggestByProduct={suggestByProduct}
                       onConfirmStaged={applyGroupStaged}
+                      promoApplyVersion={promoApplyVersion}
+                      groupMemberSkus={
+                        row.promoGroup
+                          ? groupMemberSkusMap.get(row.promoGroup) ?? [
+                              row.skuCode,
+                            ]
+                          : [row.skuCode]
+                      }
                       onAdjustQty={(d) => adjustLineQty(row.skuCode, d)}
                       onSetQty={(q) => setLineQty(row.skuCode, q)}
-                      onApplySuggest={() =>
-                        setLineQty(
-                          row.skuCode,
-                          row.suggestOrder > 0 ? row.suggestOrder : 0
-                        )
-                      }
+                      onApplySuggest={() => resetLineQty(row.skuCode)}
                       onToggle={() => toggleRow(row.skuId)}
                       expanded={expanded.has(row.skuId)}
                       onToggleExpand={() => toggleExpand(row.skuId)}
@@ -1047,7 +1095,19 @@ export function StockPageClient({
                   </td>
                 </tr>
               )}
-              {!isLoading && (
+              {!isLoading && displayRows.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={13}
+                    className="px-3 py-8 text-center text-sm text-slate-500 dark:text-slate-400"
+                  >
+                    {deferredSearch.trim()
+                      ? `ไม่พบสินค้าที่ตรงกับ "${deferredSearch.trim()}"`
+                      : "ไม่มีรายการตามตัวกรอง"}
+                  </td>
+                </tr>
+              )}
+              {!isLoading && displayRows.length > 0 && (
                 <>
                   {virtualItems && (virtualItems[0]?.start ?? 0) > 0 && (
                     <tr aria-hidden>
@@ -1074,19 +1134,27 @@ export function StockPageClient({
                   const isExpanded = expanded.has(row.skuId);
                   const { cvdEst, flag } = orderCvdFlag(row);
                   const showFreeGoodRow = isFreeGoodHostRow(displayRows, index);
+                  const afterPromoGroup = followsPooledPromoGroup(displayRows, index);
                   return (
                     <Fragment key={row.skuId}>
-                    {row.promoGroupIsFirst && row.promoGroupStripe != null && (
+                    {row.promoGroupIsFirst && row.promoGroupStripe != null && row.promoGroup && (
                       <tr className="border-t border-slate-100 dark:border-slate-800">
                         <td colSpan={13} className="px-2 pb-1.5 pt-2.5">
-                          <span
-                            className={cn(
-                              "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-semibold ring-1",
-                              promoGroupBadgeClass(row.promoGroupStripe)
-                            )}
-                          >
-                            กลุ่ม {row.promoGroup}
-                          </span>
+                          <PromoGroupHeader
+                            promoGroup={row.promoGroup}
+                            stripe={row.promoGroupStripe}
+                            storeCode={activeVda}
+                            hostSkuCode={row.skuCode}
+                            memberSkus={
+                              groupMemberSkusMap.get(row.promoGroup) ?? [
+                                row.skuCode,
+                              ]
+                            }
+                            stagedQty={promoStagedQty}
+                            suggestByProduct={suggestByProduct}
+                            onConfirmStaged={applyGroupStaged}
+                            applyVersion={promoApplyVersion}
+                          />
                         </td>
                       </tr>
                     )}
@@ -1094,6 +1162,8 @@ export function StockPageClient({
                       data-sku-code={row.skuCode}
                       className={cn(
                         "border-t border-slate-100 text-slate-800 transition-colors hover:bg-slate-50/60 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-800/40",
+                        afterPromoGroup &&
+                          "border-t-2 border-t-slate-300 dark:border-t-slate-600",
                         promoGroupRowBgClass(row.promoGroupStripe),
                         lowStock && !row.promoGroupStripe && "bg-amber-100/80 dark:bg-amber-950/20",
                         selected.has(row.skuId) && "bg-teal-100/70 dark:bg-teal-950/25",
@@ -1187,12 +1257,7 @@ export function StockPageClient({
                           onMinus={() => adjustLineQty(row.skuCode, -1)}
                           onPlus={() => adjustLineQty(row.skuCode, 1)}
                           onSetQty={(q) => setLineQty(row.skuCode, q)}
-                          onApplySuggest={() =>
-                            setLineQty(
-                              row.skuCode,
-                              row.suggestOrder > 0 ? row.suggestOrder : 0
-                            )
-                          }
+                          onApplySuggest={() => resetLineQty(row.skuCode)}
                           compact
                         />
                       </td>
@@ -1256,15 +1321,22 @@ export function StockPageClient({
                             onApplyNext={(qty) =>
                               setLineQty(row.skuCode, qty)
                             }
-                            inspector={{
-                              skuCode: row.skuCode,
-                              storeCode: activeVda,
-                              stagedQty: promoStagedQty,
-                              promoGroup: row.promoGroup,
-                              promoGroupMembers: row.promoGroupMembers,
-                              onConfirmStaged: applyGroupStaged,
-                              suggestByProduct,
-                            }}
+                            inspector={
+                              !isPooledPromoGroup(
+                                row.promoGroup,
+                                row.promoGroupMembers
+                              ) && (row.promoTiers?.length ?? 0) > 0
+                                ? {
+                                    skuCode: row.skuCode,
+                                    storeCode: activeVda,
+                                    stagedQty: promoStagedQty,
+                                    promoGroup: row.promoGroup,
+                                    promoGroupMembers: row.promoGroupMembers,
+                                    onConfirmStaged: applyGroupStaged,
+                                    suggestByProduct,
+                                  }
+                                : undefined
+                            }
                           />
                         </div>
                       </td>
@@ -1429,6 +1501,9 @@ const StockMobileRow = memo(function StockMobileRow({
   stagedQty,
   suggestByProduct,
   onConfirmStaged,
+  promoApplyVersion,
+  groupMemberSkus,
+  afterPromoGroup = false,
   onAdjustQty,
   onSetQty,
   onApplySuggest,
@@ -1445,7 +1520,13 @@ const StockMobileRow = memo(function StockMobileRow({
   orderFlag: CvdFlag | null;
   stagedQty: Record<string, number>;
   suggestByProduct: Record<string, number>;
-  onConfirmStaged: (staged: Record<string, number>) => void;
+  onConfirmStaged: (
+    staged: Record<string, number>,
+    memberSkus?: string[]
+  ) => void;
+  promoApplyVersion: number;
+  groupMemberSkus: string[];
+  afterPromoGroup?: boolean;
   onAdjustQty: (delta: number) => void;
   onSetQty: (qty: number) => void;
   onApplySuggest: () => void;
@@ -1473,22 +1554,26 @@ const StockMobileRow = memo(function StockMobileRow({
       }
       className={cn(
         "vmi-cv-auto",
+        afterPromoGroup && "border-t-2 border-t-slate-300 dark:border-t-slate-600",
         promoGroupRowBgClass(row.promoGroupStripe ?? null),
         orderFlag === "red"
           ? "bg-red-50/70 dark:bg-red-950/25"
           : lowStock && !row.promoGroupStripe && "bg-amber-100/80 dark:bg-amber-950/20"
       )}
     >
-      {row.promoGroupIsFirst && row.promoGroupStripe != null && (
+      {row.promoGroupIsFirst && row.promoGroupStripe != null && row.promoGroup && (
         <div className="px-3 pb-1.5 pt-2.5">
-          <span
-            className={cn(
-              "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-semibold ring-1",
-              promoGroupBadgeClass(row.promoGroupStripe)
-            )}
-          >
-            กลุ่ม {row.promoGroup}
-          </span>
+          <PromoGroupHeader
+            promoGroup={row.promoGroup}
+            stripe={row.promoGroupStripe}
+            storeCode={storeCode}
+            hostSkuCode={row.skuCode}
+            memberSkus={groupMemberSkus}
+            stagedQty={stagedQty}
+            suggestByProduct={suggestByProduct}
+            onConfirmStaged={onConfirmStaged}
+            applyVersion={promoApplyVersion}
+          />
         </div>
       )}
       <MobileRowTop>
@@ -1603,15 +1688,20 @@ const StockMobileRow = memo(function StockMobileRow({
             hasPromoLadder={row.hasPromoLadder}
             endsInDays={row.currentPromoEndsInDays}
             onApplyNext={onSetQty}
-            inspector={{
-              skuCode: row.skuCode,
-              storeCode,
-              stagedQty,
-              promoGroup: row.promoGroup,
-              promoGroupMembers: row.promoGroupMembers,
-              onConfirmStaged,
-              suggestByProduct,
-            }}
+            inspector={
+              !isPooledPromoGroup(row.promoGroup, row.promoGroupMembers) &&
+              (row.promoTiers?.length ?? 0) > 0
+                ? {
+                    skuCode: row.skuCode,
+                    storeCode,
+                    stagedQty,
+                    promoGroup: row.promoGroup,
+                    promoGroupMembers: row.promoGroupMembers,
+                    onConfirmStaged,
+                    suggestByProduct,
+                  }
+                : undefined
+            }
           />
         </MobileRowExtra>
       )}
@@ -2038,7 +2128,8 @@ function StockQtyStepper({
   compact?: boolean;
 }) {
   const btn = compact ? "h-6 w-6 rounded-md" : "h-8 w-8";
-  const showSuggest = suggestOrder > 0 && qty !== suggestOrder;
+  const defaultQty = suggestOrder > 0 ? suggestOrder : 0;
+  const showReset = qty !== defaultQty;
   const [draft, setDraft] = useState(String(qty));
 
   useEffect(() => {
@@ -2060,14 +2151,18 @@ function StockQtyStepper({
       className="inline-flex items-center justify-center gap-0.5"
       onClick={(e) => e.stopPropagation()}
     >
-      {showSuggest && onApplySuggest && (
+      {showReset && onApplySuggest && (
         <button
           type="button"
           onClick={(e) => {
             e.stopPropagation();
             onApplySuggest();
           }}
-          title={`ใช้จำนวนแนะนำ ${suggestOrder}`}
+          title={
+            suggestOrder > 0
+              ? `กลับเป็นจำนวนแนะนำ ${suggestOrder}`
+              : "ล้างจำนวนที่ปรับ"
+          }
           className="rounded p-0.5 text-teal-700 hover:bg-teal-50 dark:text-teal-400 dark:hover:bg-teal-950/50"
         >
           <RotateCcw className={compact ? "h-3 w-3" : "h-3.5 w-3.5"} />

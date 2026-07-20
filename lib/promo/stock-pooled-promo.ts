@@ -12,6 +12,131 @@ import type { StockFreeGood, StockRowComputed } from "@/lib/repositories/types";
 
 export type StagedQtyMap = Record<string, number>;
 
+export function normalizeProductCode(code: string): string {
+  return code.trim().replace(/^0+/, "") || "0";
+}
+
+/** อ่าน qty จาก map ที่ key เป็น skuCode โดยจับคู่รหัส C4 แบบยืดหยุ่น */
+export function lookupStagedQty(
+  stagedQty: Record<string, number>,
+  productCode: string
+): number {
+  if (productCode in stagedQty) return stagedQty[productCode]!;
+  const norm = normalizeProductCode(productCode);
+  for (const [key, val] of Object.entries(stagedQty)) {
+    if (normalizeProductCode(key) === norm) return val;
+  }
+  return 0;
+}
+
+export function seedModalStaged(
+  products: Array<{ product: string }>,
+  stagedQty: Record<string, number>
+): Record<string, number> {
+  const seed: Record<string, number> = {};
+  for (const p of products) {
+    seed[p.product] = lookupStagedQty(stagedQty, p.product);
+  }
+  return seed;
+}
+
+type SkuLookupRow = { skuCode: string; barcode?: string | null };
+
+function buildSkuCodeIndex(rows: SkuLookupRow[]): Map<string, string> {
+  const index = new Map<string, string>();
+  for (const r of rows) {
+    const add = (key: string) => {
+      const k = key.trim();
+      if (!k) return;
+      index.set(k, r.skuCode);
+      index.set(normalizeProductCode(k), r.skuCode);
+    };
+    add(r.skuCode);
+    if (r.barcode) add(r.barcode);
+  }
+  return index;
+}
+
+function resolveStagedSku(
+  index: Map<string, string>,
+  code: string
+): string | null {
+  const k = code.trim();
+  return index.get(k) ?? index.get(normalizeProductCode(k)) ?? null;
+}
+
+/** แมปรหัสจาก C4 modal → skuCode ในสต็อก (รองรับ leading zero ไม่ตรงกัน) */
+export function mapStagedQtyToSkuCodes(
+  rows: SkuLookupRow[],
+  staged: Record<string, number>
+): Record<string, number> {
+  const index = buildSkuCodeIndex(rows);
+  const out: Record<string, number> = {};
+  for (const [code, qty] of Object.entries(staged)) {
+    const sku = resolveStagedSku(index, code);
+    if (!sku) continue;
+    out[sku] = Math.max(0, Math.floor(qty));
+  }
+  return out;
+}
+
+/** แมปจำนวนจาก modal โปรกลุ่ม → เฉพาะ SKU สมาชิกที่อยู่ในหน้าสต็อก */
+export function mapGroupStagedToMemberSkus(
+  rows: SkuLookupRow[],
+  memberSkus: string[],
+  staged: Record<string, number>
+): Record<string, number> {
+  const members = new Set(memberSkus);
+  const memberRows = rows.filter((r) => members.has(r.skuCode));
+  const index = buildSkuCodeIndex(memberRows);
+  const out: Record<string, number> = {};
+  for (const [code, qty] of Object.entries(staged)) {
+    const sku = resolveStagedSku(index, code);
+    if (sku && members.has(sku)) {
+      out[sku] = Math.max(0, Math.floor(qty));
+    }
+  }
+  return out;
+}
+
+/** map รหัส C4 / skuCode / barcode → จำนวนแนะนำ สำหรับ modal โปรกลุ่ม */
+export function buildSuggestByProduct(
+  rows: Array<{ skuCode: string; suggestOrder: number; barcode?: string | null }>
+): Record<string, number> {
+  const m: Record<string, number> = {};
+  for (const r of rows) {
+    if (r.suggestOrder <= 0) continue;
+    const add = (key: string) => {
+      const k = key.trim();
+      if (!k) return;
+      m[k] = r.suggestOrder;
+      m[normalizeProductCode(k)] = r.suggestOrder;
+    };
+    add(r.skuCode);
+    if (r.barcode) add(r.barcode);
+  }
+  return m;
+}
+
+/** จับคู่รหัส C4 กับ skuCode สมาชิกในร้าน (leading zero / barcode) */
+export function productMatchesMemberSkus(
+  product: string,
+  memberSkus: string[]
+): boolean {
+  const norm = normalizeProductCode(product);
+  return memberSkus.some(
+    (sku) => sku === product || normalizeProductCode(sku) === norm
+  );
+}
+
+/** กรองรายการใน modal ให้ตรงกับ SKU ที่ร้านมีในสต็อก */
+export function filterProductsToStockMembers<
+  T extends { product: string },
+>(products: T[], memberSkus?: string[]): T[] {
+  if (!memberSkus?.length) return products;
+  return products.filter((p) => productMatchesMemberSkus(p.product, memberSkus));
+}
+
 function activeBenefitTier(
   tiers: PromoTierInput[],
   qty: number
@@ -26,7 +151,7 @@ function activeBenefitTier(
 
 function lineQtyForRow(row: StockRowComputed, staged?: StagedQtyMap): number {
   const override = staged?.[row.skuCode];
-  if (override != null && override > 0) return override;
+  if (override != null) return Math.max(0, Math.floor(override));
   return row.suggestOrder > 0 ? row.suggestOrder : 0;
 }
 

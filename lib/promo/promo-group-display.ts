@@ -26,6 +26,61 @@ export function sortRowsByPromoGroup<
   });
 }
 
+/** เรียงหน้าสต็อก: โปรกลุ่มรวมกันก่อน สินค้าไม่มีกลุ่มอยู่ท้าย (กันมาม่าใหม่ไปต่อท้าย PJ2.5G) */
+export function sortStockDisplayRows<
+  T extends {
+    promoGroup?: string | null;
+    promoGroupMembers?: number | null;
+    skuCode: string;
+    needsOrder?: boolean;
+    isNew?: boolean;
+  },
+>(rows: T[]): T[] {
+  return [...rows].sort((a, b) => {
+    const aGrouped = isPooledPromoGroup(a.promoGroup, a.promoGroupMembers)
+      ? 0
+      : 1;
+    const bGrouped = isPooledPromoGroup(b.promoGroup, b.promoGroupMembers)
+      ? 0
+      : 1;
+    if (aGrouped !== bGrouped) return aGrouped - bGrouped;
+
+    if (aGrouped === 0) {
+      const ga = a.promoGroup!.trim();
+      const gb = b.promoGroup!.trim();
+      if (ga !== gb) {
+        return ga.localeCompare(gb, undefined, { numeric: true });
+      }
+      const aNew = a.isNew ? 0 : 1;
+      const bNew = b.isNew ? 0 : 1;
+      if (aNew !== bNew) return aNew - bNew;
+      const sa = a.needsOrder ? 0 : 1;
+      const sb = b.needsOrder ? 0 : 1;
+      if (sa !== sb) return sa - sb;
+      return a.skuCode.localeCompare(b.skuCode, undefined, { numeric: true });
+    }
+
+    const aNew = a.isNew ? 0 : 1;
+    const bNew = b.isNew ? 0 : 1;
+    if (aNew !== bNew) return aNew - bNew;
+    return a.skuCode.localeCompare(b.skuCode, undefined, { numeric: true });
+  });
+}
+
+/** แถวนี้อยู่ถัดจากบล็อกโปรกลุ่มที่จบแล้ว (เช่น สินค้าใหม่ที่ไม่มีกลุ่ม) */
+export function followsPooledPromoGroup<
+  T extends { promoGroup?: string | null; promoGroupMembers?: number | null },
+>(rows: T[], index: number): boolean {
+  if (index <= 0) return false;
+  const prev = rows[index - 1];
+  const row = rows[index];
+  if (!prev || !row) return false;
+  return (
+    isPooledPromoGroup(prev.promoGroup, prev.promoGroupMembers) &&
+    !isPooledPromoGroup(row.promoGroup, row.promoGroupMembers)
+  );
+}
+
 export type PromoGroupStripe = 0 | 1 | 2 | 3;
 
 export function annotatePromoGroupStripes<

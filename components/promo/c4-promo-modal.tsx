@@ -1,11 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Eye, Gift, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { PromoInspectorResult } from "@/lib/promo/promo-inspector";
+import {
+  filterProductsToStockMembers,
+  lookupStagedQty,
+  seedModalStaged,
+} from "@/lib/promo/stock-pooled-promo";
 import { plannerView, blendedNetForStep } from "@/lib/promo/planner-utils";
 
 function fmt(n: number | null | undefined) {
@@ -16,47 +21,72 @@ function fmt(n: number | null | undefined) {
 interface C4PromoModalProps {
   skuCode: string;
   storeCode: string;
+  /** โหลด modal ตามกลุ่ม ASSORTEDPRODUCTGROUP โดยตรง (แม่นยำกว่า resolve จาก sku) */
+  promoGroup?: string;
   stagedQty: Record<string, number>;
   onClose: () => void;
   /** เมื่อมี callback จะแสดงปุ่มยืนยันเพื่อส่งจำนวนที่จำลองกลับหน้าหลัก */
   onConfirm?: (staged: Record<string, number>) => void;
   /** map รหัสสินค้า -> จำนวนแนะนำสั่ง สำหรับ mark "แนะนำซื้อ" */
   suggestByProduct?: Record<string, number>;
+  /** ดูอย่างเดียว — ไม่ให้ปรับ qty / ไม่มีปุ่มใช้จำนวนนี้ */
+  readOnly?: boolean;
+  /** SKU ที่ร้านมีในสต็อก — กรองรายการในกลุ่มให้ตรงกับหน้าหลัก */
+  stockMemberSkus?: string[];
 }
 
 export function C4PromoModal({
   skuCode,
   storeCode,
+  promoGroup,
   stagedQty,
   onClose,
   onConfirm,
   suggestByProduct,
+  readOnly = false,
+  stockMemberSkus,
 }: C4PromoModalProps) {
   const [data, setData] = useState<PromoInspectorResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [staged, setStaged] = useState<Record<string, number>>({});
-  const [initialStaged, setInitialStaged] = useState<Record<string, number>>({});
+  const stagedQtyRef = useRef(stagedQty);
+  stagedQtyRef.current = stagedQty;
+  const stockMemberSkusRef = useRef(stockMemberSkus);
+  stockMemberSkusRef.current = stockMemberSkus;
+
+  const visibleProducts = useMemo(() => {
+    if (!data) return [];
+    return filterProductsToStockMembers(data.products, stockMemberSkus);
+  }, [data, stockMemberSkus]);
+
+  const c4GroupSize = data?.products.length ?? 0;
+  const storeGroupSize = visibleProducts.length;
+  const groupSizeMismatch =
+    Boolean(data?.group) &&
+    stockMemberSkus &&
+    stockMemberSkus.length > 0 &&
+    c4GroupSize > storeGroupSize;
 
   useEffect(() => {
     let alive = true;
     setLoading(true);
     setErr(null);
-    const q = new URLSearchParams({
-      sku: skuCode,
-      storeCode,
-    });
+    setStaged({});
+    const q = new URLSearchParams({ storeCode });
+    const group = promoGroup?.trim();
+    if (group) q.set("group", group);
+    else q.set("sku", skuCode);
     fetch(`/api/promo/inspector?${q}`)
       .then((r) => (r.ok ? r.json() : r.json().then((e) => Promise.reject(e))))
       .then((payload: PromoInspectorResult) => {
         if (!alive) return;
         setData(payload);
-        const seed: Record<string, number> = {};
-        for (const p of payload.products) {
-          seed[p.product] = stagedQty[p.product] ?? 0;
-        }
-        setStaged(seed);
-        setInitialStaged(seed);
+        const products = filterProductsToStockMembers(
+          payload.products,
+          stockMemberSkusRef.current
+        );
+        setStaged(seedModalStaged(products, stagedQtyRef.current));
       })
       .catch((e) => {
         if (alive) setErr(e?.error ?? "โหลดโปรไม่สำเร็จ");
@@ -67,10 +97,10 @@ export function C4PromoModal({
     return () => {
       alive = false;
     };
-  }, [skuCode, storeCode, stagedQty]);
+  }, [skuCode, storeCode, promoGroup]);
 
   const { pooled, activeIdx, activeStep, nextStep, mix } = useMemo(() => {
-    if (!data) {
+    if (!data || visibleProducts.length === 0) {
       return {
         pooled: 0,
         activeIdx: -1,
@@ -79,27 +109,28 @@ export function C4PromoModal({
         mix: { avgNet: null, mixedPrice: false },
       };
     }
-    return plannerView(data.products, data.ladder, staged);
-  }, [data, staged]);
+    return plannerView(visibleProducts, data.ladder, staged);
+  }, [data, staged, visibleProducts]);
 
-  const canAdjustGroup = Boolean(
-    onConfirm && data?.group && data.products.length > 1
+  const canConfirmQty = Boolean(
+    !readOnly && onConfirm && visibleProducts.length > 0
+  );
+  const isGroupView = Boolean(data?.group && visibleProducts.length > 1);
+  const showProductQtyList = Boolean(
+    data?.group && visibleProducts.length > 0 && !readOnly
   );
 
   const hasChanges = useMemo(() => {
-    if (!canAdjustGroup) return false;
-    const keys = new Set([
-      ...Object.keys(staged),
-      ...Object.keys(initialStaged),
-    ]);
-    for (const k of keys) {
-      if ((staged[k] ?? 0) !== (initialStaged[k] ?? 0)) return true;
+    if (!canConfirmQty || visibleProducts.length === 0) return false;
+    for (const p of visibleProducts) {
+      const baseline = lookupStagedQty(stagedQty, p.product);
+      if ((staged[p.product] ?? 0) !== baseline) return true;
     }
     return false;
-  }, [canAdjustGroup, staged, initialStaged]);
+  }, [canConfirmQty, visibleProducts, staged, stagedQty]);
 
   function handleConfirm() {
-    if (!onConfirm) return;
+    if (!onConfirm || !hasChanges) return;
     onConfirm({ ...staged });
     onClose();
   }
@@ -125,7 +156,9 @@ export function C4PromoModal({
               {title}
             </h2>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              ซื้อสินค้าใดก็ได้ในกลุ่มเดียวกัน รวมจำนวนแล้วได้โปรเดียวกัน
+              {isGroupView
+                ? "ซื้อสินค้าใดก็ได้ในกลุ่มเดียวกัน รวมจำนวนแล้วได้โปรเดียวกัน"
+                : "รายละเอียดบันไดโปร C4 รายสินค้า"}
               {data?.context?.date ? ` · วันนี้ ${data.context.date}` : ""}
             </p>
           </div>
@@ -151,7 +184,17 @@ export function C4PromoModal({
             <div className="space-y-4">
               <div className="rounded-xl border border-violet-200 bg-violet-50 px-3 py-2.5 text-sm dark:border-violet-800/50 dark:bg-violet-950/30">
                 <p className="font-semibold text-violet-900 dark:text-violet-100">
-                  รวมในกลุ่ม: <span className="tabular-nums">{pooled}</span> หีบ
+                  {isGroupView ? (
+                    <>
+                      รวมในกลุ่ม:{" "}
+                      <span className="tabular-nums">{pooled}</span> หีบ
+                    </>
+                  ) : (
+                    <>
+                      จำนวนสั่ง:{" "}
+                      <span className="tabular-nums">{pooled}</span> หีบ
+                    </>
+                  )}
                 </p>
                 {activeStep ? (
                   <p className="mt-1 text-xs text-violet-800 dark:text-violet-200">
@@ -179,13 +222,43 @@ export function C4PromoModal({
                 )}
               </div>
 
-              {data.group && data.products.length > 1 && (
+              {!isGroupView && canConfirmQty && visibleProducts.length === 1 && (
+                <label className="flex items-center gap-2 text-sm">
+                  <span className="text-slate-600 dark:text-slate-400">
+                    จำนวนสั่ง (หีบ)
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    className="w-20 rounded border border-slate-200 px-2 py-1 text-right tabular-nums dark:border-slate-600 dark:bg-slate-800"
+                    value={staged[visibleProducts[0]!.product] ?? 0}
+                    onChange={(e) => {
+                      const code = visibleProducts[0]!.product;
+                      setStaged((m) => ({
+                        ...m,
+                        [code]: Math.max(
+                          0,
+                          Math.floor(Number(e.target.value) || 0)
+                        ),
+                      }));
+                    }}
+                  />
+                </label>
+              )}
+
+              {showProductQtyList && (
                 <div>
                   <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    สินค้าในกลุ่ม ({data.products.length} SKU)
+                    สินค้าในกลุ่ม ({storeGroupSize} SKU)
                   </p>
+                  {groupSizeMismatch && (
+                    <p className="mb-2 text-[11px] text-slate-500 dark:text-slate-400">
+                      กลุ่มโปร C4 มี {c4GroupSize} SKU — ร้านนี้มีในสต็อก{" "}
+                      {storeGroupSize} SKU (แสดงเฉพาะที่สั่งได้)
+                    </p>
+                  )}
                   <div className="space-y-2">
-                    {[...data.products]
+                    {[...visibleProducts]
                       .sort((a, b) => {
                         const sa =
                           (suggestByProduct?.[a.product] ?? 0) > 0 ? 0 : 1;
@@ -225,32 +298,40 @@ export function C4PromoModal({
                             {p.creditPrice != null ? `฿${fmt(p.creditPrice)}` : "—"}
                           </p>
                         </div>
-                        <label className="flex items-center gap-1.5 text-xs">
-                          <span className="text-slate-500">หีบ</span>
-                          <input
-                            type="number"
-                            min={0}
-                            className="w-16 rounded border border-slate-200 px-2 py-1 text-right tabular-nums dark:border-slate-600 dark:bg-slate-800"
-                            value={staged[p.product] ?? 0}
-                            onChange={(e) =>
-                              setStaged((m) => ({
-                                ...m,
-                                [p.product]: Math.max(
-                                  0,
-                                  Math.floor(Number(e.target.value) || 0)
-                                ),
-                              }))
-                            }
-                          />
-                        </label>
+                        {readOnly ? (
+                          <span className="text-xs font-semibold tabular-nums text-slate-700 dark:text-slate-300">
+                            {staged[p.product] ?? 0} หีบ
+                          </span>
+                        ) : (
+                          <label className="flex items-center gap-1.5 text-xs">
+                            <span className="text-slate-500">หีบ</span>
+                            <input
+                              type="number"
+                              min={0}
+                              className="w-16 rounded border border-slate-200 px-2 py-1 text-right tabular-nums dark:border-slate-600 dark:bg-slate-800"
+                              value={staged[p.product] ?? 0}
+                              onChange={(e) =>
+                                setStaged((m) => ({
+                                  ...m,
+                                  [p.product]: Math.max(
+                                    0,
+                                    Math.floor(Number(e.target.value) || 0)
+                                  ),
+                                }))
+                              }
+                            />
+                          </label>
+                        )}
                       </div>
                     ))}
                   </div>
-                  <p className="mt-2 text-[11px] text-slate-500">
-                    {canAdjustGroup
-                      ? "ปรับจำนวนแล้วกด «ใช้จำนวนนี้» เพื่ออัปเดตรายการสั่ง"
-                      : "ปรับจำนวนเพื่อจำลองรวมกลุ่ม"}
-                  </p>
+                  {!readOnly && (
+                    <p className="mt-2 text-[11px] text-slate-500">
+                      {canConfirmQty
+                        ? "ปรับจำนวนแล้วกด «ใช้จำนวนนี้» เพื่ออัปเดตรายการสั่ง"
+                        : "ปรับจำนวนเพื่อจำลองรวมกลุ่ม"}
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -272,13 +353,17 @@ export function C4PromoModal({
                       {data.ladder.map((step, i) => {
                         const active = i === activeIdx;
                         const net = plannerView(
-                          data.products,
+                          visibleProducts,
                           data.ladder,
                           staged
                         );
                         const stepNet = active
                           ? net.mix.avgNet
-                          : blendedNetForStep(data.products, staged, step).avgNet;
+                          : blendedNetForStep(
+                              visibleProducts,
+                              staged,
+                              step
+                            ).avgNet;
                         return (
                           <tr
                             key={`${step.fromQty}-${step.toQty}-${i}`}
@@ -329,9 +414,9 @@ export function C4PromoModal({
 
         <div className="flex shrink-0 gap-2 border-t border-slate-200 px-4 py-3 dark:border-slate-700">
           <Button variant="outline" className="flex-1" onClick={onClose}>
-            {canAdjustGroup ? "ยกเลิก" : "ปิด"}
+            {canConfirmQty ? "ยกเลิก" : "ปิด"}
           </Button>
-          {canAdjustGroup && (
+          {canConfirmQty && (
             <Button
               className="flex-1"
               onClick={handleConfirm}
@@ -350,19 +435,30 @@ export function C4PromoModal({
 interface PromoInspectorTriggerProps {
   skuCode: string;
   storeCode: string;
+  promoGroup?: string;
   stagedQty?: Record<string, number>;
   onConfirmStaged?: (staged: Record<string, number>) => void;
   suggestByProduct?: Record<string, number>;
+  readOnly?: boolean;
+  label?: string;
   className?: string;
+  applyVersion?: number;
+  /** SKU ที่ร้านมีในสต็อก — กรองรายการในกลุ่มให้ตรงกับหน้าหลัก */
+  stockMemberSkus?: string[];
 }
 
 export function PromoInspectorTrigger({
   skuCode,
   storeCode,
+  promoGroup,
   stagedQty = {},
   onConfirmStaged,
   suggestByProduct,
+  readOnly = false,
+  label = "โปรกลุ่ม",
   className,
+  applyVersion = 0,
+  stockMemberSkus,
 }: PromoInspectorTriggerProps) {
   const [open, setOpen] = useState(false);
 
@@ -372,8 +468,8 @@ export function PromoInspectorTrigger({
     <>
       <button
         type="button"
-        title="ดูโปรโมชั่นกลุ่ม / บันได C4"
-        aria-label="ดูโปรโมชั่นกลุ่ม"
+        title={readOnly ? "ดูรายละเอียดโปร" : "ดูโปรโมชั่น / บันได C4"}
+        aria-label={label}
         onClick={(e) => {
           e.stopPropagation();
           setOpen(true);
@@ -386,15 +482,19 @@ export function PromoInspectorTrigger({
         )}
       >
         <Eye className="h-3.5 w-3.5 shrink-0" strokeWidth={2.25} />
-        <span className="text-[10px] font-bold leading-none">ดูโปร</span>
+        <span className="text-[10px] font-bold leading-none">{label}</span>
       </button>
       {open && (
         <C4PromoModal
+          key={`${promoGroup ?? skuCode}-${applyVersion}`}
           skuCode={skuCode}
           storeCode={storeCode}
+          promoGroup={promoGroup}
           stagedQty={stagedQty}
-          onConfirm={onConfirmStaged}
+          stockMemberSkus={stockMemberSkus}
+          onConfirm={readOnly ? undefined : onConfirmStaged}
           suggestByProduct={suggestByProduct}
+          readOnly={readOnly}
           onClose={() => setOpen(false)}
         />
       )}

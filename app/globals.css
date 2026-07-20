@@ -672,6 +672,25 @@ body {
   vertical-align: middle;
 }
 
+/* Order review table: auto layout so columns grow to fill width */
+.vmi-order-table {
+  table-layout: auto;
+  width: 100%;
+}
+
+.vmi-order-table th,
+.vmi-order-table td {
+  vertical-align: middle;
+}
+
+.vmi-order-table .vmi-order-col-name {
+  width: 28%;
+}
+
+.vmi-order-table .vmi-order-col-promo {
+  width: 20%;
+}
+
 .vmi-stock-page .vmi-stock-table-scroll {
   overflow-x: hidden;
 }

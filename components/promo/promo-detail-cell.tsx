@@ -1,7 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import type { PromoTierKind } from "@/lib/calculations";
-import { PromoInspectorTrigger } from "@/components/promo/c4-promo-modal";
+import { C4PromoModal } from "@/components/promo/c4-promo-modal";
 import { isPooledPromoGroup } from "@/lib/promo/promo-group-display";
 import { cn } from "@/lib/utils";
 
@@ -40,6 +41,7 @@ interface PromoDetailCellProps {
     onConfirmStaged?: (staged: Record<string, number>) => void;
     /** map รหัสสินค้า -> จำนวนแนะนำสั่ง เพื่อ mark "แนะนำซื้อ" ใน modal กลุ่ม */
     suggestByProduct?: Record<string, number>;
+    readOnly?: boolean;
   };
 }
 
@@ -57,6 +59,8 @@ export function PromoDetailCell({
   variant = "table",
   inspector,
 }: PromoDetailCellProps) {
+  const [skuModalOpen, setSkuModalOpen] = useState(false);
+
   const showFreeGood = Boolean(freeGood && freeGood.qty > 0);
   const renderFreeGoodChip = showFreeGood && showFreeGoodChip;
   const hasCurrent = Boolean(currentPromo);
@@ -80,42 +84,56 @@ export function PromoDetailCell({
     !hasNext &&
     qtyToNext == null;
 
-  const stagedForSku = inspector?.stagedQty?.[inspector.skuCode] ?? 0;
-  const showInspector = Boolean(
-    inspector &&
-      isPooledPromoGroup(inspector.promoGroup, inspector.promoGroupMembers) &&
-      stagedForSku > 0
+  const isPooled = isPooledPromoGroup(
+    inspector?.promoGroup,
+    inspector?.promoGroupMembers
   );
+  const canOpenInspector = Boolean(inspector && !isPooled);
+  const canClickPromoChip = canOpenInspector && showCurrentPromo;
 
-  const inspectorBtn = showInspector ? (
-    <PromoInspectorTrigger
-      skuCode={inspector!.skuCode}
-      storeCode={inspector!.storeCode}
-      stagedQty={inspector!.stagedQty}
-      onConfirmStaged={inspector!.onConfirmStaged}
-      suggestByProduct={inspector!.suggestByProduct}
-    />
-  ) : null;
+  const openInspector = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setSkuModalOpen(true);
+  };
 
   const textSize =
     variant === "compact" ? "text-[10px]" : "text-xs leading-snug";
 
   if (!showCurrentPromo && !hasNext && !showFreeGood) {
-    if (variant === "compact") {
+    if (canOpenInspector) {
       return (
-        <span className="inline-flex items-center gap-1 text-[10px] text-slate-400">
-          {hasPromoLadder ? "—" : "-"}
-          {inspectorBtn}
-        </span>
+        <>
+          <button
+            type="button"
+            title="กดดูรายละเอียดโปร"
+            onClick={openInspector}
+            className={cn(
+              "inline-flex items-center gap-0.5 font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-400",
+              textSize
+            )}
+          >
+            ดูโปร
+          </button>
+          {skuModalOpen && inspector ? (
+            <C4PromoModal
+              skuCode={inspector.skuCode}
+              storeCode={inspector.storeCode}
+              stagedQty={inspector.stagedQty ?? {}}
+              onConfirm={
+                inspector.readOnly ? undefined : inspector.onConfirmStaged
+              }
+              suggestByProduct={inspector.suggestByProduct}
+              readOnly={inspector.readOnly}
+              onClose={() => setSkuModalOpen(false)}
+            />
+          ) : null}
+        </>
       );
     }
     return (
-      <div className="flex items-center gap-1.5">
-        <span className={cn(textSize, "text-slate-400")}>
-          {hasPromoLadder ? "ไม่มีส่วนลด" : "—"}
-        </span>
-        {inspectorBtn}
-      </div>
+      <span className={cn(textSize, "text-slate-400")}>
+        {hasPromoLadder ? (variant === "compact" ? "—" : "ไม่มีส่วนลด") : "—"}
+      </span>
     );
   }
 
@@ -132,13 +150,30 @@ export function PromoDetailCell({
     variant === "compact" ? "text-[10px]" : "text-[11px] leading-tight"
   );
 
+  const currentPromoChip = showCurrentPromo ? (
+    canClickPromoChip ? (
+      <button
+        type="button"
+        title="กดดูรายละเอียดโปร"
+        onClick={openInspector}
+        className={cn(
+          chipBase,
+          currentChip,
+          "cursor-pointer transition-shadow hover:ring-2"
+        )}
+      >
+        <span className="truncate">{currentPromo}</span>
+      </button>
+    ) : (
+      <span className={cn(chipBase, currentChip)} title={currentPromo!}>
+        <span className="truncate">{currentPromo}</span>
+      </span>
+    )
+  ) : null;
+
   const content = (
     <div className={cn("flex min-w-0 flex-wrap items-center gap-1")}>
-      {showCurrentPromo && (
-        <span className={cn(chipBase, currentChip)} title={currentPromo!}>
-          <span className="truncate">{currentPromo}</span>
-        </span>
-      )}
+      {currentPromoChip}
       {renderFreeGoodChip && freeGood && (
         <span
           className={cn(
@@ -183,29 +218,59 @@ export function PromoDetailCell({
           textSize={textSize}
         />
       )}
+      {canOpenInspector && !showCurrentPromo && (hasNext || showFreeGood) && (
+        <button
+          type="button"
+          title="กดดูรายละเอียดโปร"
+          onClick={openInspector}
+          className={cn(
+            "inline-flex shrink-0 items-center font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-400",
+            textSize
+          )}
+        >
+          ดูโปร
+        </button>
+      )}
     </div>
   );
 
+  const skuModal =
+    skuModalOpen && inspector ? (
+      <C4PromoModal
+        skuCode={inspector.skuCode}
+        storeCode={inspector.storeCode}
+        stagedQty={inspector.stagedQty ?? {}}
+        onConfirm={inspector.readOnly ? undefined : inspector.onConfirmStaged}
+        suggestByProduct={inspector.suggestByProduct}
+        readOnly={inspector.readOnly}
+        onClose={() => setSkuModalOpen(false)}
+      />
+    ) : null;
+
   if (variant === "card") {
     return (
-      <div className="flex items-start gap-2 rounded-lg border border-slate-200/80 bg-slate-50/50 p-2.5 dark:border-slate-700/60 dark:bg-slate-800/40">
-        <div className="min-w-0 flex-1">{content}</div>
-        {inspectorBtn}
-      </div>
+      <>
+        <div className="flex items-start gap-2 rounded-lg border border-slate-200/80 bg-slate-50/50 p-2.5 dark:border-slate-700/60 dark:bg-slate-800/40">
+          <div className="min-w-0 flex-1">{content}</div>
+        </div>
+        {skuModal}
+      </>
     );
   }
 
   return (
-    <div
-      className={cn(
-        "flex min-w-0 items-start gap-0.5",
-        variant === "table" && "max-w-[220px]",
-        variant === "compact" && "max-w-full"
-      )}
-    >
-      <div className="min-w-0 flex-1 overflow-hidden">{content}</div>
-      {inspectorBtn}
-    </div>
+    <>
+      <div
+        className={cn(
+          "flex min-w-0 items-start gap-0.5",
+          variant === "table" && "max-w-[220px]",
+          variant === "compact" && "max-w-full"
+        )}
+      >
+        <div className="min-w-0 flex-1 overflow-hidden">{content}</div>
+      </div>
+      {skuModal}
+    </>
   );
 }
 

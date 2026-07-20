@@ -20,12 +20,16 @@ import {
 } from "@/components/promo/free-good-subrow";
 import { PromoDetailCell } from "@/components/promo/promo-detail-cell";
 import {
+  buildGroupMemberSkusMap,
+  PromoGroupHeader,
+} from "@/components/promo/promo-group-header";
+import {
   StockDiscountPerCaseCell,
   StockListPriceCell,
   StockNetPriceCell,
 } from "@/components/stock/stock-price-cells";
 import { Button } from "@/components/ui/button";
-import { FlagBadge } from "@/components/ui/badge";
+import { CvdFlagCell } from "@/components/ui/cvd-flag-cell";
 import {
   MobileRow,
   MobileRowExtra,
@@ -280,6 +284,19 @@ export function OrderPageClient({
     return annotatePromoGroupStripes(sortRowsByPromoGroup(withGroup));
   }, [enriched]);
 
+  const promoStagedQty = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const line of displayLines) {
+      m[line.row.skuCode] = line.qty;
+    }
+    return m;
+  }, [displayLines]);
+
+  const groupMemberSkusMap = useMemo(
+    () => buildGroupMemberSkusMap(displayLines),
+    [displayLines]
+  );
+
   const hasRedFlag = stats.redCount > 0;
 
   function resetAllToSuggested() {
@@ -423,6 +440,8 @@ export function OrderPageClient({
 
         <OrderSummaryList
           lines={displayLines}
+          promoStagedQty={promoStagedQty}
+          groupMemberSkusMap={groupMemberSkusMap}
           onFocusStock={focusSkuOnStock}
         />
       </main>
@@ -498,9 +517,13 @@ function OrderSummaryPromo({ line }: { line: EnrichedLine }) {
 
 function OrderSummaryList({
   lines,
+  promoStagedQty,
+  groupMemberSkusMap,
   onFocusStock,
 }: {
   lines: EnrichedLine[];
+  promoStagedQty: Record<string, number>;
+  groupMemberSkusMap: Map<string, string[]>;
   onFocusStock: (skuCode: string) => void;
 }) {
   return (
@@ -515,6 +538,24 @@ function OrderSummaryList({
               <MobileRow
                 className={promoGroupRowBgClass(line.promoGroupStripe ?? null)}
               >
+                {line.promoGroupIsFirst &&
+                  line.promoGroupStripe != null &&
+                  line.promoGroup && (
+                    <div className="mb-1.5">
+                      <PromoGroupHeader
+                        promoGroup={line.promoGroup}
+                        stripe={line.promoGroupStripe}
+                        hostSkuCode={line.row.skuCode}
+                        memberSkus={
+                          groupMemberSkusMap.get(line.promoGroup) ?? [
+                            line.row.skuCode,
+                          ]
+                        }
+                        stagedQty={promoStagedQty}
+                        showPromoButton={false}
+                      />
+                    </div>
+                  )}
                 <div className="flex items-start gap-2">
                   <span className="w-5 shrink-0 pt-0.5 text-xs text-slate-400">
                     {index + 1}
@@ -588,38 +629,25 @@ function OrderSummaryList({
           </MobileRowList>
         </div>
 
-        <table className="vmi-data-table vmi-stock-fit-table hidden w-full min-w-0 table-fixed text-left lg:table">
-          <colgroup>
-            <col className="w-[3%]" />
-            <col className="w-[8%]" />
-            <col className="w-[16%]" />
-            <col className="w-[10%]" />
-            <col className="w-[7%]" />
-            <col className="w-[7%]" />
-            <col className="w-[7%]" />
-            <col className="w-[7%]" />
-            <col className="w-[7%]" />
-            <col className="w-[7%]" />
-            <col className="w-[21%]" />
-          </colgroup>
+        <table className="vmi-data-table vmi-order-table hidden w-full min-w-0 text-left lg:table">
           <thead className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
             <tr>
-              <th className="px-2 py-3">#</th>
-              <th className="px-2 py-3">SKU</th>
-              <th className="px-2 py-3">ชื่อสินค้า</th>
-              <th className="px-2 py-3 text-right">จำนวน</th>
+              <th className="w-8 px-2 py-3">#</th>
+              <th className="whitespace-nowrap px-2 py-3">SKU</th>
+              <th className="vmi-order-col-name px-2 py-3">ชื่อสินค้า</th>
+              <th className="whitespace-nowrap px-2 py-3 text-right">จำนวน</th>
               <th
-                className="px-2 py-3 text-right"
+                className="hidden whitespace-nowrap px-2 py-3 text-right xl:table-cell"
                 title="เป้าหมาย CVD ต่ำสุด / สูงสุด (วัน) ตามที่ตั้งในหน้าจัดการ"
               >
                 MIN / MAX
               </th>
-              <th className="px-2 py-3 text-right">ราคา/หีบ</th>
-              <th className="px-2 py-3 text-right">ส่วนลด</th>
-              <th className="px-2 py-3 text-right">ราคาสุทธิ/หีบ</th>
-              <th className="px-2 py-3 text-right">รวม</th>
-              <th className="px-2 py-3 text-right">CVD</th>
-              <th className="px-2 py-3">โปรที่ได้</th>
+              <th className="whitespace-nowrap px-2 py-3 text-right">ราคา/หีบ</th>
+              <th className="whitespace-nowrap px-2 py-3 text-right">ส่วนลด</th>
+              <th className="whitespace-nowrap px-2 py-3 text-right">ราคาสุทธิ/หีบ</th>
+              <th className="whitespace-nowrap px-2 py-3 text-right">รวม</th>
+              <th className="whitespace-nowrap px-1.5 py-3 text-right">CVD</th>
+              <th className="vmi-order-col-promo min-w-[10rem] px-2 py-3">โปรที่ได้</th>
             </tr>
           </thead>
           <tbody>
@@ -627,6 +655,26 @@ function OrderSummaryList({
               const showFreeGood = isFreeGoodHostRow(lines, index);
               return (
               <Fragment key={line.row.skuId}>
+              {line.promoGroupIsFirst &&
+                line.promoGroupStripe != null &&
+                line.promoGroup && (
+                  <tr className="border-t border-slate-100 dark:border-slate-800">
+                    <td colSpan={11} className="px-2 pb-1.5 pt-2.5">
+                      <PromoGroupHeader
+                        promoGroup={line.promoGroup}
+                        stripe={line.promoGroupStripe}
+                        hostSkuCode={line.row.skuCode}
+                        memberSkus={
+                          groupMemberSkusMap.get(line.promoGroup) ?? [
+                            line.row.skuCode,
+                          ]
+                        }
+                        stagedQty={promoStagedQty}
+                        showPromoButton={false}
+                      />
+                    </td>
+                  </tr>
+                )}
               <tr
                 className={cn(
                   "border-t border-slate-100 dark:border-slate-800",
@@ -635,11 +683,13 @@ function OrderSummaryList({
                 )}
               >
                 <td className="px-3 py-2.5 text-slate-500">{index + 1}</td>
-                <td className="px-3 py-2.5 font-medium text-teal-700 dark:text-teal-400">
+                <td className="whitespace-nowrap px-3 py-2.5 font-medium text-teal-700 dark:text-teal-400">
                   {line.row.skuCode}
                 </td>
-                <td className="max-w-[240px] truncate px-3 py-2.5 text-slate-700 dark:text-slate-300">
-                  {line.row.skuName}
+                <td className="vmi-order-col-name min-w-0 px-3 py-2.5 text-slate-700 dark:text-slate-300">
+                  <span className="line-clamp-2" title={line.row.skuName}>
+                    {line.row.skuName}
+                  </span>
                 </td>
                 <td className="px-2 py-2 text-right">
                   <div className="inline-flex flex-col items-end gap-0.5">
@@ -657,7 +707,7 @@ function OrderSummaryList({
                     </button>
                   </div>
                 </td>
-                <td className="px-2 py-2.5 text-right text-xs tabular-nums text-slate-600 dark:text-slate-400">
+                <td className="hidden px-2 py-2.5 text-right text-xs tabular-nums text-slate-600 dark:text-slate-400 xl:table-cell">
                   {line.row.minDays} / {line.row.maxDays} วัน
                 </td>
                 <td className="px-2 py-2.5 text-right">
@@ -685,30 +735,10 @@ function OrderSummaryList({
                 <td className="px-2 py-2.5 text-right text-xs font-medium tabular-nums">
                   {formatBaht(line.lineTotal)}
                 </td>
-                <td className="px-3 py-2.5 text-right">
-                  {line.flag ? (
-                    <div className="inline-flex flex-col items-end gap-0.5">
-                      <span
-                        className={cn(
-                          "text-sm font-bold leading-none tabular-nums",
-                          line.flag === "red"
-                            ? "text-red-600 dark:text-red-400"
-                            : line.flag === "yellow"
-                              ? "text-amber-600 dark:text-amber-400"
-                              : "text-emerald-600 dark:text-emerald-400"
-                        )}
-                      >
-                        {formatDays(line.cvdEst)}
-                      </span>
-                      <FlagBadge flag={line.flag} compact />
-                    </div>
-                  ) : (
-                    <span className="tabular-nums text-slate-500">
-                      {formatDays(line.cvdEst)}
-                    </span>
-                  )}
+                <td className="px-1.5 py-2.5 text-right">
+                  <CvdFlagCell cvdEst={line.cvdEst} flag={line.flag} />
                 </td>
-                <td className="px-3 py-2.5 align-top">
+                <td className="vmi-order-col-promo min-w-[10rem] px-3 py-2.5 align-top">
                   <OrderSummaryPromo line={line} />
                 </td>
               </tr>

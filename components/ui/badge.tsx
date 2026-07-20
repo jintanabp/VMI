@@ -18,16 +18,42 @@ const flagLabels: Record<CvdFlag, string> = {
 export function FlagBadge({
   flag,
   compact = false,
+  dotOnly = false,
+  className,
 }: {
   flag: CvdFlag;
   compact?: boolean;
+  /** จุดสีอย่างเดียว — เหมาะกับคอลัมน์แคบ */
+  dotOnly?: boolean;
+  className?: string;
 }) {
+  if (dotOnly) {
+    const dotColors: Record<CvdFlag, string> = {
+      green: "bg-emerald-500",
+      yellow: "bg-amber-500",
+      red: "bg-red-500",
+    };
+    return (
+      <span
+        className={cn(
+          "inline-block shrink-0 rounded-full",
+          compact ? "h-2 w-2" : "h-2.5 w-2.5",
+          dotColors[flag],
+          className
+        )}
+        title={flagLabels[flag]}
+        aria-label={flagLabels[flag]}
+      />
+    );
+  }
+
   return (
     <span
       className={cn(
         "inline-flex items-center rounded-full font-semibold",
         compact ? "px-1.5 py-0.5 text-[10px] leading-tight" : "px-2.5 py-1 text-xs",
-        flagStyles[flag]
+        flagStyles[flag],
+        className
       )}
     >
       {flagLabels[flag]}
