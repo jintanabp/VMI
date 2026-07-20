@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation } from "@tanstack/react-query";
 import {
@@ -14,6 +14,10 @@ import {
 } from "lucide-react";
 import { AppHeader } from "@/components/layout/app-header";
 import { PageShell } from "@/components/layout/page-shell";
+import {
+  FreeGoodMobileCard,
+  FreeGoodOrderTableRow,
+} from "@/components/promo/free-good-subrow";
 import { PromoDetailCell } from "@/components/promo/promo-detail-cell";
 import {
   StockDiscountPerCaseCell,
@@ -47,6 +51,7 @@ import {
   sortRowsByPromoGroup,
   type PromoGroupStripe,
 } from "@/lib/promo/promo-group-display";
+import { isFreeGoodHostRow } from "@/lib/promo/stock-pooled-promo";
 
 interface OrderLine {
   row: StockRowComputed;
@@ -376,8 +381,8 @@ export function OrderPageClient({
         role="customer"
       />
 
-      <main className="vmi-order-main mx-auto w-full min-w-0 max-w-[88rem] px-3 sm:px-4">
-        <div className="vmi-order-stats grid shrink-0 grid-cols-2 gap-1.5 py-2 sm:grid-cols-3 sm:gap-2 lg:grid-cols-5 xl:py-3">
+      <main className="vmi-order-main mx-auto w-full min-w-0 max-w-none px-3 sm:px-4 lg:px-6">
+        <div className="vmi-order-stats grid shrink-0 grid-cols-2 gap-1.5 py-2 sm:grid-cols-3 sm:gap-2 lg:grid-cols-5 lg:py-3">
           <SummaryChip
             label="รายการ"
             value={`${stats.skuCount} SKU`}
@@ -423,7 +428,7 @@ export function OrderPageClient({
       </main>
 
       <div className="vmi-action-bar">
-        <div className="mx-auto flex w-full max-w-[88rem] items-center justify-between gap-2 sm:gap-3">
+        <div className="mx-auto flex w-full max-w-none items-center justify-between gap-2 sm:gap-3">
           <Button
             variant="outline"
             size="sm"
@@ -486,6 +491,7 @@ function OrderSummaryPromo({ line }: { line: EnrichedLine }) {
       nextKind={line.promo.nextKind}
       hasPromoLadder={line.promo.hasPromoLadder}
       freeGood={line.freeGood}
+      showFreeGoodChip={false}
     />
   );
 }
@@ -500,11 +506,13 @@ function OrderSummaryList({
   return (
     <div className="vmi-table-wrap vmi-order-list-wrap min-h-0 flex-1">
       <div className="vmi-order-list-scroll vmi-table-scroll">
-        <div className="xl:hidden">
+        <div className="lg:hidden">
           <MobileRowList grid>
-            {lines.map((line, index) => (
+            {lines.map((line, index) => {
+              const showFreeGood = isFreeGoodHostRow(lines, index);
+              return (
+              <Fragment key={line.row.skuId}>
               <MobileRow
-                key={line.row.skuId}
                 className={promoGroupRowBgClass(line.promoGroupStripe ?? null)}
               >
                 <div className="flex items-start gap-2">
@@ -563,17 +571,24 @@ function OrderSummaryList({
                   <MobileStat label="รวม" value={formatBaht(line.lineTotal)} />
                   <MobileStat label="CVD" value={formatDays(line.cvdEst)} />
                 </MobileRowStats>
-                {(line.promo.currentPromo || line.freeGood) && (
+                {(line.promo.currentPromo ||
+                  line.freeGood ||
+                  line.promo.hasPromoLadder) && (
                   <MobileRowExtra className="pl-7">
                     <OrderSummaryPromo line={line} />
                   </MobileRowExtra>
                 )}
               </MobileRow>
-            ))}
+              {showFreeGood && line.freeGood && (
+                <FreeGoodMobileCard freeGood={line.freeGood} />
+              )}
+              </Fragment>
+              );
+            })}
           </MobileRowList>
         </div>
 
-        <table className="vmi-data-table vmi-stock-fit-table hidden w-full min-w-0 table-fixed text-left xl:table">
+        <table className="vmi-data-table vmi-stock-fit-table hidden w-full min-w-0 table-fixed text-left lg:table">
           <colgroup>
             <col className="w-[3%]" />
             <col className="w-[8%]" />
@@ -608,9 +623,11 @@ function OrderSummaryList({
             </tr>
           </thead>
           <tbody>
-            {lines.map((line, index) => (
+            {lines.map((line, index) => {
+              const showFreeGood = isFreeGoodHostRow(lines, index);
+              return (
+              <Fragment key={line.row.skuId}>
               <tr
-                key={line.row.skuId}
                 className={cn(
                   "border-t border-slate-100 dark:border-slate-800",
                   promoGroupRowBgClass(line.promoGroupStripe ?? null),
@@ -695,7 +712,12 @@ function OrderSummaryList({
                   <OrderSummaryPromo line={line} />
                 </td>
               </tr>
-            ))}
+              {showFreeGood && line.freeGood && (
+                <FreeGoodOrderTableRow freeGood={line.freeGood} />
+              )}
+              </Fragment>
+              );
+            })}
           </tbody>
         </table>
       </div>

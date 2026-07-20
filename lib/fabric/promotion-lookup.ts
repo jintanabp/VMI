@@ -1,5 +1,6 @@
 import type { PromoTierInput, PromoTierKind } from "@/lib/calculations";
 import {
+  calcStepPremiumQty,
   getPromoForQty,
   type PromoResult,
 } from "@/lib/calculations";
@@ -73,22 +74,8 @@ function activeTier(rows: PromoRow[], pooledQty: number): PromoRow | null {
   return activePromoRowAtQty(rows, pooledQty);
 }
 
-/** ของแถมขั้นบันได: floor(pooled / FROM) × PREMIUMQTY ตาม tier ที่ active */
-export function calcStepPremiumQty(
-  pooledQty: number,
-  tierFromQty: number,
-  tierPremiumQty: number
-): number {
-  if (tierFromQty <= 0 || tierPremiumQty <= 0 || pooledQty <= 0) return 0;
-  return Math.floor(pooledQty / tierFromQty) * tierPremiumQty;
-}
-
-export function formatPremiumUnit(unit: string): string {
-  const u = (unit || "").toUpperCase().trim();
-  if (u === "P") return "ชิ้น";
-  if (u === "B") return "ลัง";
-  return unit.trim() || "หน่วย";
-}
+/** ของแถมขั้นบันได / หน่วยของแถม — re-export จาก calculations (client-safe) */
+export { calcStepPremiumQty, formatPremiumUnit } from "@/lib/calculations";
 
 export function lookupC4(
   lines: C4Line[],
@@ -279,6 +266,7 @@ export function promoRowsToTiers(rows: PromoRow[]): PromoTierInput[] {
       premiumProduct:
         kind === "premium" ? r.premiumProduct : undefined,
       premiumQty: kind === "premium" ? r.premiumQty : undefined,
+      premiumUnit: kind === "premium" ? r.premiumUnit : undefined,
     });
   }
   return tiers.sort((a, b) => a.sortOrder - b.sortOrder);

@@ -289,7 +289,14 @@ export async function buildFabricStockPayload(
         promoCtx.region
       );
       if (c4PromoRows.length > 0) {
-        promoTiers = promoRowsToTiers(c4PromoRows);
+        promoTiers = promoRowsToTiers(c4PromoRows).map((t) => {
+          if (!t.premiumProduct) return t;
+          return {
+            ...t,
+            premiumName:
+              skuDir?.nameForSku(t.premiumProduct) || t.premiumProduct,
+          };
+        });
         const group = promoDir.assortedGroupFor(
           promoCtx.division,
           promoCtx.cusgroup,

@@ -44,7 +44,8 @@ export function AppHeader({
   backLabel,
   onBack,
 }: AppHeaderProps) {
-  const contentMaxWidth = wide ? "max-w-[88rem]" : "max-w-7xl";
+  /** wide = หน้าตาราง (stock/order) ใช้เต็มความกว้างจอ */
+  const contentMaxWidth = wide ? "max-w-none" : "max-w-7xl";
   const pathname = usePathname();
   const { session } = useSalesSession();
   const adminPreview = useAdminPreview();
@@ -222,6 +223,7 @@ export function AppHeader({
         <div
           className={cn(
             "mx-auto w-full min-w-0 px-3 sm:px-4",
+            wide && "lg:px-6",
             contentMaxWidth,
             compact ? "py-2" : "py-3 sm:py-4"
           )}

@@ -1,12 +1,14 @@
 import {
   calcLineAmount,
   calcNetUnitPrice,
+  calcStepPremiumQty,
+  formatPremiumUnit,
   getPromoForQty,
   isBenefitTier,
   type PromoTierInput,
 } from "@/lib/calculations";
 import { isPooledPromoGroup } from "@/lib/promo/promo-group-display";
-import type { StockRowComputed } from "@/lib/repositories/types";
+import type { StockFreeGood, StockRowComputed } from "@/lib/repositories/types";
 
 export type StagedQtyMap = Record<string, number>;
 
@@ -32,6 +34,24 @@ function shouldShowPromo(row: StockRowComputed, staged?: StagedQtyMap): boolean 
   return lineQtyForRow(row, staged) > 0;
 }
 
+function buildFreeGood(
+  tier: PromoTierInput | null,
+  tierQty: number
+): StockFreeGood | null {
+  if (!tier || tier.kind !== "premium" || !tier.premiumProduct) return null;
+  const tierPremiumQty = tier.premiumQty ?? 0;
+  const qty = calcStepPremiumQty(tierQty, tier.minQty, tierPremiumQty);
+  if (qty <= 0) return null;
+  return {
+    premiumProduct: tier.premiumProduct,
+    premiumName: tier.premiumName || tier.premiumProduct,
+    qty,
+    unitLabel: formatPremiumUnit(tier.premiumUnit ?? ""),
+    tierFromQty: tier.minQty,
+    tierPremiumQty,
+  };
+}
+
 function clearPromoFields(row: StockRowComputed): StockRowComputed {
   return {
     ...row,
@@ -46,6 +66,7 @@ function clearPromoFields(row: StockRowComputed): StockRowComputed {
     discountPctPerCase: null,
     netUnitPrice: row.unitPrice ?? null,
     lineTotal: null,
+    freeGood: null,
   };
 }
 
@@ -85,6 +106,7 @@ function applyTierPricing(
     discountPctPerCase: discountPct,
     netUnitPrice,
     lineTotal,
+    freeGood: buildFreeGood(active, tierQty),
   };
 }
 
@@ -193,4 +215,34 @@ export function sumGroupSuggestQty(
     pools.set(key, (pools.get(key) ?? 0) + item.suggestOrder);
   }
   return pools;
+}
+
+/**
+ * แถวที่ควรแสดงแถวย่อยของแถม:
+ * - โปรราย SKU → แสดงใต้แถวนั้น
+ * - โปรกลุ่ม → แสดงครั้งเดียวใต้สมาชิกแรกในรายการที่ยังได้ของแถม
+ */
+export function isFreeGoodHostRow(
+  rows: {
+    freeGood?: StockFreeGood | null;
+    promoGroup?: string | null;
+    promoGroupMembers?: number;
+  }[],
+  index: number
+): boolean {
+  const row = rows[index];
+  if (!row?.freeGood || row.freeGood.qty <= 0) return false;
+  if (!isPooledPromoGroup(row.promoGroup, row.promoGroupMembers)) return true;
+  const g = row.promoGroup!.trim();
+  for (let i = 0; i < index; i++) {
+    const prev = rows[i];
+    if (
+      prev.promoGroup?.trim() === g &&
+      prev.freeGood != null &&
+      prev.freeGood.qty > 0
+    ) {
+      return false;
+    }
+  }
+  return true;
 }

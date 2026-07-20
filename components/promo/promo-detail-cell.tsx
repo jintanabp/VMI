@@ -24,6 +24,8 @@ interface PromoDetailCellProps {
   nextPromoQty?: number | null;
   nextKind?: PromoTierKind | null;
   freeGood?: PromoFreeGoodDetail | null;
+  /** false = ใช้ freeGood ซ่อนชิปแถมซ้ำ แต่ไม่เรนเดอร์ชิป (มีแถวย่อยแทน) — default true */
+  showFreeGoodChip?: boolean;
   hasPromoLadder?: boolean;
   /** จำนวนวันที่โปรปัจจุบันจะหมด — โชว์ป้ายเตือนเมื่อ ≤ 7 วัน */
   endsInDays?: number | null;
@@ -48,6 +50,7 @@ export function PromoDetailCell({
   qtyToNext,
   nextPromoQty,
   freeGood,
+  showFreeGoodChip = true,
   hasPromoLadder,
   endsInDays,
   onApplyNext,
@@ -55,6 +58,7 @@ export function PromoDetailCell({
   inspector,
 }: PromoDetailCellProps) {
   const showFreeGood = Boolean(freeGood && freeGood.qty > 0);
+  const renderFreeGoodChip = showFreeGood && showFreeGoodChip;
   const hasCurrent = Boolean(currentPromo);
   const hasNext =
     Boolean(nextPromo) &&
@@ -135,7 +139,7 @@ export function PromoDetailCell({
           <span className="truncate">{currentPromo}</span>
         </span>
       )}
-      {showFreeGood && freeGood && (
+      {renderFreeGoodChip && freeGood && (
         <span
           className={cn(
             chipBase,

@@ -10,7 +10,11 @@ export interface PromoTierInput {
   sortOrder: number;
   kind?: PromoTierKind;
   premiumProduct?: string;
+  /** ชื่อสินค้าของแถมจาก SKU master (ถ้ามี) */
+  premiumName?: string;
   premiumQty?: number;
+  /** หน่วยของแถมจาก C4 (P/B) */
+  premiumUnit?: string;
   discBaht?: number;
   discPct?: number;
 }
@@ -44,8 +48,9 @@ export function formatPromoTierLabel(tier: PromoTierInput): string {
 export function formatPromoBenefitShort(tier: PromoTierInput): string {
   const kind = tier.kind ?? "none";
   if (kind === "premium" && tier.premiumProduct) {
+    const label = tier.premiumName || tier.premiumProduct;
     const perStep = tier.premiumQty ? ` ×${tier.premiumQty}` : "";
-    return `แถม ${tier.premiumProduct}${perStep}`;
+    return `แถม ${label}${perStep}`;
   }
   if (kind === "discount_baht" || kind === "discount_pct") {
     return `ลด ${tier.discount}`;
@@ -57,8 +62,9 @@ export function formatPromoBenefitShort(tier: PromoTierInput): string {
 export function formatNextPromoHint(tier: PromoTierInput): string {
   const kind = tier.kind ?? "none";
   if (kind === "premium" && tier.premiumProduct) {
+    const label = tier.premiumName || tier.premiumProduct;
     const perStep = tier.premiumQty ? ` ×${tier.premiumQty}` : "";
-    return `ได้แถม ${tier.premiumProduct}${perStep}`;
+    return `ได้แถม ${label}${perStep}`;
   }
   if (kind === "discount_baht" || kind === "discount_pct") {
     return `ได้ส่วนลด ${tier.discount}`;
@@ -69,8 +75,9 @@ export function formatNextPromoHint(tier: PromoTierInput): string {
 export function formatPromoTierLabelVerbose(tier: PromoTierInput): string {
   const kind = tier.kind ?? "none";
   if (kind === "premium" && tier.premiumProduct) {
+    const label = tier.premiumName || tier.premiumProduct;
     const perStep = tier.premiumQty ? ` ×${tier.premiumQty}` : "";
-    return `ซื้อครบ ${tier.minQty} หีบ/ขั้น แถม ${tier.premiumProduct}${perStep}`;
+    return `ซื้อครบ ${tier.minQty} หีบ/ขั้น แถม ${label}${perStep}`;
   }
   if (kind === "discount_baht" || kind === "discount_pct") {
     return `ซื้อ ${tier.minQty}+ หีบ ลด ${tier.discount}`;
@@ -100,6 +107,16 @@ export function calcStepPremiumQty(
 ): number {
   if (tierFromQty <= 0 || tierPremiumQty <= 0 || pooledQty <= 0) return 0;
   return Math.floor(pooledQty / tierFromQty) * tierPremiumQty;
+}
+
+/** แปลงหน่วยของแถมจาก C4 (P/B) เป็นข้อความไทย — ใช้ "หีบ" ให้สอดคล้องทั้งแอป */
+export function formatPremiumUnit(unit: string): string {
+  const raw = (unit || "").trim();
+  const u = raw.toUpperCase();
+  if (u === "P") return "ชิ้น";
+  if (u === "B" || raw === "ลัง") return "หีบ";
+  if (raw === "หีบ") return "หีบ";
+  return raw || "หีบ";
 }
 
 export function getPromoForQty(
@@ -134,7 +151,7 @@ export function getPromoForQty(
   if (currentTier) {
     currentPromo =
       currentTier.kind === "premium"
-        ? formatPremiumEarnedLabel(currentTier, qty)
+        ? formatPremiumEarnedLabel(currentTier, qty, currentTier.premiumName)
         : formatPromoBenefitShort(currentTier);
     currentKind = currentTier.kind ?? null;
   }

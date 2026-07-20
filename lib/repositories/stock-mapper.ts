@@ -143,5 +143,6 @@ export function mapStockRow(
     blocked: item.blocked ?? false,
     blockReason: item.blockReason ?? null,
     blockEffectiveFrom: item.blockEffectiveFrom ?? null,
+    freeGood: null,
   };
 }

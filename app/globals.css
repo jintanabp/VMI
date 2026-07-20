@@ -535,7 +535,7 @@ body {
   padding-bottom: 0.5rem;
 }
 
-@media (max-width: 1279px) {
+@media (max-width: 1023px) {
   .vmi-stock-page,
   .vmi-order-page {
     --vmi-customer-sticky-top: 2.75rem;
@@ -586,7 +586,7 @@ body {
   }
 }
 
-@media (min-width: 1280px) {
+@media (min-width: 1024px) {
   .vmi-stock-page,
   .vmi-order-page {
     height: 100dvh;
@@ -640,9 +640,8 @@ body {
   box-shadow: 0 -4px 24px rgb(15 23 42 / 0.08);
 }
 
-/* Half-screen / tablet (768–1279px): show the card list as a tidy 2-column
-   grid so it no longer stretches full width with empty space. */
-@media (min-width: 768px) and (max-width: 1279px) {
+/* Tablet (768–1023px): 2-column card grid — จาก 1024px ขึ้นไปใช้ตารางเต็มจอ */
+@media (min-width: 768px) and (max-width: 1023px) {
   .vmi-card-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));

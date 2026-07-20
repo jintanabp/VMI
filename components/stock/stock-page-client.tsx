@@ -42,6 +42,10 @@ import {
 import { AppHeader } from "@/components/layout/app-header";
 import { PageShell } from "@/components/layout/page-shell";
 import { PromoDetailCell } from "@/components/promo/promo-detail-cell";
+import {
+  FreeGoodMobileCard,
+  FreeGoodStockTableRow,
+} from "@/components/promo/free-good-subrow";
 import { ProductSalesPanel } from "@/components/stock/product-sales-panel";
 import { StopOrderModal } from "@/components/stock/stop-order-modal";
 import {
@@ -76,7 +80,10 @@ import {
   sortRowsByPromoGroup,
   type PromoGroupStripe,
 } from "@/lib/promo/promo-group-display";
-import { enrichStockRowsWithPooledPromo } from "@/lib/promo/stock-pooled-promo";
+import {
+  enrichStockRowsWithPooledPromo,
+  isFreeGoodHostRow,
+} from "@/lib/promo/stock-pooled-promo";
 import type { StockRowComputed } from "@/lib/repositories/types";
 
 interface StockPageClientProps {
@@ -167,10 +174,10 @@ export function StockPageClient({
     refetchOnWindowFocus: false,
   });
 
-  /** true = desktop table (≥1280px); false = mobile list — เรนเดอร์อย่างเดียวลดงานครึ่งหนึ่ง */
+  /** true = desktop table (≥1024px); false = mobile/card list */
   const [isDesktop, setIsDesktop] = useState(false);
   useEffect(() => {
-    const mq = window.matchMedia("(min-width: 1280px)");
+    const mq = window.matchMedia("(min-width: 1024px)");
     const apply = () => setIsDesktop(mq.matches);
     apply();
     mq.addEventListener("change", apply);
@@ -342,7 +349,8 @@ export function StockPageClient({
       const row = displayRows[index];
       if (!row) return 44;
       let h = 44;
-      if (row.promoGroupIsFirst && row.promoGroupStripe != null) h += 28;
+      if (row.promoGroupIsFirst && row.promoGroupStripe != null) h += 34;
+      if (isFreeGoodHostRow(displayRows, index)) h += 48;
       // ใช้ความสูงที่วัดได้จริง (ถ้ามี) แทนค่าคงที่ — กัน scroll กระโดดตอน expand / toggle 7↔30
       if (expanded.has(row.skuId)) h += expandedHeights.current.get(row.skuId) ?? 220;
       return h;
@@ -367,7 +375,7 @@ export function StockPageClient({
 
   useEffect(() => {
     if (shouldVirtualize) rowVirtualizer.measure();
-  }, [expanded, shouldVirtualize, displayRows.length, rowVirtualizer]);
+  }, [expanded, shouldVirtualize, displayRows, rowVirtualizer]);
 
   /** โฟกัส SKU จากหน้า order (กดรหัสสินค้า) */
   useEffect(() => {
@@ -689,9 +697,9 @@ export function StockPageClient({
         role="customer"
       />
 
-      <main className="vmi-stock-main mx-auto w-full min-w-0 max-w-[88rem] px-3 sm:px-4">
-        <div className="vmi-stock-stats shrink-0 py-2 xl:py-3">
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+      <main className="vmi-stock-main mx-auto w-full min-w-0 max-w-none px-3 sm:px-4 lg:px-6">
+        <div className="vmi-stock-stats shrink-0 py-2 lg:py-3">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
             <StockStatCard
               icon={<Package className="h-4 w-4" />}
               label="จำนวน SKU"
@@ -779,7 +787,7 @@ export function StockPageClient({
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
             <Input
               className={cn(
-                "h-8 pl-9 text-xs xl:h-9 xl:text-sm",
+                "h-8 pl-9 text-xs lg:h-9 lg:text-sm",
                 search && "pr-9"
               )}
               placeholder="ค้นหาชื่อ / รหัส / บาร์โค้ด / แบรนด์..."
@@ -921,7 +929,7 @@ export function StockPageClient({
           </div>
         )}
 
-        <div className="vmi-table-wrap vmi-stock-table-wrap min-h-0 flex-1 max-xl:flex-none">
+        <div className="vmi-table-wrap vmi-stock-table-wrap min-h-0 flex-1 max-lg:flex-none">
           <div
             ref={tableScrollRef}
             className="vmi-table-scroll vmi-stock-table-scroll overflow-x-hidden"
@@ -934,7 +942,7 @@ export function StockPageClient({
                 </p>
               ) : (
                 <MobileRowList grid>
-                  {displayRows.map((row) => {
+                  {displayRows.map((row, index) => {
                     const { cvdEst, flag } = orderCvdFlag(row);
                     return (
                     <StockMobileRow
@@ -959,6 +967,7 @@ export function StockPageClient({
                       onToggle={() => toggleRow(row.skuId)}
                       expanded={expanded.has(row.skuId)}
                       onToggleExpand={() => toggleExpand(row.skuId)}
+                      showFreeGoodRow={isFreeGoodHostRow(displayRows, index)}
                     />
                     );
                   })}
@@ -1053,19 +1062,23 @@ export function StockPageClient({
                     </tr>
                   )}
                   {(virtualItems
-                    ? virtualItems.map((v) => displayRows[v.index]!)
-                    : displayRows
-                  ).map((row) => {
+                    ? virtualItems.map((v) => ({
+                        row: displayRows[v.index]!,
+                        index: v.index,
+                      }))
+                    : displayRows.map((row, index) => ({ row, index }))
+                  ).map(({ row, index }) => {
                   const lowStock =
                     row.needsOrder ||
                     (row.stockCvd !== null && row.stockCvd < row.minDays);
                   const isExpanded = expanded.has(row.skuId);
                   const { cvdEst, flag } = orderCvdFlag(row);
+                  const showFreeGoodRow = isFreeGoodHostRow(displayRows, index);
                   return (
                     <Fragment key={row.skuId}>
                     {row.promoGroupIsFirst && row.promoGroupStripe != null && (
                       <tr className="border-t border-slate-100 dark:border-slate-800">
-                        <td colSpan={13} className="px-2 py-1">
+                        <td colSpan={13} className="px-2 pb-1.5 pt-2.5">
                           <span
                             className={cn(
                               "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-semibold ring-1",
@@ -1236,6 +1249,8 @@ export function StockPageClient({
                             qtyToNext={row.qtyToNext}
                             nextPromoQty={row.nextPromoQty}
                             nextKind={row.nextPromoKind}
+                            freeGood={row.freeGood}
+                            showFreeGoodChip={false}
                             hasPromoLadder={row.hasPromoLadder}
                             endsInDays={row.currentPromoEndsInDays}
                             onApplyNext={(qty) =>
@@ -1254,6 +1269,9 @@ export function StockPageClient({
                         </div>
                       </td>
                     </tr>
+                    {showFreeGoodRow && row.freeGood && (
+                      <FreeGoodStockTableRow freeGood={row.freeGood} />
+                    )}
                     {isExpanded && (
                       <tr className="bg-slate-50/40 dark:bg-slate-900/30">
                         <td />
@@ -1302,7 +1320,7 @@ export function StockPageClient({
       </main>
 
       <div className="vmi-action-bar">
-        <div className="mx-auto flex max-w-[88rem] flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+        <div className="mx-auto flex w-full max-w-none flex-col gap-1 px-0 sm:flex-row sm:items-center sm:gap-3">
           <p className="min-w-0 flex-1 truncate text-center text-xs text-slate-600 sm:text-sm dark:text-slate-400">
             {selected.size > 0 ? (
               selectedRedCount > 0 ? (
@@ -1417,6 +1435,7 @@ const StockMobileRow = memo(function StockMobileRow({
   onToggle,
   expanded,
   onToggleExpand,
+  showFreeGoodRow,
 }: {
   row: DisplayRow;
   storeCode: string;
@@ -1433,14 +1452,19 @@ const StockMobileRow = memo(function StockMobileRow({
   expanded: boolean;
   onToggleExpand: () => void;
   onToggle: () => void;
+  showFreeGoodRow?: boolean;
 }) {
   const lowStock =
     row.needsOrder || (row.stockCvd !== null && row.stockCvd < row.minDays);
   const hasPromo = Boolean(
-    row.currentPromo || row.nextPromo || row.hasPromoLadder
+    row.currentPromo ||
+      row.nextPromo ||
+      row.hasPromoLadder ||
+      (row.freeGood && row.freeGood.qty > 0)
   );
 
   return (
+    <>
     <MobileRow
       data-sku-code={row.skuCode}
       selected={selected}
@@ -1456,7 +1480,7 @@ const StockMobileRow = memo(function StockMobileRow({
       )}
     >
       {row.promoGroupIsFirst && row.promoGroupStripe != null && (
-        <div className="px-3 pt-2">
+        <div className="px-3 pb-1.5 pt-2.5">
           <span
             className={cn(
               "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-semibold ring-1",
@@ -1574,6 +1598,8 @@ const StockMobileRow = memo(function StockMobileRow({
             qtyToNext={row.qtyToNext}
             nextPromoQty={row.nextPromoQty}
             nextKind={row.nextPromoKind}
+            freeGood={row.freeGood}
+            showFreeGoodChip={false}
             hasPromoLadder={row.hasPromoLadder}
             endsInDays={row.currentPromoEndsInDays}
             onApplyNext={onSetQty}
@@ -1595,6 +1621,10 @@ const StockMobileRow = memo(function StockMobileRow({
         </MobileRowExtra>
       )}
     </MobileRow>
+    {showFreeGoodRow && row.freeGood && (
+      <FreeGoodMobileCard freeGood={row.freeGood} />
+    )}
+    </>
   );
 });
 

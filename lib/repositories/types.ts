@@ -1,6 +1,16 @@
 import type { PromoTier, Sku, StockItem, Store } from "@prisma/client";
 import type { PromoTierInput, PromoTierKind } from "@/lib/calculations";
 
+/** ของแถมที่คำนวณได้จากโปรขั้นปัจจุบัน (แสดงเป็นแถวย่อยบนหน้า stock) */
+export interface StockFreeGood {
+  premiumProduct: string;
+  premiumName: string;
+  qty: number;
+  unitLabel: string;
+  tierFromQty: number;
+  tierPremiumQty: number;
+}
+
 export interface StockRowComputed {
   storeId: string;
   skuId: string;
@@ -40,6 +50,8 @@ export interface StockRowComputed {
   /** จำนวน SKU ในกลุ่มจาก master C4 */
   promoGroupMembers?: number;
   promoTiers: PromoTierInput[];
+  /** ของแถมที่ได้รับจากโปรปัจจุบัน (null = ไม่ได้แถม) */
+  freeGood?: StockFreeGood | null;
   unitPrice?: number | null;
   /** ส่วนลด C4 ต่อหีบ (บาท) ตามจำนวนแนะนำ */
   discountBahtPerCase?: number | null;

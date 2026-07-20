@@ -71,6 +71,8 @@ export {
   getPromoForQty,
   calcNetUnitPrice,
   calcLineAmount,
+  calcStepPremiumQty,
+  formatPremiumUnit,
   isBenefitTier,
 } from "./promo";
 

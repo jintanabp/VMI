@@ -372,17 +372,21 @@ export function PromoInspectorTrigger({
     <>
       <button
         type="button"
-        title="ดูโปร C4 / กลุ่มสินค้า"
+        title="ดูโปรโมชั่นกลุ่ม / บันได C4"
+        aria-label="ดูโปรโมชั่นกลุ่ม"
         onClick={(e) => {
           e.stopPropagation();
           setOpen(true);
         }}
         className={cn(
-          "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300",
+          "inline-flex h-7 shrink-0 items-center gap-1 rounded-md bg-sky-100 px-1.5 text-sky-800 ring-1 ring-sky-300 transition-colors",
+          "hover:bg-sky-200 hover:ring-sky-400",
+          "dark:bg-sky-500/20 dark:text-sky-200 dark:ring-sky-500/40 dark:hover:bg-sky-500/30",
           className
         )}
       >
-        <Eye className="h-3.5 w-3.5 opacity-70" />
+        <Eye className="h-3.5 w-3.5 shrink-0" strokeWidth={2.25} />
+        <span className="text-[10px] font-bold leading-none">ดูโปร</span>
       </button>
       {open && (
         <C4PromoModal
