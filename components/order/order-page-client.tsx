@@ -1,5 +1,6 @@
 "use client";
 
+import { appPath } from "@/lib/paths";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation } from "@tanstack/react-query";
@@ -167,7 +168,7 @@ export function OrderPageClient({
     if (lines.length === 0) return;
     const ctrl = new AbortController();
     const timer = setTimeout(() => {
-      void fetch("/api/promo/lookup", {
+      void fetch(appPath("/api/promo/lookup"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -325,7 +326,7 @@ export function OrderPageClient({
 
   const submitMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch("/api/orders", {
+      const res = await fetch(appPath("/api/orders"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -1,8 +1,11 @@
+name: vmi
+
 services:
   vmi:
     build:
       context: .
       dockerfile: docker/Dockerfile
+    container_name: vmi
     env_file: .env
     environment:
       NODE_ENV: production
@@ -11,14 +14,14 @@ services:
       BACKUP_DIR: /app/backups
       MASTER_REFRESH_ENABLED: "true"
     ports:
-      - "127.0.0.1:3001:3000"
+      - "127.0.0.1:3002:3000"
     volumes:
       - vmi_data:/app/data
       - vmi_backups:/app/backups
       - vmi_logs:/app/logs
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:3000/vmi/api/health"]
       interval: 30s
       timeout: 10s
       retries: 5

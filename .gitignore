@@ -56,3 +56,7 @@ next-env.d.ts
 # backups
 /backups/
 /data/logs/
+
+# server deploy artifacts (local / server only — do not publish)
+/deploy/
+/docs/superpowers/

@@ -1,5 +1,6 @@
 "use client";
 
+import { appPath } from "@/lib/paths";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { BarChart3, TrendingUp } from "lucide-react";
@@ -86,7 +87,7 @@ export function ProductSalesPanel({
     queryFn: async () => {
       const params = new URLSearchParams({ sku: skuCode, days: String(viewDays) });
       if (fromDb) params.set("fromDb", fromDb);
-      const r = await fetch(`/api/sales/daily?${params.toString()}`);
+      const r = await fetch(`${appPath("/api/sales/daily")}?${params.toString()}`);
       if (!r.ok) throw new Error("failed to load daily sales");
       return (await r.json()) as SalesResponse;
     },

@@ -1,5 +1,6 @@
 "use client";
 
+import { appPath } from "@/lib/paths";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -78,7 +79,7 @@ function FabricSyncPanel() {
   const [msg, setMsg] = useState("");
 
   async function loadStatus() {
-    const res = await fetch("/api/admin/refresh-status");
+    const res = await fetch(appPath("/api/admin/refresh-status"));
     if (res.ok) setStatusData(await res.json());
   }
 
@@ -98,7 +99,7 @@ function FabricSyncPanel() {
     setLoading(true);
     setMsg("");
     try {
-      const res = await fetch("/api/admin/refresh-masters", { method: "POST" });
+      const res = await fetch(appPath("/api/admin/refresh-masters"), { method: "POST" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "failed");
       setMsg(
@@ -152,13 +153,13 @@ function AdminEmailsSection() {
   const [msg, setMsg] = useState("");
 
   useEffect(() => {
-    fetch("/api/admin/admins")
+    fetch(appPath("/api/admin/admins"))
       .then((r) => (r.ok ? r.json() : []))
       .then((data) => setAdmins(Array.isArray(data) ? data : []));
   }, []);
 
   async function reload() {
-    const data = await fetch("/api/admin/admins").then((r) => r.json());
+    const data = await fetch(appPath("/api/admin/admins")).then((r) => r.json());
     setAdmins(Array.isArray(data) ? data : []);
   }
 
@@ -186,7 +187,7 @@ function AdminEmailsSection() {
               setMsg("");
               const email = newEmail.trim();
               if (!email) return;
-              const res = await fetch("/api/admin/admins", {
+              const res = await fetch(appPath("/api/admin/admins"), {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ email }),
@@ -273,7 +274,7 @@ export function AdminDevClient() {
 
   useEffect(() => {
     if (session?.role !== "admin") return;
-    fetch("/api/admin/store-accounts")
+    fetch(appPath("/api/admin/store-accounts"))
       .then((r) => r.json())
       .then((d: { accounts?: StoreAccountRow[] }) => {
         const rows = Array.isArray(d.accounts) ? d.accounts : [];
@@ -297,7 +298,7 @@ export function AdminDevClient() {
   async function startSalesPreview(email: string, code?: string) {
     const codeOnly =
       email.startsWith("__unmapped__:") || email.startsWith("__code_preview__:");
-    const res = await fetch("/api/auth/admin/preview-sales", {
+    const res = await fetch(appPath("/api/auth/admin/preview-sales"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(
@@ -386,7 +387,7 @@ export function AdminDevClient() {
                   size="sm"
                   variant="outline"
                   onClick={async () => {
-                    await fetch("/api/auth/admin/exit-preview", { method: "POST" });
+                    await fetch(appPath("/api/auth/admin/exit-preview"), { method: "POST" });
                     window.location.reload();
                   }}
                 >
@@ -398,7 +399,7 @@ export function AdminDevClient() {
                   size="sm"
                   variant="outline"
                   onClick={async () => {
-                    await fetch("/api/auth/admin/exit-sales-preview", { method: "POST" });
+                    await fetch(appPath("/api/auth/admin/exit-sales-preview"), { method: "POST" });
                     window.location.reload();
                   }}
                 >
@@ -696,7 +697,7 @@ function StoreAccountsPanel({
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/admin/store-accounts");
+      const res = await fetch(appPath("/api/admin/store-accounts"));
       const data = await res.json();
       const rows: StoreAccountRow[] = Array.isArray(data.accounts)
         ? data.accounts
@@ -713,7 +714,7 @@ function StoreAccountsPanel({
 
   useEffect(() => {
     void load();
-    fetch("/api/vda")
+    fetch(appPath("/api/vda"))
       .then((r) => r.json())
       .then((d: { sources?: string[] }) =>
         setVdaOptions(Array.isArray(d.sources) ? d.sources : [])
@@ -724,7 +725,7 @@ function StoreAccountsPanel({
   async function act(email: string, body: Record<string, unknown>) {
     setBusy(email);
     try {
-      const res = await fetch("/api/admin/store-accounts", {
+      const res = await fetch(appPath("/api/admin/store-accounts"), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, ...body }),

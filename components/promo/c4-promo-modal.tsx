@@ -1,5 +1,6 @@
 "use client";
 
+import { appPath } from "@/lib/paths";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Eye, Gift, X } from "lucide-react";
@@ -77,7 +78,7 @@ export function C4PromoModal({
     const group = promoGroup?.trim();
     if (group) q.set("group", group);
     else q.set("sku", skuCode);
-    fetch(`/api/promo/inspector?${q}`)
+    fetch(`${appPath("/api/promo/inspector")}?${q}`)
       .then((r) => (r.ok ? r.json() : r.json().then((e) => Promise.reject(e))))
       .then((payload: PromoInspectorResult) => {
         if (!alive) return;

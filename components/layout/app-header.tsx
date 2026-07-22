@@ -1,5 +1,6 @@
 "use client";
 
+import { appPath } from "@/lib/paths";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ArrowLeft, LogOut, Package, User } from "lucide-react";
@@ -64,11 +65,11 @@ export function AppHeader({
 
   async function exitToAdminHub() {
     if (salesPreview) {
-      await fetch("/api/auth/admin/exit-sales-preview", { method: "POST" });
+      await fetch(appPath("/api/auth/admin/exit-sales-preview"), { method: "POST" });
     } else if (adminPreview) {
-      await fetch("/api/auth/admin/exit-preview", { method: "POST" });
+      await fetch(appPath("/api/auth/admin/exit-preview"), { method: "POST" });
     }
-    window.location.href = "/admin";
+    window.location.href = appPath("/admin");
   }
 
   type BackNav =
@@ -165,15 +166,15 @@ export function AppHeader({
               return;
             }
             if (role === "customer") {
-              fetch("/api/auth/customer/logout", { method: "POST" }).then(
+              fetch(appPath("/api/auth/customer/logout"), { method: "POST" }).then(
                 () => {
-                  window.location.href = "/";
+                  window.location.href = appPath("/");
                 }
               );
             } else {
-              fetch("/api/auth/msal/session", { method: "DELETE" }).then(
+              fetch(appPath("/api/auth/msal/session"), { method: "DELETE" }).then(
                 () => {
-                  window.location.href = "/";
+                  window.location.href = appPath("/");
                 }
               );
             }

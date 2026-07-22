@@ -1,5 +1,6 @@
 "use client";
 
+import { appPath } from "@/lib/paths";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
@@ -11,7 +12,7 @@ export function SalesNav() {
   const pathname = usePathname();
   const { data } = useQuery<{ unseenCount: number }>({
     queryKey: ["sales-notifications"],
-    queryFn: () => fetch("/api/sales/notifications").then((r) => r.json()),
+    queryFn: () => fetch(appPath("/api/sales/notifications")).then((r) => r.json()),
     refetchInterval: 60_000,
   });
   const unseen = data?.unseenCount ?? 0;
@@ -20,7 +21,7 @@ export function SalesNav() {
   const { data: pending } = useQuery<{ id: string }[]>({
     queryKey: ["orders", "pending_approval", "nav-count"],
     queryFn: async () => {
-      const r = await fetch("/api/orders?status=pending_approval");
+      const r = await fetch(appPath("/api/orders?status=pending_approval"));
       if (!r.ok) return [];
       const d = await r.json();
       return Array.isArray(d) ? d : [];

@@ -1,5 +1,6 @@
 "use client";
 
+import { appPath } from "@/lib/paths";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Filter, Sparkles } from "lucide-react";
@@ -134,7 +135,7 @@ export function OrderReviewTable({ storeCode, items }: OrderReviewTableProps) {
   }>({
     queryKey: ["order-promo", storeCode, lineKey],
     queryFn: () =>
-      fetch("/api/sales/order-promo", {
+      fetch(appPath("/api/sales/order-promo"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

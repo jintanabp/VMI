@@ -4,6 +4,7 @@ import {
   BrowserAuthError,
   PublicClientApplication,
 } from "@azure/msal-browser";
+import { appPath } from "@/lib/paths";
 import { loginRequest, msalConfig } from "./msal-config";
 
 let msalInstance: PublicClientApplication | null = null;
@@ -32,8 +33,8 @@ function createMsalConfig() {
     auth: {
       ...msalConfig.auth,
       clientId: getClientId(),
-      redirectUri: `${origin}/auth/callback`,
-      postLogoutRedirectUri: `${origin}/`,
+      redirectUri: `${origin}${appPath("/auth/callback")}`,
+      postLogoutRedirectUri: `${origin}${appPath("/")}`,
     },
   };
 }
@@ -105,7 +106,7 @@ export async function handleAuthRedirect(): Promise<{
   }
 
   if (redirectResult && typeof window !== "undefined") {
-    window.history.replaceState({}, document.title, "/auth/callback");
+    window.history.replaceState({}, document.title, appPath("/auth/callback"));
   }
 
   return { instance, redirectResult, account };
@@ -138,7 +139,7 @@ export function getAccountEmail(account: AccountInfo): string | null {
 }
 
 export async function createServerSession(email: string, name?: string) {
-  const res = await fetch("/api/auth/msal/session", {
+  const res = await fetch(appPath("/api/auth/msal/session"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
@@ -160,7 +161,7 @@ export async function createServerSession(email: string, name?: string) {
         ? "/admin"
         : "/sales/orders";
 
-  window.location.href = redirectTo;
+  window.location.href = appPath(redirectTo);
   return data as {
     ok: boolean;
     user: { role: "sales" | "admin"; email: string };
@@ -173,7 +174,7 @@ export async function loginWithMicrosoftRedirect() {
   const instance = await initMsal();
   await instance.loginRedirect({
     ...loginRequest,
-    redirectUri: `${window.location.origin}/auth/callback`,
+    redirectUri: `${window.location.origin}${appPath("/auth/callback")}`,
   });
 }
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { appPath } from "@/lib/paths";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Mail, Lock, Clock, ShieldX, KeyRound, Warehouse } from "lucide-react";
@@ -24,7 +25,7 @@ export function StoreLoginForm() {
 
   async function loadVdaOptions() {
     try {
-      const res = await fetch("/api/vda");
+      const res = await fetch(appPath("/api/vda"));
       const data = await res.json();
       setVdaOptions(Array.isArray(data.sources) ? data.sources : []);
     } catch {
@@ -52,7 +53,7 @@ export function StoreLoginForm() {
     setError("");
     setInfo("");
     try {
-      const res = await fetch("/api/auth/store/request", {
+      const res = await fetch(appPath("/api/auth/store/request"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, vdaCode }),
@@ -90,7 +91,7 @@ export function StoreLoginForm() {
     }
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/store/set-password", {
+      const res = await fetch(appPath("/api/auth/store/set-password"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
@@ -112,7 +113,7 @@ export function StoreLoginForm() {
     setError("");
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/store/login", {
+      const res = await fetch(appPath("/api/auth/store/login"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
@@ -134,7 +135,7 @@ export function StoreLoginForm() {
     setError("");
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/store/request-reset", {
+      const res = await fetch(appPath("/api/auth/store/request-reset"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),

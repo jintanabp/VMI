@@ -1,5 +1,6 @@
 "use client";
 
+import { appPath } from "@/lib/paths";
 import {
   Fragment,
   memo,
@@ -165,7 +166,7 @@ export function StockPageClient({
   const { data, isLoading, isError, refetch } = useQuery<StockApiResponse>({
     queryKey: ["stock"],
     queryFn: async () => {
-      const res = await fetch("/api/stock", { cache: "no-store" });
+      const res = await fetch(appPath("/api/stock"), { cache: "no-store" });
       if (!res.ok) throw new Error(`โหลดสต็อกไม่สำเร็จ (${res.status})`);
       const raw = await res.json();
       if (isStockPayload(raw)) return raw;
@@ -310,7 +311,7 @@ export function StockPageClient({
     setRefreshing(true);
     setRefreshMsg("");
     try {
-      const res = await fetch("/api/stock/refresh", { method: "POST" });
+      const res = await fetch(appPath("/api/stock/refresh"), { method: "POST" });
       const data = (await res.json().catch(() => ({}))) as {
         success?: boolean;
         message?: string;
@@ -448,7 +449,7 @@ export function StockPageClient({
 
   async function unblock(skuId: string) {
     if (!confirm("ยกเลิกการหยุดสั่งสินค้านี้?")) return;
-    const res = await fetch("/api/store/blocklist", {
+    const res = await fetch(appPath("/api/store/blocklist"), {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ skuIds: [skuId] }),

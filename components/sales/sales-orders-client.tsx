@@ -1,5 +1,6 @@
 "use client";
 
+import { appPath } from "@/lib/paths";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSalesSession } from "@/hooks/use-sales-session";
@@ -74,7 +75,7 @@ export function SalesOrdersClient() {
     }>;
   }>({
     queryKey: ["sales-vda-access"],
-    queryFn: () => fetch("/api/sales/vda-access").then((r) => r.json()),
+    queryFn: () => fetch(appPath("/api/sales/vda-access")).then((r) => r.json()),
     enabled: !!session && session.role !== "admin",
   });
 
@@ -94,14 +95,14 @@ export function SalesOrdersClient() {
 
   const { data: salesReps = [] } = useQuery<SalesRep[]>({
     queryKey: ["admin-salesmen"],
-    queryFn: () => fetch("/api/admin/salesmen").then((r) => r.json()),
+    queryFn: () => fetch(appPath("/api/admin/salesmen")).then((r) => r.json()),
     enabled: isAdmin,
   });
 
   const { data: vdaSources = [] } = useQuery<string[]>({
     queryKey: ["vda-sources"],
     queryFn: () =>
-      fetch("/api/vda")
+      fetch(appPath("/api/vda"))
         .then((r) => r.json())
         .then((d) => (Array.isArray(d.sources) ? d.sources : [])),
     enabled: isAdmin,
@@ -121,7 +122,7 @@ export function SalesOrdersClient() {
     if (!code || code === vdaAccess?.salesmanCode || switchingCode) return;
     setSwitchingCode(true);
     try {
-      const res = await fetch("/api/sales/active-code", {
+      const res = await fetch(appPath("/api/sales/active-code"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code }),
@@ -185,7 +186,7 @@ export function SalesOrdersClient() {
       action: string;
       reason?: string;
     }) => {
-      const res = await fetch("/api/orders", {
+      const res = await fetch(appPath("/api/orders"), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

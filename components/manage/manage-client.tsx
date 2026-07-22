@@ -1,5 +1,6 @@
 "use client";
 
+import { appPath } from "@/lib/paths";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -67,7 +68,7 @@ export function ManageClient({
   const stockQuery = useQuery<StockApiResponse>({
     queryKey: ["stock"],
     queryFn: () =>
-      fetch("/api/stock", { cache: "no-store" }).then((r) => r.json()),
+      fetch(appPath("/api/stock"), { cache: "no-store" }).then((r) => r.json()),
     staleTime: 60_000,
     refetchOnMount: true,
     refetchOnWindowFocus: false,
@@ -76,7 +77,7 @@ export function ManageClient({
   const thresholdsQuery = useQuery<{ groups: GroupThreshold[] }>({
     queryKey: ["thresholds"],
     queryFn: () =>
-      fetch("/api/store/thresholds", { cache: "no-store" }).then((r) =>
+      fetch(appPath("/api/store/thresholds"), { cache: "no-store" }).then((r) =>
         r.json()
       ),
     staleTime: 60_000,
@@ -86,7 +87,7 @@ export function ManageClient({
 
   const blocklistQuery = useQuery<{ blocks: unknown[] }>({
     queryKey: ["store-blocklist"],
-    queryFn: () => fetch("/api/store/blocklist").then((r) => r.json()),
+    queryFn: () => fetch(appPath("/api/store/blocklist")).then((r) => r.json()),
   });
   const blockCount = blocklistQuery.data?.blocks?.length ?? 0;
 
@@ -170,7 +171,7 @@ export function ManageClient({
     setResetting(true);
     setResetMsg("");
     try {
-      const res = await fetch("/api/auth/store/request-reset", {
+      const res = await fetch(appPath("/api/auth/store/request-reset"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
@@ -405,7 +406,7 @@ function StoreBlocklistSection() {
   const qc = useQueryClient();
   const { data, isLoading } = useQuery<{ blocks: BlockItem[] }>({
     queryKey: ["store-blocklist"],
-    queryFn: () => fetch("/api/store/blocklist").then((r) => r.json()),
+    queryFn: () => fetch(appPath("/api/store/blocklist")).then((r) => r.json()),
   });
   const blocks = data?.blocks ?? [];
 
@@ -467,7 +468,7 @@ function BlockRow({
     if (!reason.trim()) return;
     setBusy(true);
     try {
-      const res = await fetch("/api/store/blocklist", {
+      const res = await fetch(appPath("/api/store/blocklist"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -489,7 +490,7 @@ function BlockRow({
     if (!confirm("ยกเลิกการหยุดสั่งสินค้านี้? ระบบจะกลับมาแนะนำสั่งตามปกติ")) return;
     setBusy(true);
     try {
-      const res = await fetch("/api/store/blocklist", {
+      const res = await fetch(appPath("/api/store/blocklist"), {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ skuIds: [block.skuId] }),
@@ -637,7 +638,7 @@ function BulkBrandThresholds({
     setMsg("");
     setError("");
     try {
-      const res = await fetch("/api/store/thresholds", {
+      const res = await fetch(appPath("/api/store/thresholds"), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -899,7 +900,7 @@ function SectionCard({
     setError("");
     setSavedFlag(false);
     try {
-      const res = await fetch("/api/store/thresholds", {
+      const res = await fetch(appPath("/api/store/thresholds"), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -928,7 +929,7 @@ function SectionCard({
     setError("");
     setSavedFlag(false);
     try {
-      const res = await fetch("/api/store/thresholds", {
+      const res = await fetch(appPath("/api/store/thresholds"), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -963,7 +964,7 @@ function SectionCard({
     setError("");
     setSavedFlag(false);
     try {
-      const res = await fetch("/api/store/thresholds", {
+      const res = await fetch(appPath("/api/store/thresholds"), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1148,7 +1149,7 @@ function SkuOverrideRow({
     setSaving(true);
     setSavedFlag(false);
     try {
-      const res = await fetch("/api/store/thresholds", {
+      const res = await fetch(appPath("/api/store/thresholds"), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1171,7 +1172,7 @@ function SkuOverrideRow({
     setResetting(true);
     setSavedFlag(false);
     try {
-      const res = await fetch("/api/store/thresholds", {
+      const res = await fetch(appPath("/api/store/thresholds"), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

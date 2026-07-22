@@ -1,3 +1,5 @@
+import { appPath } from "@/lib/paths";
+
 const SCOPES = "openid profile email User.Read";
 const PKCE_KEY = "vmi_ms_oauth_pkce";
 const STATE_KEY = "vmi_ms_oauth_state";
@@ -16,7 +18,7 @@ function getTenantId() {
 
 /** Redirect URI ที่ต้องลงทะเบียนใน Azure SPA — ตรงกับ path นี้ทุกตัวอักษร */
 export function getMicrosoftCallbackPath() {
-  return "/auth/callback";
+  return appPath("/auth/callback");
 }
 
 export function getMicrosoftRedirectUri() {
@@ -148,7 +150,7 @@ export async function completeMicrosoftLogin(code: string, returnedState: string
   const idToken = await exchangeCodeInBrowser(code, verifier);
   const { email, name } = parseIdToken(idToken);
 
-  const res = await fetch("/api/auth/msal/session", {
+  const res = await fetch(appPath("/api/auth/msal/session"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
@@ -163,10 +165,12 @@ export async function completeMicrosoftLogin(code: string, returnedState: string
     );
   }
 
-  window.location.href =
+  const redirectTo =
     typeof data.redirectTo === "string"
       ? data.redirectTo
       : data.user?.role === "admin"
         ? "/admin"
         : "/sales/orders";
+
+  window.location.href = appPath(redirectTo);
 }

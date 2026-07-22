@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "crypto";
+import { appPath } from "@/lib/paths";
 
 const SCOPES = "openid profile email User.Read offline_access";
 
@@ -33,7 +34,7 @@ export function createPkcePair() {
 }
 
 export function getMicrosoftCallbackUrl(origin: string) {
-  return `${origin}/api/auth/microsoft/callback`;
+  return `${origin}${appPath("/api/auth/microsoft/callback")}`;
 }
 
 export function buildMicrosoftAuthorizeUrl(

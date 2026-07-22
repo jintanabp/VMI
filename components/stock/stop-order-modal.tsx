@@ -1,5 +1,6 @@
 "use client";
 
+import { appPath } from "@/lib/paths";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Ban } from "lucide-react";
@@ -38,7 +39,7 @@ export function StopOrderModal({
     setSaving(true);
     setError("");
     try {
-      const res = await fetch("/api/store/blocklist", {
+      const res = await fetch(appPath("/api/store/blocklist"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -1,5 +1,6 @@
 "use client";
 
+import { appPath } from "@/lib/paths";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { completeMicrosoftLogin } from "@/lib/auth/microsoft-oauth-client";
@@ -40,7 +41,7 @@ export default function MicrosoftCallbackClient() {
           <>
             <p className="text-sm font-medium text-red-600">{error}</p>
             <a
-              href="/login?mode=sales"
+              href={appPath("/login?mode=sales")}
               className="mt-6 inline-block text-sm font-semibold text-teal-700 hover:underline"
             >
               ลอง Sign in ใหม่

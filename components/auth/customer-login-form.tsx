@@ -1,5 +1,6 @@
 "use client";
 
+import { appPath } from "@/lib/paths";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Loader2, Warehouse } from "lucide-react";
@@ -25,7 +26,7 @@ export function CustomerLoginForm({
   const [error, setError] = useState("");
 
   useEffect(() => {
-    fetch("/api/vda")
+    fetch(appPath("/api/vda"))
       .then((r) => r.json())
       .then((data: { sources?: string[] }) => {
         const sources = Array.isArray(data.sources) ? data.sources : [];
@@ -42,7 +43,7 @@ export function CustomerLoginForm({
     setLoading(true);
     setError("");
 
-    const res = await fetch("/api/auth/customer/login", {
+    const res = await fetch(appPath("/api/auth/customer/login"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ vda }),

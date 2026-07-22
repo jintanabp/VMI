@@ -30,7 +30,8 @@ npm run db:setup    # สร้าง DB + seed (โหมด dummy)
 npm run dev         # ต้องใช้ port 3000
 ```
 
-เปิด [http://localhost:3000](http://localhost:3000)
+เปิด [http://localhost:3000/vmi/](http://localhost:3000/vmi/)  
+(`basePath` เป็น `/vmi` — path ในแอปทั้งหมดอยู่ภายใต้ `/vmi`)
 
 ### โหมดข้อมูล
 
@@ -54,7 +55,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 | `Port 3000 ถูกใช้อยู่` | `npm run dev:stop` แล้ว `npm run dev` |
 | `ไม่พบ database` | `npm run db:setup` |
 | Login Microsoft ไม่ได้ | รันที่ **port 3000** และตรวจ Redirect URI ใน Azure |
-| ตรวจสอบระบบ | `http://localhost:3000/api/health` → `{"ok":true}` |
+| ตรวจสอบระบบ | `http://localhost:3000/vmi/api/health` → มี `"ok":true` |
 | chunk หาย / build แปลก | `npm run clean` แล้ว `npm run dev` |
 
 ## ทดสอบการใช้งาน
@@ -85,15 +86,15 @@ ADMIN_EMAILS=<อีเมลของคุณ>
 **Authentication** → **Single-page application** → เพิ่ม:
 
 ```
-http://localhost:3000/auth/callback
+http://localhost:3000/vmi/auth/callback
 ```
 
 | ถูก | ผิด |
 |-----|-----|
-| `http://localhost:3000/auth/callback` | มี `/` ท้าย URL |
+| `http://localhost:3000/vmi/auth/callback` | มี `/` ท้าย URL |
 | อยู่ใต้ **SPA** | อยู่ใต้ Web เท่านั้น |
 
-Production: ตั้ง `NEXT_PUBLIC_AZURE_REDIRECT_URI=https://<domain>/auth/callback` ให้ตรงกับ Azure
+Production: ตั้ง `NEXT_PUBLIC_AZURE_REDIRECT_URI=https://spc-ai.sahapat.com/vmi/auth/callback` ให้ตรงกับ Azure
 
 #### 3. Login
 
@@ -161,7 +162,7 @@ ALERT_EMAIL=you@company.com
 cp .env.example .env
 # ใส่ค่าจริง: ONELAKE_*, STOCK_ONELAKE_*, NEXTAUTH_SECRET,
 # ADMIN_EMAILS, ALERT_EMAIL, NEXT_PUBLIC_AZURE_AD_*,
-# NEXT_PUBLIC_AZURE_REDIRECT_URI (production domain)
+# NEXT_PUBLIC_AZURE_REDIRECT_URI=https://spc-ai.sahapat.com/vmi/auth/callback
 ```
 
 > **สำคัญ:** ต้องมี `.env` ครบ **ก่อน** `docker compose build` — ค่า `NEXT_PUBLIC_*` ถูก bake ตอน build
@@ -170,10 +171,11 @@ cp .env.example .env
 
 ```bash
 docker compose up -d --build
-curl http://127.0.0.1:3001/api/health
+curl -s http://127.0.0.1:3002/vmi/api/health
 ```
 
-แอปรันที่ **port 3001** (bind localhost)
+แอปรันที่ **host port 3002** → container `3000` (bind `127.0.0.1`)  
+Compose project / container name: **`vmi`**
 
 Container ทำ `prisma migrate deploy` อัตโนมัติตอน start
 
@@ -182,23 +184,30 @@ Container ทำ `prisma migrate deploy` อัตโนมัติตอน st
 - `vmi_backups` — backup DB หลัง sync สำเร็จ
 - `vmi_logs` — PO export stub
 
-### 3. nginx (ตัวอย่าง)
+### 3. nginx (path `/vmi/` บน spc-ai)
+
+Next.js ใช้ `basePath: '/vmi'` — **ห้ามตัด prefix** ใน `proxy_pass`:
 
 ```nginx
-server {
-    listen 443 ssl;
-    server_name vmi.yourcompany.com;
+location /vmi/ {
+    proxy_pass         http://127.0.0.1:3002;  # ไม่มี / ท้าย
+    proxy_set_header   Host              $host;
+    proxy_set_header   X-Real-IP         $remote_addr;
+    proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header   X-Forwarded-Proto $scheme;
+    client_max_body_size 50M;
+    proxy_read_timeout   120s;
+    proxy_send_timeout   120s;
+}
 
-    location / {
-        proxy_pass http://127.0.0.1:3001;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
+location = /vmi {
+    return 301 /vmi/;
 }
 ```
 
-เพิ่ม Redirect URI ใน Azure: `https://vmi.yourcompany.com/auth/callback`
+เพิ่ม Redirect URI ใน Azure (SPA): `https://spc-ai.sahapat.com/vmi/auth/callback`
+
+โฟลเดอร์ `deploy/` (scripts / Nginx / OliveTin snippets) เก็บ **local บน server เท่านั้น** — ไม่ขึ้น git
 
 ### 4. Backup มือ
 

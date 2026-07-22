@@ -1,5 +1,6 @@
 "use client";
 
+import { appPath } from "@/lib/paths";
 import { useEffect, useState } from "react";
 import type { SalesSession } from "@/lib/auth/sales-session";
 
@@ -8,7 +9,7 @@ export function useSalesSession() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/auth/msal/me")
+    fetch(appPath("/api/auth/msal/me"))
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => setSession(data?.user ?? null))
       .finally(() => setLoading(false));

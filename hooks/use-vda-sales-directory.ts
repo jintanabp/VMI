@@ -1,5 +1,6 @@
 "use client";
 
+import { appPath } from "@/lib/paths";
 import { useCallback, useEffect, useState } from "react";
 
 export interface PersonCodeAssignment {
@@ -53,7 +54,7 @@ export function useVdaSalesDirectory(enabled = true) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/admin/vda-sales");
+      const res = await fetch(appPath("/api/admin/vda-sales"));
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error ?? `HTTP ${res.status}`);

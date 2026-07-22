@@ -1,5 +1,6 @@
 "use client";
 
+import { appPath } from "@/lib/paths";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, Check, Loader2, Store } from "lucide-react";
@@ -43,7 +44,7 @@ export function SalesNotificationsClient() {
   }>({
     queryKey: ["sales-notifications"],
     queryFn: async () => {
-      const res = await fetch("/api/sales/notifications");
+      const res = await fetch(appPath("/api/sales/notifications"));
       if (!res.ok) throw new Error(`โหลดการแจ้งเตือนไม่สำเร็จ (${res.status})`);
       return (await res.json()) as { items: NotiItem[]; unseenCount: number };
     },
@@ -55,7 +56,7 @@ export function SalesNotificationsClient() {
   async function ack(ids?: string[]) {
     setAcking(true);
     try {
-      await fetch("/api/sales/notifications", {
+      await fetch(appPath("/api/sales/notifications"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(ids ? { ids } : {}),
