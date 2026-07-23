@@ -26,12 +26,14 @@ import {
   type StockFilterConfig,
 } from "./stock-filter-config";
 import { fabricStockReady, getStockCoverDirectory } from "./stock-cover";
+import {
+  backdatedSkuCreatedAt,
+  getNewProductDays,
+  repairAnomalousNewSkus,
+  shouldBackdateSkuCreates,
+} from "./sku-created-at";
 
-// สินค้าถือว่า "ใหม่" ถ้า Sku.createdAt อยู่ภายในกี่วันล่าสุด (default 30)
-const NEW_PRODUCT_DAYS = Math.max(
-  0,
-  Number(process.env.NEW_PRODUCT_DAYS ?? 30) || 30
-);
+const NEW_PRODUCT_DAYS = getNewProductDays();
 
 const DEFAULT_MIN_DAYS = 7;
 const DEFAULT_MAX_DAYS = 15;
@@ -109,18 +111,24 @@ async function ensureSkus(
     .map((code) => ({ code, name: nameByCode.get(code)! }));
 
   if (toCreate.length > 0) {
-    // ตาราง Sku ว่างมาก่อน = bulk import ครั้งแรก → ไม่มีประวัติว่าตัวไหน "ใหม่จริง"
-    // backdate createdAt ให้พ้นหน้าต่าง NEW_PRODUCT_DAYS กัน "ทุกสินค้าขึ้นป้ายใหม่พร้อมกัน"
-    // (ครั้งถัดไปที่มี code ใหม่จริงในแคตตาล็อกที่ตั้งไว้แล้ว จะได้ createdAt = ตอนนี้ตามปกติ)
-    const isInitialSeed = (await prisma.sku.count()) === 0;
-    const data = isInitialSeed
-      ? toCreate.map((s) => ({
-          ...s,
-          createdAt: new Date(Date.now() - (NEW_PRODUCT_DAYS + 1) * 86_400_000),
-        }))
+    // bulk seed/catch-up → backdate กันป้าย "ใหม่" ทั้งกระดาน
+    // (รหัสที่เข้ามาทีละน้อยในแคตตาล็อกที่มีอยู่แล้ว ยังได้ createdAt = ตอนนี้)
+    const existingTotal = await prisma.sku.count();
+    const backdate = shouldBackdateSkuCreates(existingTotal, toCreate.length);
+    const stamped = backdate ? backdatedSkuCreatedAt(NEW_PRODUCT_DAYS) : null;
+    const data = stamped
+      ? toCreate.map((s) => ({ ...s, createdAt: stamped }))
       : toCreate;
     await prisma.sku.createMany({ data });
+    if (stamped) {
+      console.info(
+        `[Sku] Bulk-created ${toCreate.length} SKUs with backdated createdAt (existing=${existingTotal})`
+      );
+    }
   }
+
+  // ซ่อม DB ที่เคย sync แล้วขึ้นป้ายใหม่ครบทุกตัว (ครั้งเดียวเมื่อสัดส่วนผิดปกติ)
+  await repairAnomalousNewSkus();
 
   // ชื่อที่เปลี่ยน — เทียบจาก Map (O(n)) เฉพาะ sku ที่มีอยู่แล้ว
   const namesToUpdate: { id: string; name: string }[] = [];
