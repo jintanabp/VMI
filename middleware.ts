@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { CUSTOMER_STORE_COOKIE, SALES_SESSION_COOKIE } from "@/lib/auth/roles";
 
+/** Keep cookie names here — do not import from roles.ts (pulls Prisma into Edge). */
+const CUSTOMER_STORE_COOKIE = "vmi_store_id";
+const SALES_SESSION_COOKIE = "vmi_sales_session";
 const SALES_PREVIEW_COOKIE = "vmi_sales_preview";
 const SALES_PREVIEW_INFO_COOKIE = "vmi_sales_preview_info";
 
@@ -13,29 +15,26 @@ function hasSalesSessionCookie(token: string | undefined) {
   return !!token && token.includes(".");
 }
 
+/**
+ * Next.js bug: basePath + middleware on the index route (`/`) can return an empty
+ * 200 body. Only run middleware on protected routes — never on `/`.
+ * @see https://github.com/vercel/next.js/issues/64910
+ */
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-
-  if (
-    pathname.startsWith("/api") ||
-    pathname.startsWith("/_next") ||
-    pathname.startsWith("/auth") ||
-    pathname === "/login" ||
-    pathname === "/favicon.ico"
-  ) {
-    return NextResponse.next();
-  }
-
-  if (pathname === "/") {
-    return NextResponse.next();
-  }
 
   const storeId = request.cookies.get(CUSTOMER_STORE_COOKIE)?.value;
   const salesToken = request.cookies.get(SALES_SESSION_COOKIE)?.value;
 
-  const isCustomerRoute = customerRoutes.some((r) => pathname.startsWith(r));
-  const isSalesRoute = salesRoutes.some((r) => pathname.startsWith(r));
-  const isAdminRoute = adminRoutes.some((r) => pathname.startsWith(r));
+  const isCustomerRoute = customerRoutes.some(
+    (r) => pathname === r || pathname.startsWith(`${r}/`)
+  );
+  const isSalesRoute = salesRoutes.some(
+    (r) => pathname === r || pathname.startsWith(`${r}/`)
+  );
+  const isAdminRoute = adminRoutes.some(
+    (r) => pathname === r || pathname.startsWith(`${r}/`)
+  );
 
   if (isCustomerRoute && !storeId) {
     return NextResponse.redirect(new URL("/login?mode=customer", request.url));
@@ -56,5 +55,11 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  matcher: [
+    "/stock/:path*",
+    "/order/:path*",
+    "/manage/:path*",
+    "/sales/:path*",
+    "/admin/:path*",
+  ],
 };
