@@ -7,43 +7,35 @@ import {
   useCallback,
   useDeferredValue,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
   type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
-import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
-  Search,
   ShoppingCart,
   BarChart3,
   Clock,
   RefreshCw,
-  Filter,
   Package,
   Boxes,
   Wallet,
   CalendarClock,
-  Bell,
   AlertTriangle,
   Ban,
   Sparkles,
   CalendarOff,
-  X,
   Check,
   Minus,
   Plus,
   RotateCcw,
-  ArrowDownUp,
   ArrowUp,
   ArrowDown,
+  ChevronsUpDown,
   History,
-  Download,
 } from "lucide-react";
 import { AppHeader } from "@/components/layout/app-header";
 import { PageShell } from "@/components/layout/page-shell";
@@ -59,6 +51,11 @@ import {
 import { ProductSalesPanel } from "@/components/stock/product-sales-panel";
 import { StopOrderModal } from "@/components/stock/stop-order-modal";
 import {
+  StockToolbar,
+  type StockViewCounts,
+} from "@/components/stock/stock-toolbar";
+import {
+  StockAvgSalesCell,
   StockCaseCell,
   StockDiscountPerCaseCell,
   StockListPriceCell,
@@ -67,7 +64,6 @@ import {
 import { FlagBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
 import {
   MobileRow,
   MobileRowExtra,
@@ -78,25 +74,32 @@ import {
 } from "@/components/ui/mobile-row";
 import { cn, looksLikeProductCodeQuery, matchesProductSearch } from "@/lib/utils";
 import {
-  calcCvdEstimate,
   formatBaht,
   formatDays,
   formatNumber,
-  getCvdFlag,
+  getOrderCvdFlag,
+  isBenefitTier,
   type CvdFlag,
+  type CvdFlagReason,
+  type OrderCvdResult,
 } from "@/lib/calculations";
 import {
   DEFAULT_STOCK_SORT,
-  STOCK_SORT_OPTIONS,
-  isFixedOrderSort,
+  isStockSortKey,
   sortStockRows,
   type StockSortKey,
   type StockSortState,
 } from "@/lib/stock/sort";
 import {
+  DEFAULT_STOCK_FILTERS,
+  filterStockRows,
+  isCriticalStock,
+  isStockView,
+  type StockFilterState,
+} from "@/lib/stock/filters";
+import {
   annotatePromoGroupStripes,
   followsPooledPromoGroup,
-  isPooledPromoGroup,
   promoGroupRowBgClass,
   type PromoGroupStripe,
 } from "@/lib/promo/promo-group-display";
@@ -133,17 +136,8 @@ function isStockPayload(data: unknown): data is StockApiResponse {
   );
 }
 
-type ViewScope = { needsOnly: boolean; brand: string | null; section: string | null };
-
-/** สต็อกวิกฤต: จะหมดก่อนถึงจำนวนวันขั้นต่ำ (CVD < MIN) ทั้งที่ยังมีการขาย → เสี่ยงขาดสต็อก
- *  (stockCvd เป็น null อยู่แล้วเมื่อ avgSales = 0 จึงถือว่า "มีการขาย" โดยปริยาย) */
-function isCriticalStock(r: {
-  stockCvd: number | null;
-  minDays: number;
-  avgSales: number;
-}): boolean {
-  return r.stockCvd !== null && r.avgSales > 0 && r.stockCvd < r.minDays;
-}
+const SORT_STORAGE_KEY = "vmi_stock_sort";
+const FILTER_STORAGE_KEY = "vmi_stock_filters";
 
 type DisplayRow = StockRowComputed & {
   promoGroupStripe?: PromoGroupStripe | null;
@@ -163,16 +157,9 @@ export function StockPageClient({
   const deferredSearch = useDeferredValue(search);
   const [qtyOverrides, setQtyOverrides] = useState<Record<string, number>>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [viewScope, setViewScope] = useState<ViewScope>({
-    needsOnly: false,
-    brand: null,
-    section: null,
-  });
+  const [filters, setFilters] = useState<StockFilterState>(DEFAULT_STOCK_FILTERS);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshMsg, setRefreshMsg] = useState("");
-  // สินค้าใหม่ + หยุดสั่ง (blocklist)
-  const [showNewOnly, setShowNewOnly] = useState(false);
-  const [showCriticalOnly, setShowCriticalOnly] = useState(false);
   const [stopOpen, setStopOpen] = useState(false);
   const [sort, setSort] = useState<StockSortState>(DEFAULT_STOCK_SORT);
   const [sessionReady, setSessionReady] = useState(false);
@@ -239,17 +226,25 @@ export function StockPageClient({
     return `${base} · ${name}`;
   }, [activeVda, storeName]);
 
-  /** จำการเรียงลำดับที่ผู้ใช้เลือกไว้ข้ามการรีเฟรชหน้า */
+  /** จำการเรียงลำดับ + ตัวกรองที่ผู้ใช้เลือกไว้ข้ามการรีเฟรชหน้า */
   useEffect(() => {
     try {
-      const raw = sessionStorage.getItem("vmi_stock_sort");
-      if (!raw) return;
-      const saved = JSON.parse(raw) as StockSortState;
-      if (
-        STOCK_SORT_OPTIONS.some((o) => o.key === saved?.key) &&
-        (saved.dir === "asc" || saved.dir === "desc")
-      ) {
-        setSort(saved);
+      const rawSort = sessionStorage.getItem(SORT_STORAGE_KEY);
+      if (rawSort) {
+        const saved = JSON.parse(rawSort) as StockSortState;
+        if (isStockSortKey(saved?.key) && (saved.dir === "asc" || saved.dir === "desc")) {
+          setSort(saved);
+        }
+      }
+      const rawFilters = sessionStorage.getItem(FILTER_STORAGE_KEY);
+      if (rawFilters) {
+        const saved = JSON.parse(rawFilters) as Partial<StockFilterState>;
+        setFilters({
+          view: isStockView(saved?.view) ? saved.view : "all",
+          brand: typeof saved?.brand === "string" ? saved.brand : null,
+          section: typeof saved?.section === "string" ? saved.section : null,
+          hideNoSales: saved?.hideNoSales === true,
+        });
       }
     } catch {
       // ignore corrupt session
@@ -259,22 +254,44 @@ export function StockPageClient({
   /** ส่งออก Excel ตามตัวกรอง/การเรียงที่เห็นบนจอ (สร้างไฟล์ฝั่ง server) */
   const exportExcel = useCallback(() => {
     const params = new URLSearchParams({ sort: sort.key, dir: sort.dir });
-    if (viewScope.brand) params.set("brand", viewScope.brand);
-    if (viewScope.section) params.set("section", viewScope.section);
-    if (viewScope.needsOnly) params.set("needsOnly", "1");
+    if (filters.brand) params.set("brand", filters.brand);
+    if (filters.section) params.set("section", filters.section);
+    if (filters.view !== "all") params.set("view", filters.view);
+    if (filters.hideNoSales) params.set("hideNoSales", "1");
     const q = search.trim();
     if (q) params.set("search", q);
     window.location.href = `${appPath("/api/stock/export")}?${params.toString()}`;
-  }, [sort, viewScope, search]);
+  }, [sort, filters, search]);
 
   const applySort = useCallback((next: StockSortState) => {
     setSort(next);
     try {
-      sessionStorage.setItem("vmi_stock_sort", JSON.stringify(next));
+      sessionStorage.setItem(SORT_STORAGE_KEY, JSON.stringify(next));
     } catch {
       // sessionStorage เต็ม/ถูกปิด — เรียงได้ต่อ แค่ไม่จำ
     }
   }, []);
+
+  const applyFilters = useCallback((next: StockFilterState) => {
+    setFilters(next);
+    try {
+      sessionStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      // sessionStorage เต็ม/ถูกปิด — กรองได้ต่อ แค่ไม่จำ
+    }
+  }, []);
+
+  /** คลิกหัวคอลัมน์เพื่อเรียง — กดซ้ำคีย์เดิม = สลับทิศทาง */
+  const toggleColumnSort = useCallback(
+    (key: StockSortKey, firstDir: "asc" | "desc" = "asc") => {
+      applySort(
+        sort.key === key
+          ? { key, dir: sort.dir === "asc" ? "desc" : "asc" }
+          : { key, dir: firstDir }
+      );
+    },
+    [applySort, sort]
+  );
 
   /** คืนค่าการเลือก + จำนวนจาก session เมื่อกลับจากหน้า order */
   useEffect(() => {
@@ -356,23 +373,8 @@ export function StockPageClient({
     }
     // ค้นหารหัส SKU ตรง ๆ — ไม่กรองซ้อน (กัน filter ค้างทำให้ไม่เจอ)
     if (skuLookup) return out;
-    if (viewScope.needsOnly) {
-      out = out.filter((r) => r.needsOrder);
-    }
-    if (viewScope.brand) {
-      out = out.filter((r) => (r.brand ?? "") === viewScope.brand);
-    }
-    if (viewScope.section) {
-      out = out.filter((r) => (r.section ?? "") === viewScope.section);
-    }
-    if (showNewOnly) {
-      out = out.filter((r) => r.isNew);
-    }
-    if (showCriticalOnly) {
-      out = out.filter(isCriticalStock);
-    }
-    return out;
-  }, [enrichedRows, deferredSearch, viewScope, showNewOnly, showCriticalOnly]);
+    return filterStockRows(out, filters);
+  }, [enrichedRows, deferredSearch, filters]);
 
   function toggleExpand(skuId: string) {
     setExpanded((prev) => {
@@ -425,10 +427,25 @@ export function StockPageClient({
     }));
   }, [filtered, sort]);
 
+  // สร้างจากแถวทั้งหมดที่ร้านมี ไม่ใช่แถวที่ผ่านตัวกรอง — "SKU ในกลุ่มที่ร้านนี้มีของ"
+  // เป็นข้อเท็จจริงของคลัง ไม่ควรเปลี่ยนตามการค้นหา/กรองที่เปิดอยู่
+  // (ไม่งั้นเปิดโมดัลโปรกลุ่มตอนค้นหาอยู่ จะเห็นสมาชิกแค่ตัวเดียวและรวมยอดโปรผิด)
   const groupMemberSkusMap = useMemo(
-    () => buildGroupMemberSkusMap(displayRows),
-    [displayRows]
+    () => buildGroupMemberSkusMap(enrichedRows),
+    [enrichedRows]
   );
+
+  /** กลุ่มโปรที่ให้สิทธิประโยชน์จริง — C4 มีกลุ่มที่จับสินค้าไว้ด้วยกันแต่ ladder ลด 0
+   *  กลุ่มพวกนั้นไม่ต้องมีปุ่มดูโปร เพราะกดเข้าไปก็ไม่มีอะไรให้ดู */
+  const benefitGroups = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of enrichedRows) {
+      const g = r.promoGroup?.trim();
+      if (!g || set.has(g)) continue;
+      if ((r.promoTiers ?? []).some(isBenefitTier)) set.add(g);
+    }
+    return set;
+  }, [enrichedRows]);
 
   const tableScrollRef = useRef<HTMLDivElement>(null);
   // ความสูงจริงของแผงที่กางออก ต่อ skuId — วัดด้วย ResizeObserver แล้ว feed เข้า estimateSize
@@ -439,8 +456,10 @@ export function StockPageClient({
     getScrollElement: () => tableScrollRef.current,
     estimateSize: (index) => {
       const row = displayRows[index];
-      if (!row) return 44;
-      let h = 44;
+      // 48px = ความสูงแถวจริงหลังชื่อสินค้าห่อได้ 2 บรรทัดและมีป้ายสถานะแยกบรรทัด
+      // (วัดจากหน้าจริง: 47px แถวปกติ, 48–55px แถวที่ชิปโปรห่อบรรทัด)
+      if (!row) return 48;
+      let h = 48;
       if (row.promoGroupIsFirst && row.promoGroupStripe != null) h += 34;
       if (isFreeGoodHostRow(displayRows, index)) h += 48;
       // ใช้ความสูงที่วัดได้จริง (ถ้ามี) แทนค่าคงที่ — กัน scroll กระโดดตอน expand / toggle 7↔30
@@ -475,7 +494,7 @@ export function StockPageClient({
     if (shouldVirtualize) {
       rowVirtualizer.scrollToOffset(0);
     }
-  }, [deferredSearch, viewScope, showNewOnly, showCriticalOnly, shouldVirtualize, rowVirtualizer]);
+  }, [deferredSearch, filters, shouldVirtualize, rowVirtualizer]);
 
   /** โฟกัส SKU จากหน้า order (กดรหัสสินค้า) */
   useEffect(() => {
@@ -485,9 +504,7 @@ export function StockPageClient({
       if (!focus) return;
       sessionStorage.removeItem("vmi_focus_sku");
       setSearch(focus);
-      setViewScope({ needsOnly: false, brand: null, section: null });
-      setShowNewOnly(false);
-      setShowCriticalOnly(false);
+      setFilters(DEFAULT_STOCK_FILTERS);
       setPendingFocusSku(focus);
     } catch {
       /* ignore */
@@ -521,15 +538,27 @@ export function StockPageClient({
     rowVirtualizer,
   ]);
 
-  const newCount = useMemo(
-    () => enrichedRows.filter((r) => r.isNew).length,
-    [enrichedRows]
-  );
-  // สต็อกวิกฤต = จะหมดก่อนถึงจำนวนวันขั้นต่ำ (CVD < MIN) ทั้งที่ยังมีการขาย → เสี่ยงขาดสต็อก
-  const criticalCount = useMemo(
-    () => enrichedRows.filter(isCriticalStock).length,
-    [enrichedRows]
-  );
+  /** จำนวนของแต่ละมุมมอง — นับจากข้อมูลดิบทั้งหมด ไม่ให้ตัวเลขบนแท็บกระพริบตามตัวกรองอื่น
+   *  (สต็อกวิกฤต = จะหมดก่อนถึงจำนวนวันขั้นต่ำ ทั้งที่ยังมีการขาย → เสี่ยงขาดสต็อก) */
+  const viewCounts: StockViewCounts = useMemo(() => {
+    let needs = 0;
+    let critical = 0;
+    let fresh = 0;
+    let noSales = 0;
+    for (const r of enrichedRows) {
+      if (r.needsOrder) needs++;
+      if (isCriticalStock(r)) critical++;
+      if (r.isNew) fresh++;
+      if (r.noSales30) noSales++;
+    }
+    return {
+      all: enrichedRows.length,
+      needs,
+      critical,
+      new: fresh,
+      noSales,
+    };
+  }, [enrichedRows]);
 
   async function unblock(skuId: string) {
     if (!confirm("ยกเลิกการหยุดสั่งสินค้านี้?")) return;
@@ -583,16 +612,14 @@ export function StockPageClient({
     return 0;
   }
 
-  function orderCvdFlag(row: StockRowComputed): {
-    cvdEst: number | null;
-    flag: CvdFlag | null;
-  } {
-    const qty = evalQty(row);
-    if (qty <= 0) return { cvdEst: null, flag: null };
-    // ไม่มีขายเฉลี่ย = ประเมิน CVD ไม่ได้ — ไม่ติดธงแดงกั้นสั่ง
-    if (row.avgSales <= 0) return { cvdEst: null, flag: null };
-    const cvdEst = calcCvdEstimate(row.stock, qty, row.avgSales);
-    return { cvdEst, flag: getCvdFlag(cvdEst, row.minDays, row.maxDays) };
+  function orderCvdFlag(row: StockRowComputed): OrderCvdResult {
+    return getOrderCvdFlag(
+      row.stock,
+      evalQty(row),
+      row.avgSales,
+      row.minDays,
+      row.maxDays
+    );
   }
 
   /** ปรับจำนวนเท่านั้น — ไม่ติ๊กเลือกอัตโนมัติ */
@@ -682,6 +709,12 @@ export function StockPageClient({
     setSelected(new Set());
   }
 
+  /** เลือกทุกแถวที่เห็นบนจอ — ใช้กับแท็บ "ไม่ขาย 1 เดือน" เพื่อกดหยุดสั่งรวดเดียว
+   *  (ต่างจาก selectByFilter ที่เลือกเฉพาะรายการที่ควรสั่ง ซึ่งของไม่ขายแทบไม่เข้าเงื่อนไข) */
+  function selectAllDisplayed() {
+    setSelected(new Set(displayRows.map((r) => r.skuId)));
+  }
+
   /** คืนจำนวนทุกรายการเป็นที่แนะนำ (ไม่เปลี่ยนการเลือก) */
   function resetAllQtyToSuggested() {
     setQtyOverrides({});
@@ -705,10 +738,15 @@ export function StockPageClient({
     });
   }
 
-  const hasActiveFilter =
-    viewScope.needsOnly ||
-    Boolean(viewScope.brand) ||
-    Boolean(viewScope.section);
+  /** จำนวนรายการที่ผู้ใช้แก้จำนวนเอง — ใช้เปิด/ปิดเมนู "รีเซ็ตจำนวนเป็นค่าแนะนำ" */
+  const adjustedCount = useMemo(() => {
+    let n = 0;
+    for (const r of rows) {
+      const o = qtyOverrides[r.skuCode];
+      if (o != null && o !== (r.suggestOrder > 0 ? r.suggestOrder : 0)) n++;
+    }
+    return n;
+  }, [rows, qtyOverrides]);
 
   /** รายการ Section / Brand สำหรับแผงกรอง */
   const filterSections = useMemo(() => {
@@ -752,21 +790,19 @@ export function StockPageClient({
     [rows, selected]
   );
 
+  /** รายการที่จำนวนไม่เหมาะสมจนต้องกั้นก่อนส่งออเดอร์
+   *  — ไม่นับเคส minPack (สั่ง 1 หีบซึ่งเป็นขั้นต่ำ แล้ว CVD สูงเพราะของขายช้า) */
   const selectedRedCount = useMemo(() => {
     let n = 0;
     for (const item of selectedItems) {
-      const qty = resolveLineQty(item);
-      if (qty <= 0) continue;
-      if (item.avgSales <= 0) continue;
-      if (
-        getCvdFlag(
-          calcCvdEstimate(item.stock, qty, item.avgSales),
-          item.minDays,
-          item.maxDays
-        ) === "red"
-      ) {
-        n++;
-      }
+      const { blocking } = getOrderCvdFlag(
+        item.stock,
+        resolveLineQty(item),
+        item.avgSales,
+        item.minDays,
+        item.maxDays
+      );
+      if (blocking) n++;
     }
     return n;
   }, [selectedItems, resolveLineQty]);
@@ -854,22 +890,29 @@ export function StockPageClient({
               label="ควรสั่ง"
               value={formatNumber(stats.needsOrder, 0)}
               tone="amber"
-              title="กดเพื่อกรองเฉพาะรายการที่ควรสั่ง"
-              active={viewScope.needsOnly}
+              title="กดเพื่อดูเฉพาะรายการที่ควรสั่ง"
+              active={filters.view === "needs"}
               onClick={() =>
-                setViewScope((v) => ({ ...v, needsOnly: !v.needsOnly }))
+                applyFilters({
+                  ...filters,
+                  view: filters.view === "needs" ? "all" : "needs",
+                })
               }
             />
             <StockStatCard
               icon={<AlertTriangle className="h-4 w-4" />}
               label="สต็อกวิกฤต"
-              value={formatNumber(criticalCount, 0)}
+              value={formatNumber(viewCounts.critical, 0)}
               tone="red"
-              title="จะหมดก่อนถึงจำนวนวันขั้นต่ำ (กดเพื่อกรอง)"
-              active={showCriticalOnly}
+              title="จะหมดก่อนถึงจำนวนวันขั้นต่ำ (กดเพื่อดูเฉพาะรายการนี้)"
+              active={filters.view === "critical"}
               onClick={
-                criticalCount > 0
-                  ? () => setShowCriticalOnly((v) => !v)
+                viewCounts.critical > 0
+                  ? () =>
+                      applyFilters({
+                        ...filters,
+                        view: filters.view === "critical" ? "all" : "critical",
+                      })
                   : undefined
               }
             />
@@ -909,154 +952,23 @@ export function StockPageClient({
           </div>
         </div>
 
-        <div className="vmi-stock-toolbar shrink-0 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-          <div className="relative min-w-0 flex-1">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
-            <Input
-              className={cn(
-                "h-8 pl-9 text-xs lg:h-9 lg:text-sm",
-                search && "pr-9"
-              )}
-              placeholder="ค้นหาชื่อ / รหัส / บาร์โค้ด / แบรนด์..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-            {search ? (
-              <button
-                type="button"
-                onClick={() => setSearch("")}
-                className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
-                aria-label="ล้างการค้นหา"
-                title="ล้างการค้นหา"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            ) : null}
-          </div>
-          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-            <StockFilterDropdown
-              viewScope={viewScope}
-              brands={filterBrands}
-              sections={filterSections}
-              filteredNeedsCount={filteredNeedsOrder.length}
-              onChange={setViewScope}
-              onSelect={() => selectByFilter()}
-              onClear={() =>
-                setViewScope({ needsOnly: false, brand: null, section: null })
-              }
-            />
-            {criticalCount > 0 && (
-              <Button
-                variant={showCriticalOnly ? "default" : "outline"}
-                size="sm"
-                className={cn(
-                  "relative whitespace-nowrap",
-                  showCriticalOnly
-                    ? "bg-red-600 text-white hover:bg-red-700"
-                    : "border-red-300 text-red-700 hover:bg-red-50 dark:border-red-900/60 dark:text-red-300 dark:hover:bg-red-950/30"
-                )}
-                onClick={() => setShowCriticalOnly((v) => !v)}
-                title={`สต็อกวิกฤต ${criticalCount} รายการ (จะหมดก่อนถึงจำนวนวันขั้นต่ำ)`}
-              >
-                <AlertTriangle className="h-4 w-4" />
-                <span className="hidden sm:inline">สต็อกวิกฤต</span>
-                <span className="ml-0.5 inline-flex min-w-[1.1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-4 text-white">
-                  {criticalCount}
-                </span>
-              </Button>
-            )}
-            {newCount > 0 && (
-              <Button
-                variant={showNewOnly ? "default" : "outline"}
-                size="sm"
-                className="relative whitespace-nowrap"
-                onClick={() => setShowNewOnly((v) => !v)}
-                title={`สินค้าใหม่ ${newCount} รายการ`}
-              >
-                <Bell className="h-4 w-4" />
-                <span className="hidden sm:inline">สินค้าใหม่</span>
-                <span className="ml-0.5 inline-flex min-w-[1.1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-4 text-white">
-                  {newCount}
-                </span>
-              </Button>
-            )}
-            {filteredNeedsOrder.length > 0 && (
-              <Button
-                variant="secondary"
-                size="sm"
-                className="whitespace-nowrap"
-                onClick={() => selectByFilter()}
-              >
-                เลือก {filteredNeedsOrder.length}
-              </Button>
-            )}
-            {selected.size > 0 && (
-              <Button variant="ghost" size="sm" onClick={clearSelection}>
-                ล้าง
-              </Button>
-            )}
-            {rows.length > 0 && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="whitespace-nowrap"
-                onClick={resetAllQtyToSuggested}
-                title="รีเซ็ตจำนวนทุกรายการกลับเป็นที่แนะนำ"
-              >
-                <RotateCcw className="h-4 w-4" />
-                <span className="hidden sm:inline">รีเซ็ตแนะนำ</span>
-              </Button>
-            )}
-            {rows.length > 0 && (
-              <StockSortControl sort={sort} onChange={applySort} />
-            )}
-            {rows.length > 0 && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="whitespace-nowrap"
-                onClick={exportExcel}
-                title="ส่งออกตารางนี้ (ตามตัวกรอง/การเรียงปัจจุบัน) พร้อมราคาและโปรโมชั่นทั้งหมด"
-              >
-                <Download className="h-4 w-4" />
-                <span className="hidden sm:inline">Excel</span>
-              </Button>
-            )}
-          </div>
-        </div>
-
-        {hasActiveFilter && (
-          <div className="mb-2 flex shrink-0 flex-wrap items-center gap-1.5">
-            <span className="text-[11px] text-slate-500 dark:text-slate-400">
-              กำลังแสดง:
-            </span>
-            {viewScope.needsOnly && (
-              <FilterChip label="ควรสั่ง" />
-            )}
-            {viewScope.brand && (
-              <FilterChip label={`แบรนด์: ${viewScope.brand}`} />
-            )}
-            {viewScope.section && (
-              <FilterChip label={`กลุ่มสินค้า: ${viewScope.section}`} />
-            )}
-            <button
-              type="button"
-              className="inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[11px] text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-300"
-              onClick={() =>
-                setViewScope({ needsOnly: false, brand: null, section: null })
-              }
-            >
-              <X className="h-3 w-3" />
-              ล้างกรอง
-            </button>
-          </div>
-        )}
-
-        {selected.size > 0 && (
-          <p className="mb-2 shrink-0 text-xs font-medium text-teal-700 dark:text-teal-400">
-            เลือกแล้ว {selected.size} รายการ · หน่วย หีบ
-          </p>
-        )}
+        <StockToolbar
+          search={search}
+          onSearchChange={setSearch}
+          filters={filters}
+          onFiltersChange={applyFilters}
+          counts={viewCounts}
+          shownCount={displayRows.length}
+          brands={filterBrands}
+          sections={filterSections}
+          sort={sort}
+          onSortChange={applySort}
+          onExport={exportExcel}
+          onResetQty={resetAllQtyToSuggested}
+          onClearSelection={clearSelection}
+          selectedCount={selected.size}
+          adjustedCount={adjustedCount}
+        />
 
         {isError && (
           <div className="mx-2 mb-2 flex items-center justify-between gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
@@ -1091,7 +1003,7 @@ export function StockPageClient({
               ) : (
                 <MobileRowList grid>
                   {displayRows.map((row, index) => {
-                    const { cvdEst, flag } = orderCvdFlag(row);
+                    const { cvdEst, flag, reason } = orderCvdFlag(row);
                     return (
                     <StockMobileRow
                       key={row.skuId}
@@ -1102,6 +1014,7 @@ export function StockPageClient({
                       selected={selected.has(row.skuId)}
                       orderCvd={cvdEst}
                       orderFlag={flag}
+                      orderCvdReason={reason}
                       stagedQty={promoStagedQty}
                       suggestByProduct={suggestByProduct}
                       onConfirmStaged={applyGroupStaged}
@@ -1112,6 +1025,11 @@ export function StockPageClient({
                               row.skuCode,
                             ]
                           : [row.skuCode]
+                      }
+                      groupHasBenefit={
+                        row.promoGroup
+                          ? benefitGroups.has(row.promoGroup.trim())
+                          : false
                       }
                       onAdjustQty={(d) => adjustLineQty(row.skuCode, d)}
                       onSetQty={(q) => setLineQty(row.skuCode, q)}
@@ -1129,20 +1047,22 @@ export function StockPageClient({
             </div>
             ) : (
             <table className="vmi-data-table vmi-stock-fit-table w-full table-fixed text-left">
+            {/* ชื่อสินค้า 21% — วัดจากข้อมูลจริงแล้วชื่อที่ยาวสุดใช้ ~271px พอดีหนึ่งบรรทัด
+                ที่เหลือยกให้คอลัมน์โปร (19%) ซึ่งต้องวาง 3 บรรทัดของข้อมูลโปร */}
             <colgroup>
               <col className="w-[2.5%]" />
-              <col className="w-[7%]" />
-              <col className="w-[15%]" />
+              <col className="w-[6.5%]" />
+              <col className="w-[21%]" />
+              <col className="w-[5%]" />
+              <col className="w-[5.5%]" />
+              <col className="w-[4.5%]" />
+              <col className="w-[5%]" />
+              <col className="w-[9%]" />
+              <col className="w-[6.5%]" />
               <col className="w-[5%]" />
               <col className="w-[5%]" />
-              <col className="w-[5%]" />
-              <col className="w-[6%]" />
-              <col className="w-[10%]" />
-              <col className="w-[7%]" />
-              <col className="w-[6%]" />
-              <col className="w-[6%]" />
-              <col className="w-[6%]" />
-              <col className="w-[19.5%]" />
+              <col className="w-[5.5%]" />
+              <col className="w-[19%]" />
             </colgroup>
             <thead className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
               <tr>
@@ -1160,57 +1080,63 @@ export function StockPageClient({
                     title="เลือกรายการที่ควรสั่ง (ตามตัวกรอง)"
                   />
                 </th>
-                <th className="px-1 py-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      applySort({
-                        key: "code",
-                        dir:
-                          sort.key === "code" && sort.dir === "desc"
-                            ? "asc"
-                            : "desc",
-                      })
-                    }
-                    className="inline-flex items-center gap-0.5 hover:text-teal-700 dark:hover:text-teal-400"
-                    title="เรียงตามรหัสสินค้า"
-                  >
-                    SKU
-                    {sort.key === "code" &&
-                      (sort.dir === "asc" ? (
-                        <ArrowUp className="h-3 w-3" />
-                      ) : (
-                        <ArrowDown className="h-3 w-3" />
-                      ))}
-                  </button>
-                </th>
-                <th className="px-1 py-2">ชื่อสินค้า</th>
-                <th
-                  className="px-1 py-2 text-right leading-tight"
-                  title="คงเหลือหน่วยหีบ · เศษที่ไม่ครบหีบ (ชิ้น) — แปลงจาก qty_available ด้วย PackingSize"
-                >
-                  สต็อก<br />
-                  <span className="font-normal text-[9px] text-slate-400">
-                    หีบ/เศษ
-                  </span>
-                </th>
-                <th
-                  className="px-1 py-2 text-right leading-tight"
-                  title="ขายเฉลี่ยต่อวัน 7 วัน จาก stock_cover (avg_qty_out_L7) หน่วยหีบ — ไม่ใช่ยอดบิล factsales"
-                >
-                  ขายเฉลี่ย<br />
-                  <span className="font-normal text-[9px] text-slate-400">
-                    7 วัน · หีบ
-                  </span>
-                </th>
-                <th className="px-1 py-2 text-right">CVD</th>
+                <SortableTh
+                  label="SKU"
+                  sortKey="code"
+                  firstDir="desc"
+                  sort={sort}
+                  onSort={toggleColumnSort}
+                  title="เรียงตามรหัสสินค้า"
+                />
+                <SortableTh
+                  label="ชื่อสินค้า"
+                  sortKey="name"
+                  sort={sort}
+                  onSort={toggleColumnSort}
+                  title="เรียงตามชื่อสินค้า"
+                />
+                <SortableTh
+                  label="สต็อก"
+                  sub="หีบ/เศษ"
+                  align="right"
+                  sortKey="stock"
+                  sort={sort}
+                  onSort={toggleColumnSort}
+                  title="คงเหลือหน่วยหีบ · เศษที่ไม่ครบหีบ (ชิ้น) — แปลงจาก qty_available ด้วย PackingSize · กดเพื่อเรียง"
+                />
+                <SortableTh
+                  label="ขายเฉลี่ย"
+                  sub="7 วัน · หีบ (ชิ้น)"
+                  align="right"
+                  sortKey="avgSales"
+                  firstDir="desc"
+                  sort={sort}
+                  onSort={toggleColumnSort}
+                  title="ขายเฉลี่ยต่อวัน 7 วัน จาก stock_cover (avg_qty_out_L7) หน่วยหีบ — ไม่ใช่ยอดบิล factsales · กดเพื่อเรียง"
+                />
+                <SortableTh
+                  label="CVD"
+                  align="right"
+                  sortKey="cvd"
+                  sort={sort}
+                  onSort={toggleColumnSort}
+                  title="จำนวนวันที่สินค้าเพียงพอ — กดเพื่อเรียงเอาของที่ใกล้หมดขึ้นก่อน"
+                />
                 <th
                   className="px-1 py-2 text-right"
                   title="เป้าหมาย CVD ต่ำสุด / สูงสุด (วัน) ตามที่ตั้งในหน้าจัดการ"
                 >
                   MIN / MAX
                 </th>
-                <th className="px-1 py-2 text-center">จำนวนสั่ง</th>
+                <SortableTh
+                  label="จำนวนสั่ง"
+                  align="center"
+                  sortKey="suggest"
+                  firstDir="desc"
+                  sort={sort}
+                  onSort={toggleColumnSort}
+                  title="จำนวนที่ระบบแนะนำ — กดเพื่อเรียงจากมากไปน้อย"
+                />
                 <th
                   className="px-1 py-2 text-center"
                   title="CVD หลังสั่ง — เกิน MAX ได้ไม่เกิน 4 วันยังถือว่าเหมาะสม"
@@ -1268,7 +1194,7 @@ export function StockPageClient({
                     row.needsOrder ||
                     (row.stockCvd !== null && row.stockCvd < row.minDays);
                   const isExpanded = expanded.has(row.skuId);
-                  const { cvdEst, flag } = orderCvdFlag(row);
+                  const { cvdEst, flag, reason: cvdReason } = orderCvdFlag(row);
                   const showFreeGoodRow = isFreeGoodHostRow(displayRows, index);
                   const afterPromoGroup = followsPooledPromoGroup(displayRows, index);
                   return (
@@ -1290,6 +1216,9 @@ export function StockPageClient({
                             suggestByProduct={suggestByProduct}
                             onConfirmStaged={applyGroupStaged}
                             applyVersion={promoApplyVersion}
+                            showPromoButton={benefitGroups.has(
+                              row.promoGroup.trim()
+                            )}
                           />
                         </td>
                       </tr>
@@ -1320,8 +1249,10 @@ export function StockPageClient({
                           </div>
                         )}
                       </td>
-                      <td className="px-1 py-1.5 text-slate-700 dark:text-slate-300">
-                        <div className="flex min-w-0 items-center gap-1">
+                      <td className="px-1 py-1.5 align-middle text-slate-700 dark:text-slate-300">
+                        {/* ป้ายสถานะแยกบรรทัดบน — ชื่อสินค้าจึงได้ความกว้างเต็มคอลัมน์
+                            (เดิมป้ายแย่งที่กับชื่อ ทำให้ชื่อโดนตัดตั้งแต่กลางคำ) */}
+                        <div className="flex min-w-0 flex-wrap items-center gap-1 empty:hidden">
                           {row.isNew && (
                             <span
                               className="inline-flex shrink-0 items-center gap-0.5 rounded bg-sky-100 px-1 py-0.5 text-[9px] font-bold text-sky-700 dark:bg-sky-950/50 dark:text-sky-300"
@@ -1354,25 +1285,28 @@ export function StockPageClient({
                               ไม่ขาย 1 ด.
                             </span>
                           )}
-                          <button
-                            type="button"
-                            className={cn(
-                              "group flex min-w-0 flex-1 items-center gap-1 text-left hover:text-teal-700 dark:hover:text-teal-400",
-                              expanded.has(row.skuId) &&
-                                "font-medium text-teal-700 dark:text-teal-400"
-                            )}
-                            onClick={() => toggleExpand(row.skuId)}
-                            title={row.skuName}
-                          >
-                            <span className="min-w-0 truncate text-xs">{row.skuName}</span>
-                            <BarChart3
-                              className={cn(
-                                "h-3 w-3 shrink-0 text-slate-300 group-hover:text-teal-600 dark:text-slate-600",
-                                expanded.has(row.skuId) && "text-teal-600 dark:text-teal-400"
-                              )}
-                            />
-                          </button>
                         </div>
+                        <button
+                          type="button"
+                          className={cn(
+                            "group flex w-full min-w-0 items-start gap-1 text-left hover:text-teal-700 dark:hover:text-teal-400",
+                            expanded.has(row.skuId) &&
+                              "font-medium text-teal-700 dark:text-teal-400"
+                          )}
+                          onClick={() => toggleExpand(row.skuId)}
+                          title={row.skuName}
+                        >
+                          {/* ชื่อยาวห่อได้ 2 บรรทัด — ยาวกว่านั้นค่อยตัด (ยังอ่านเต็มได้จาก tooltip) */}
+                          <span className="line-clamp-2 min-w-0 break-words text-xs leading-snug">
+                            {row.skuName}
+                          </span>
+                          <BarChart3
+                            className={cn(
+                              "mt-px h-3 w-3 shrink-0 text-slate-300 group-hover:text-teal-600 dark:text-slate-600",
+                              expanded.has(row.skuId) && "text-teal-600 dark:text-teal-400"
+                            )}
+                          />
+                        </button>
                       </td>
                       <td className="px-1 py-1.5 text-right text-xs">
                         <StockCaseCell
@@ -1382,8 +1316,12 @@ export function StockPageClient({
                           packSize={row.packSize}
                         />
                       </td>
-                      <td className="px-1 py-1.5 text-right tabular-nums text-xs">
-                        {formatNumber(row.avgQtyOutL7 ?? row.avgSales, 1)}
+                      <td className="px-1 py-1.5 text-right text-xs">
+                        <StockAvgSalesCell
+                          avgCases={row.avgQtyOutL7 ?? row.avgSales}
+                          packSize={row.packSize}
+                          compact
+                        />
                       </td>
                       <td className="px-1 py-1.5 text-right tabular-nums text-xs">
                         {formatDays(row.stockCvd)}
@@ -1407,7 +1345,10 @@ export function StockPageClient({
                       </td>
                       <td className="px-1 py-1.5 text-center">
                         {flag ? (
-                          <div className="inline-flex flex-col items-center gap-0.5">
+                          <div
+                            className="inline-flex flex-col items-center gap-0.5"
+                            title={cvdFlagHint(flag, cvdReason, row)}
+                          >
                             <span
                               className={cn(
                                 "text-sm font-bold leading-none tabular-nums",
@@ -1420,7 +1361,13 @@ export function StockPageClient({
                             >
                               {formatDays(cvdEst)}
                             </span>
-                            <FlagBadge flag={flag} compact />
+                            {cvdReason === "minPack" ? (
+                              <span className="inline-flex items-center gap-0.5 rounded bg-slate-100 px-1 py-px text-[9px] font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                                ขั้นต่ำ 1 หีบ
+                              </span>
+                            ) : (
+                              <FlagBadge flag={flag} compact />
+                            )}
                           </div>
                         ) : (
                           <span className="text-slate-400">—</span>
@@ -1461,26 +1408,23 @@ export function StockPageClient({
                             freeGood={row.freeGood}
                             showFreeGoodChip={false}
                             hasPromoLadder={row.hasPromoLadder}
+                            tiers={row.promoTiers}
                             endsInDays={row.currentPromoEndsInDays}
                             onApplyNext={(qty) =>
                               setLineQty(row.skuCode, qty)
                             }
-                            inspector={
-                              !isPooledPromoGroup(
-                                row.promoGroup,
-                                row.promoGroupMembers
-                              ) && (row.promoTiers?.length ?? 0) > 0
-                                ? {
-                                    skuCode: row.skuCode,
-                                    storeCode: activeVda,
-                                    stagedQty: promoStagedQty,
-                                    promoGroup: row.promoGroup,
-                                    promoGroupMembers: row.promoGroupMembers,
-                                    onConfirmStaged: applyGroupStaged,
-                                    suggestByProduct,
-                                  }
-                                : undefined
-                            }
+                            muted={row.suggestOrder <= 0}
+                            // เรียงแบบกลุ่มโปรมีแถวหัวกลุ่ม + แถบสีบอกอยู่แล้ว ไม่ต้องซ้ำ
+                            showGroupChip={row.promoGroupStripe == null}
+                            inspector={buildPromoInspectorProps(row, {
+                              storeCode: activeVda,
+                              stagedQty: promoStagedQty,
+                              memberSkus: row.promoGroup
+                                ? groupMemberSkusMap.get(row.promoGroup)
+                                : undefined,
+                              onConfirmStaged: applyGroupStaged,
+                              suggestByProduct,
+                            })}
                           />
                         </div>
                       </td>
@@ -1560,6 +1504,46 @@ export function StockPageClient({
               <>เลือกสินค้า ปรับจำนวน ตรวจโปร แล้วกดตรวจสอบคำสั่ง</>
             )}
           </p>
+          {/* ปุ่มจัดการการเลือก — ย้ายมาไว้ที่แถบล่างให้ทูลบาร์บนโล่ง */}
+          {selected.size === 0 &&
+            filters.view === "noSales" &&
+            displayRows.length > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="mx-auto shrink-0 border-red-200 text-red-600 hover:bg-red-50 sm:mx-0 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/30"
+                onClick={selectAllDisplayed}
+                title="เลือกสินค้าที่ไม่ขายทั้งหมดในตาราง เพื่อกดหยุดสั่งรวดเดียว"
+              >
+                <Ban className="h-4 w-4" />
+                เลือกทั้งหมด ({displayRows.length})
+              </Button>
+            )}
+          {selected.size === 0 &&
+            filters.view !== "noSales" &&
+            filteredNeedsOrder.length > 0 && (
+            <Button
+              size="sm"
+              variant="secondary"
+              className="mx-auto shrink-0 sm:mx-0"
+              onClick={() => selectByFilter()}
+              title="ติ๊กเลือกทุกรายการที่ควรสั่งตามตัวกรองปัจจุบัน"
+            >
+              <Check className="h-4 w-4" />
+              เลือกที่ควรสั่ง ({filteredNeedsOrder.length})
+            </Button>
+          )}
+          {selected.size > 0 && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="mx-auto shrink-0 sm:mx-0"
+              onClick={clearSelection}
+              title="ยกเลิกการเลือกทั้งหมด"
+            >
+              ล้างการเลือก
+            </Button>
+          )}
           {selected.size > 0 && (
             <Button
               size="sm"
@@ -1643,11 +1627,13 @@ const StockMobileRow = memo(function StockMobileRow({
   selected,
   orderCvd,
   orderFlag,
+  orderCvdReason,
   stagedQty,
   suggestByProduct,
   onConfirmStaged,
   promoApplyVersion,
   groupMemberSkus,
+  groupHasBenefit = false,
   afterPromoGroup = false,
   onAdjustQty,
   onSetQty,
@@ -1665,6 +1651,7 @@ const StockMobileRow = memo(function StockMobileRow({
   selected: boolean;
   orderCvd: number | null;
   orderFlag: CvdFlag | null;
+  orderCvdReason: CvdFlagReason;
   stagedQty: Record<string, number>;
   suggestByProduct: Record<string, number>;
   onConfirmStaged: (
@@ -1673,6 +1660,8 @@ const StockMobileRow = memo(function StockMobileRow({
   ) => void;
   promoApplyVersion: number;
   groupMemberSkus: string[];
+  /** กลุ่มโปรนี้ให้ส่วนลด/ของแถมจริงหรือไม่ — false = ไม่ต้องมีปุ่มดูโปรบนหัวกลุ่ม */
+  groupHasBenefit?: boolean;
   afterPromoGroup?: boolean;
   onAdjustQty: (delta: number) => void;
   onSetQty: (qty: number) => void;
@@ -1688,7 +1677,9 @@ const StockMobileRow = memo(function StockMobileRow({
     row.currentPromo ||
       row.nextPromo ||
       row.hasPromoLadder ||
-      (row.freeGood && row.freeGood.qty > 0)
+      (row.freeGood && row.freeGood.qty > 0) ||
+      // มีส่วนลด/ของแถมจริงในบันได — ต้องขึ้นป้ายกลุ่ม + เงื่อนไขขั้นแรก แม้ยังไม่ได้สั่ง
+      (row.promoTiers ?? []).some(isBenefitTier)
   );
 
   return (
@@ -1720,6 +1711,7 @@ const StockMobileRow = memo(function StockMobileRow({
             suggestByProduct={suggestByProduct}
             onConfirmStaged={onConfirmStaged}
             applyVersion={promoApplyVersion}
+            showPromoButton={groupHasBenefit}
           />
         </div>
       )}
@@ -1784,15 +1776,29 @@ const StockMobileRow = memo(function StockMobileRow({
           />
         </MobileStat>
         <MobileStat
-          label="ขายเฉลี่ย · หีบ"
-          value={formatNumber(row.avgQtyOutL7 ?? row.avgSales, 1)}
+          label="ขายเฉลี่ย · หีบ (ชิ้น)"
           title="จาก stock_cover (avg_qty_out_L7) — ไม่ใช่ยอดบิล"
-        />
+        >
+          <StockAvgSalesCell
+            avgCases={row.avgQtyOutL7 ?? row.avgSales}
+            packSize={row.packSize}
+            inline
+          />
+        </MobileStat>
         <MobileStat label="CVD" value={formatDays(row.stockCvd)} />
         {orderFlag && (
           <MobileStat label="หลังสั่ง">
-            <div className="flex flex-col items-start gap-0.5">
-              <FlagBadge flag={orderFlag} compact />
+            <div
+              className="flex flex-col items-start gap-0.5"
+              title={cvdFlagHint(orderFlag, orderCvdReason, row)}
+            >
+              {orderCvdReason === "minPack" ? (
+                <span className="inline-flex items-center rounded bg-slate-100 px-1 py-px text-[9px] font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                  ขั้นต่ำ 1 หีบ
+                </span>
+              ) : (
+                <FlagBadge flag={orderFlag} compact />
+              )}
               <span
                 className={cn(
                   "text-[10px] tabular-nums",
@@ -1845,22 +1851,18 @@ const StockMobileRow = memo(function StockMobileRow({
             freeGood={row.freeGood}
             showFreeGoodChip={false}
             hasPromoLadder={row.hasPromoLadder}
+            tiers={row.promoTiers}
             endsInDays={row.currentPromoEndsInDays}
             onApplyNext={onSetQty}
-            inspector={
-              !isPooledPromoGroup(row.promoGroup, row.promoGroupMembers) &&
-              (row.promoTiers?.length ?? 0) > 0
-                ? {
-                    skuCode: row.skuCode,
-                    storeCode,
-                    stagedQty,
-                    promoGroup: row.promoGroup,
-                    promoGroupMembers: row.promoGroupMembers,
-                    onConfirmStaged,
-                    suggestByProduct,
-                  }
-                : undefined
-            }
+            muted={row.suggestOrder <= 0}
+            showGroupChip={row.promoGroupStripe == null}
+            inspector={buildPromoInspectorProps(row, {
+              storeCode,
+              stagedQty,
+              memberSkus: groupMemberSkus,
+              onConfirmStaged,
+              suggestByProduct,
+            })}
           />
         </MobileRowExtra>
       )}
@@ -1880,6 +1882,129 @@ const StockMobileRow = memo(function StockMobileRow({
     </>
   );
 });
+
+/** props ของตัวเปิดดูขั้นบันไดโปร — เปิดให้ทุกแถวที่มีโปร ไม่ว่าจะเรียงแบบไหน
+ *  แถวในกลุ่มโปร (pooled) จะเปิด modal แบบกลุ่มพร้อมรายชื่อ SKU ที่ร้านนี้มีของ */
+function buildPromoInspectorProps(
+  row: StockRowComputed,
+  ctx: {
+    storeCode: string;
+    stagedQty: Record<string, number>;
+    memberSkus?: string[];
+    onConfirmStaged: (
+      staged: Record<string, number>,
+      memberSkus?: string[]
+    ) => void;
+    suggestByProduct: Record<string, number>;
+  }
+) {
+  // มี tier ไม่พอ — C4 มี record ที่ kind = "none" / ส่วนลด 0 ซึ่งกดเข้าไปก็ไม่มีอะไร
+  // รวมถึง "กลุ่มโปร" ที่จับสินค้าไว้ด้วยกันแต่ไม่ให้สิทธิประโยชน์ใด ๆ (ladder = 1 ขั้น ลด 0)
+  // ต้องมีส่วนลด/ของแถมจริงเท่านั้นถึงจะบอกว่ามีโปร — ไม่งั้นเป็นการหลอกให้กดเปล่า ๆ
+  if (!(row.promoTiers ?? []).some(isBenefitTier)) return undefined;
+  return {
+    skuCode: row.skuCode,
+    storeCode: ctx.storeCode,
+    stagedQty: ctx.stagedQty,
+    promoGroup: row.promoGroup,
+    promoGroupMembers: row.promoGroupMembers,
+    stockMemberSkus: ctx.memberSkus,
+    onConfirmStaged: ctx.onConfirmStaged,
+    suggestByProduct: ctx.suggestByProduct,
+  };
+}
+
+/** คำอธิบายธง CVD หลังสั่ง — บอกให้ชัดว่าทำไมเป็นสีนี้ และต้องทำอะไรต่อ */
+function cvdFlagHint(
+  flag: CvdFlag,
+  reason: CvdFlagReason,
+  row: { minDays: number; maxDays: number }
+): string {
+  if (reason === "minPack") {
+    return `สินค้าขายช้า — 1 หีบคือจำนวนขั้นต่ำที่สั่งได้ จึงพอขายได้นานกว่าเป้าหมาย ${row.minDays}–${row.maxDays} วัน สั่งได้ตามปกติ`;
+  }
+  if (reason === "under") {
+    return `สั่งเท่านี้ยังไม่ถึงเป้าหมายขั้นต่ำ ${row.minDays} วัน — เพิ่มจำนวนก่อนส่งคำสั่ง`;
+  }
+  if (reason === "over") {
+    return `สั่งเท่านี้จะมีของค้างเกินเป้าหมาย ${row.maxDays} วันมาก — ลดจำนวนก่อนส่งคำสั่ง`;
+  }
+  if (flag === "yellow") {
+    return `เกินเป้าหมาย ${row.maxDays} วันเล็กน้อย — ยังสั่งได้`;
+  }
+  return `อยู่ในเป้าหมาย ${row.minDays}–${row.maxDays} วัน`;
+}
+
+/** หัวคอลัมน์ที่กดเรียงได้ — ลูกศรโผล่เมื่อ active, จาง ๆ ตอน hover เพื่อบอกว่ากดได้ */
+function SortableTh({
+  label,
+  sub,
+  sortKey,
+  sort,
+  onSort,
+  align = "left",
+  firstDir = "asc",
+  title,
+}: {
+  label: string;
+  sub?: string;
+  sortKey: StockSortKey;
+  sort: StockSortState;
+  onSort: (key: StockSortKey, firstDir?: "asc" | "desc") => void;
+  align?: "left" | "right" | "center";
+  firstDir?: "asc" | "desc";
+  title?: string;
+}) {
+  const active = sort.key === sortKey;
+  return (
+    <th
+      className={cn(
+        "px-1 py-2 leading-tight",
+        align === "right" && "text-right",
+        align === "center" && "text-center"
+      )}
+      aria-sort={
+        active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"
+      }
+    >
+      <button
+        type="button"
+        onClick={() => onSort(sortKey, firstDir)}
+        title={title}
+        className={cn(
+          "group inline-flex max-w-full items-center gap-0.5 rounded transition-colors hover:text-teal-700 dark:hover:text-teal-400",
+          active && "font-semibold text-teal-700 dark:text-teal-400"
+        )}
+      >
+        <span className="min-w-0">
+          {label}
+          {sub && (
+            <>
+              <br />
+              <span
+                className={cn(
+                  "text-[9px] font-normal",
+                  active ? "text-teal-600/70 dark:text-teal-400/70" : "text-slate-400"
+                )}
+              >
+                {sub}
+              </span>
+            </>
+          )}
+        </span>
+        {active ? (
+          sort.dir === "asc" ? (
+            <ArrowUp className="h-3 w-3 shrink-0" />
+          ) : (
+            <ArrowDown className="h-3 w-3 shrink-0" />
+          )
+        ) : (
+          <ChevronsUpDown className="h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover:opacity-40" />
+        )}
+      </button>
+    </th>
+  );
+}
 
 function formatDataDate(iso: string) {
   const d = new Date(iso);
@@ -2018,368 +2143,6 @@ function formatBlockTitle(row: {
     );
   }
   return parts.join(" · ");
-}
-
-/** เลือกคีย์เรียงลำดับ + สลับขึ้น/ลง — ค่าเริ่มต้นคือรหัสสินค้ามากไปน้อย */
-function StockSortControl({
-  sort,
-  onChange,
-}: {
-  sort: StockSortState;
-  onChange: (next: StockSortState) => void;
-}) {
-  const label =
-    STOCK_SORT_OPTIONS.find((o) => o.key === sort.key)?.label ?? "รหัสสินค้า";
-  const fixedOrder = isFixedOrderSort(sort.key);
-  return (
-    <div className="inline-flex items-center overflow-hidden rounded-md border border-slate-200 dark:border-slate-700">
-      <ArrowDownUp className="ml-1.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
-      <select
-        value={sort.key}
-        onChange={(e) =>
-          onChange({ key: e.target.value as StockSortKey, dir: sort.dir })
-        }
-        aria-label="เรียงตาม"
-        title="เรียงตาม"
-        className="bg-transparent py-1 pl-1 pr-1 text-xs text-slate-700 outline-none dark:text-slate-200"
-      >
-        {STOCK_SORT_OPTIONS.map((o) => (
-          <option key={o.key} value={o.key}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-      <button
-        type="button"
-        disabled={fixedOrder}
-        onClick={() =>
-          onChange({ key: sort.key, dir: sort.dir === "asc" ? "desc" : "asc" })
-        }
-        title={
-          fixedOrder
-            ? "เรียงตามกลุ่มโปรโมชั่นใช้ลำดับตายตัว (กลุ่มโปรอยู่บนสุด)"
-            : `${label} · ${sort.dir === "asc" ? "น้อยไปมาก" : "มากไปน้อย"}`
-        }
-        aria-label={`สลับเป็น${sort.dir === "asc" ? "มากไปน้อย" : "น้อยไปมาก"}`}
-        className="border-l border-slate-200 px-1.5 py-1 text-slate-500 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent dark:border-slate-700 dark:hover:bg-slate-800"
-      >
-        {sort.dir === "asc" ? (
-          <ArrowUp className="h-3.5 w-3.5" />
-        ) : (
-          <ArrowDown className="h-3.5 w-3.5" />
-        )}
-      </button>
-    </div>
-  );
-}
-
-function FilterChip({ label }: { label: string }) {
-  return (
-    <span className="inline-flex items-center rounded-md bg-teal-50 px-2 py-0.5 text-[11px] font-medium text-teal-800 ring-1 ring-teal-200 dark:bg-teal-950/40 dark:text-teal-200 dark:ring-teal-800/50">
-      {label}
-    </span>
-  );
-}
-
-function countActiveFilters(scope: ViewScope): number {
-  let n = 0;
-  if (scope.needsOnly) n++;
-  if (scope.brand) n++;
-  if (scope.section) n++;
-  return n;
-}
-
-function FilterOption({
-  label,
-  selected,
-  onClick,
-}: {
-  label: string;
-  selected: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs transition-colors",
-        selected
-          ? "bg-teal-50 font-medium text-teal-800 dark:bg-teal-950/50 dark:text-teal-200"
-          : "text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800/60"
-      )}
-    >
-      <span
-        className={cn(
-          "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border",
-          selected
-            ? "border-teal-600 bg-teal-600 text-white dark:border-teal-500 dark:bg-teal-500"
-            : "border-slate-300 dark:border-slate-600"
-        )}
-      >
-        {selected && <Check className="h-2.5 w-2.5" strokeWidth={3} />}
-      </span>
-      <span className="min-w-0 truncate">{label}</span>
-    </button>
-  );
-}
-
-function FilterOptionList({
-  options,
-  value,
-  onChange,
-}: {
-  options: string[];
-  value: string | null;
-  onChange: (v: string | null) => void;
-}) {
-  return (
-    <div className="max-h-36 space-y-0.5 overflow-y-auto rounded-xl bg-slate-50/80 p-1 dark:bg-slate-900/40">
-      <FilterOption
-        label="ทั้งหมด"
-        selected={!value}
-        onClick={() => onChange(null)}
-      />
-      {options.map((opt) => (
-        <FilterOption
-          key={opt}
-          label={opt}
-          selected={value === opt}
-          onClick={() => onChange(value === opt ? null : opt)}
-        />
-      ))}
-    </div>
-  );
-}
-
-function StockFilterDropdown({
-  viewScope,
-  brands,
-  sections,
-  filteredNeedsCount,
-  onChange,
-  onSelect,
-  onClear,
-}: {
-  viewScope: ViewScope;
-  brands: string[];
-  sections: string[];
-  filteredNeedsCount: number;
-  onChange: (scope: ViewScope) => void;
-  onSelect: () => void;
-  onClear: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [panelStyle, setPanelStyle] = useState<CSSProperties>({ visibility: "hidden" });
-  const [mounted, setMounted] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
-  const activeCount = countActiveFilters(viewScope);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
-    if (!open) return;
-    function onClick(e: MouseEvent) {
-      const target = e.target as Node;
-      if (ref.current?.contains(target) || panelRef.current?.contains(target)) {
-        return;
-      }
-      setOpen(false);
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("mousedown", onClick);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onClick);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  useLayoutEffect(() => {
-    if (!open || !ref.current || !panelRef.current) return;
-
-    function positionPanel() {
-      const trigger = ref.current!.getBoundingClientRect();
-      const panel = panelRef.current!;
-      const margin = 12;
-      const vw = document.documentElement.clientWidth;
-      const vh = window.innerHeight;
-      const width = Math.min(320, vw - margin * 2);
-      const gap = 6;
-
-      const left = Math.max(
-        margin,
-        Math.min(trigger.right - width, vw - width - margin)
-      );
-
-      const belowTop = trigger.bottom + gap;
-      const panelHeight = panel.offsetHeight;
-      const spaceBelow = vh - margin - belowTop;
-      const spaceAbove = trigger.top - gap - margin;
-
-      let top = belowTop;
-      let maxHeight = spaceBelow;
-
-      if (panelHeight > spaceBelow && spaceAbove > spaceBelow) {
-        maxHeight = spaceAbove;
-        top = Math.max(margin, trigger.top - gap - Math.min(panelHeight, maxHeight));
-      }
-
-      maxHeight = Math.max(180, Math.min(maxHeight, vh - top - margin));
-
-      setPanelStyle({
-        position: "fixed",
-        top,
-        left,
-        width,
-        maxHeight,
-        zIndex: 9999,
-        visibility: "visible",
-      });
-    }
-
-    positionPanel();
-    const raf = requestAnimationFrame(positionPanel);
-    window.addEventListener("resize", positionPanel);
-    window.addEventListener("scroll", positionPanel, true);
-    return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener("resize", positionPanel);
-      window.removeEventListener("scroll", positionPanel, true);
-    };
-  }, [open, brands.length, sections.length, filteredNeedsCount, activeCount]);
-
-  function handleSelect() {
-    onSelect();
-    setOpen(false);
-  }
-
-  const panel =
-    open && mounted
-      ? createPortal(
-          <div
-            ref={panelRef}
-            style={panelStyle}
-            className="flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900"
-          >
-            <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-slate-800">
-              <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
-                ตัวกรอง
-              </p>
-              <button
-                type="button"
-                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
-                onClick={() => setOpen(false)}
-                aria-label="ปิด"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-3">
-              <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 px-3 py-2.5 transition-colors has-[:checked]:border-teal-300 has-[:checked]:bg-teal-50/50 dark:border-slate-700 dark:has-[:checked]:border-teal-700 dark:has-[:checked]:bg-teal-950/20">
-                <Checkbox
-                  checked={viewScope.needsOnly}
-                  onCheckedChange={(checked) =>
-                    onChange({ ...viewScope, needsOnly: checked === true })
-                  }
-                />
-                <div>
-                  <p className="text-sm font-medium text-slate-800 dark:text-slate-100">
-                    เฉพาะที่ควรสั่ง
-                  </p>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    แสดงเฉพาะสินค้าที่สต็อกต่ำกว่าเกณฑ์
-                  </p>
-                </div>
-              </label>
-
-              {brands.length > 0 && (
-                <div>
-                  <p className="mb-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
-                    แบรนด์
-                  </p>
-                  <FilterOptionList
-                    options={brands}
-                    value={viewScope.brand}
-                    onChange={(brand) => onChange({ ...viewScope, brand })}
-                  />
-                </div>
-              )}
-
-              {sections.length > 0 && (
-                <div>
-                  <p className="mb-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
-                    กลุ่มสินค้า
-                  </p>
-                  <FilterOptionList
-                    options={sections}
-                    value={viewScope.section}
-                    onChange={(section) => onChange({ ...viewScope, section })}
-                  />
-                </div>
-              )}
-            </div>
-
-            <div className="flex shrink-0 items-center gap-2 border-t border-slate-100 px-4 py-3 dark:border-slate-800">
-              {activeCount > 0 && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="shrink-0"
-                  onClick={() => {
-                    onClear();
-                  }}
-                >
-                  ล้างกรอง
-                </Button>
-              )}
-              <div className="min-w-0 flex-1" />
-              {filteredNeedsCount > 0 ? (
-                <Button size="sm" className="shrink-0" onClick={handleSelect}>
-                  เลือก {filteredNeedsCount} รายการ
-                </Button>
-              ) : (
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="shrink-0"
-                  onClick={() => setOpen(false)}
-                >
-                  ปิด
-                </Button>
-              )}
-            </div>
-          </div>,
-          document.body
-        )
-      : null;
-
-  return (
-    <div className="relative" ref={ref}>
-      <Button
-        variant={activeCount > 0 ? "default" : "outline"}
-        size="sm"
-        className="gap-1.5 whitespace-nowrap"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-      >
-        <Filter className="h-3.5 w-3.5" />
-        กรอง
-        {activeCount > 0 && (
-          <span className="rounded-full bg-white/20 px-1.5 py-px text-[10px] font-bold tabular-nums">
-            {activeCount}
-          </span>
-        )}
-      </Button>
-      {panel}
-    </div>
-  );
 }
 
 function StockQtyStepper({

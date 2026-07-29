@@ -1,9 +1,18 @@
 "use client";
 
-import { useState } from "react";
-import type { PromoTierKind } from "@/lib/calculations";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
+import {
+  formatPromoTierLabelVerbose,
+  isBenefitTier,
+  type PromoTierInput,
+  type PromoTierKind,
+} from "@/lib/calculations";
 import { C4PromoModal } from "@/components/promo/c4-promo-modal";
-import { isPooledPromoGroup } from "@/lib/promo/promo-group-display";
+import {
+  isPooledPromoGroup,
+  promoGroupDotClass,
+  promoGroupStripeFor,
+} from "@/lib/promo/promo-group-display";
 import { cn } from "@/lib/utils";
 
 export interface PromoFreeGoodDetail {
@@ -28,19 +37,32 @@ interface PromoDetailCellProps {
   /** false = ใช้ freeGood ซ่อนชิปแถมซ้ำ แต่ไม่เรนเดอร์ชิป (มีแถวย่อยแทน) — default true */
   showFreeGoodChip?: boolean;
   hasPromoLadder?: boolean;
+  /** ขั้นบันไดโปรทั้งหมด — ใช้บอกเงื่อนไขขั้นแรกเมื่อยังไม่ได้สั่ง (จำนวน = 0)
+   *  ไม่งั้นสินค้าที่ไม่ได้แนะนำสั่งจะไม่เห็นเลยว่ามีโปรอะไร */
+  tiers?: PromoTierInput[];
   /** จำนวนวันที่โปรปัจจุบันจะหมด — โชว์ป้ายเตือนเมื่อ ≤ 7 วัน */
   endsInDays?: number | null;
   onApplyNext?: (qty: number) => void;
   variant?: "table" | "card" | "embedded" | "compact";
+  /** สินค้าที่ระบบไม่ได้แนะนำให้สั่ง — ยังบอกโปรครบ แต่ลดความเด่นลงไม่ให้แย่งสายตา */
+  muted?: boolean;
+  /** แสดงป้ายกลุ่มโปรนำหน้า (สีคงที่ต่อกลุ่ม) — ให้รู้ว่าสินค้าตัวไหนรวมยอดโปรกันได้
+   *  ส่งค่าเมื่อไม่ได้เรียงแบบกลุ่มโปร ซึ่งไม่มีแถวหัวกลุ่ม/แถบสีบอกอยู่แล้ว */
+  showGroupChip?: boolean;
   inspector?: {
     skuCode: string;
     storeCode: string;
     stagedQty?: Record<string, number>;
     promoGroup?: string | null;
     promoGroupMembers?: number;
-    onConfirmStaged?: (staged: Record<string, number>) => void;
+    onConfirmStaged?: (
+      staged: Record<string, number>,
+      memberSkus?: string[]
+    ) => void;
     /** map รหัสสินค้า -> จำนวนแนะนำสั่ง เพื่อ mark "แนะนำซื้อ" ใน modal กลุ่ม */
     suggestByProduct?: Record<string, number>;
+    /** SKU ในกลุ่มที่ร้านนี้มีของ — ให้ modal กลุ่มแสดงตรงกับตารางหลัก */
+    stockMemberSkus?: string[];
     readOnly?: boolean;
   };
 }
@@ -54,9 +76,12 @@ export function PromoDetailCell({
   freeGood,
   showFreeGoodChip = true,
   hasPromoLadder,
+  tiers,
   endsInDays,
   onApplyNext,
   variant = "table",
+  muted = false,
+  showGroupChip = false,
   inspector,
 }: PromoDetailCellProps) {
   const [skuModalOpen, setSkuModalOpen] = useState(false);
@@ -88,164 +113,243 @@ export function PromoDetailCell({
     inspector?.promoGroup,
     inspector?.promoGroupMembers
   );
-  const canOpenInspector = Boolean(inspector && !isPooled);
-  const canClickPromoChip = canOpenInspector && showCurrentPromo;
+  // เปิดดูขั้นบันไดได้ทุกแถวที่มีโปร รวมถึงสินค้าในกลุ่มโปร
+  // (เดิมกลุ่มโปรกดได้เฉพาะตอนเรียงแบบ "กลุ่มโปรโมชั่น" ซึ่งมีแถวหัวกลุ่มให้กด)
+  const canOpenInspector = Boolean(inspector);
 
   const openInspector = (e?: React.MouseEvent) => {
     e?.stopPropagation();
     setSkuModalOpen(true);
   };
 
-  const textSize =
-    variant === "compact" ? "text-[10px]" : "text-xs leading-snug";
+  /** ขั้นแรกของบันไดโปร — เงื่อนไขที่ต้องทำให้ได้ก่อนถึงจะได้ประโยชน์
+   *  ใช้แสดงกับสินค้าที่ยังไม่ได้สั่ง (จำนวน 0) ซึ่งไม่มีทั้งโปรปัจจุบันและขั้นถัดไป */
+  const entryTier = useMemo(() => {
+    const benefit = (tiers ?? []).filter(isBenefitTier);
+    if (benefit.length === 0) return null;
+    let best = benefit[0]!;
+    for (const t of benefit) if (t.minQty < best.minQty) best = t;
+    return { tier: best, steps: benefit.length };
+  }, [tiers]);
 
-  if (!showCurrentPromo && !hasNext && !showFreeGood) {
-    if (canOpenInspector) {
-      return (
-        <>
-          <button
-            type="button"
-            title="กดดูรายละเอียดโปร"
-            onClick={openInspector}
-            className={cn(
-              "inline-flex items-center gap-0.5 font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-400",
-              textSize
-            )}
-          >
-            ดูโปร
-          </button>
-          {skuModalOpen && inspector ? (
-            <C4PromoModal
-              skuCode={inspector.skuCode}
-              storeCode={inspector.storeCode}
-              stagedQty={inspector.stagedQty ?? {}}
-              onConfirm={
-                inspector.readOnly ? undefined : inspector.onConfirmStaged
-              }
-              suggestByProduct={inspector.suggestByProduct}
-              readOnly={inspector.readOnly}
-              onClose={() => setSkuModalOpen(false)}
-            />
-          ) : null}
-        </>
-      );
-    }
-    return (
-      <span className={cn(textSize, "text-slate-400")}>
-        {hasPromoLadder ? (variant === "compact" ? "—" : "ไม่มีส่วนลด") : "—"}
-      </span>
-    );
+  /** รหัสกลุ่มโปร — แสดงเป็นจุดสีคงที่ต่อกลุ่มในบรรทัดบริบท ให้กวาดตาเห็นว่าตัวไหนรวมยอดกันได้ */
+  const groupCode = inspector?.promoGroup?.trim();
+
+  /* ────────────────────────────────────────────────────────────────
+     เลย์เอาต์ 3 ระดับ — เดิมเป็นชิปสีเต็มใบ 4 อันวางเรียงกันน้ำหนักเท่ากัน
+     ในคอลัมน์แคบ ทำให้อ่านไม่ออกว่าอะไรสำคัญ ตอนนี้แยกเป็น
+
+       1. บรรทัดหลัก  — "ได้อะไรตอนนี้" ตัวหนา มีสีตามชนิดโปร ไม่มีพื้นหลัง
+       2. บรรทัดบริบท — กลุ่มโปร · ใกล้หมด · ขั้นสูงสุด ตัวเล็กสีจาง คั่นด้วย ·
+       3. บรรทัดถัดไป — "อีกกี่หีบได้อะไรเพิ่ม" กดแล้วใส่จำนวนให้เลย
+
+     เหลือพื้นหลังสีเฉพาะบรรทัดที่ 3 ซึ่งเป็นปุ่มกดจริง ๆ ที่เหลือเป็นข้อความ
+     ──────────────────────────────────────────────────────────────── */
+  const sizeMain = variant === "compact" ? "text-[11px]" : "text-xs";
+  const sizeMeta = variant === "compact" ? "text-[9px]" : "text-[10px]";
+
+  const benefitColor = muted
+    ? "text-slate-500 dark:text-slate-400"
+    : currentKind === "premium"
+      ? "text-violet-700 dark:text-violet-300"
+      : currentKind === "discount_baht" || currentKind === "discount_pct"
+        ? "text-emerald-700 dark:text-emerald-300"
+        : "text-slate-700 dark:text-slate-200";
+
+  /** บรรทัดหลัก — สิ่งที่ร้านได้รับ (อาจมีทั้งส่วนลดและของแถมพร้อมกัน) */
+  const primaryLines: { key: string; text: string; className: string }[] = [];
+  if (showCurrentPromo) {
+    primaryLines.push({
+      key: "current",
+      text: currentPromo!,
+      className: cn("font-semibold", benefitColor),
+    });
+  }
+  if (renderFreeGoodChip && freeGood) {
+    primaryLines.push({
+      key: "free",
+      text: `แถม ${freeGood.premiumName} ×${freeGood.qty}`,
+      className: cn(
+        "font-semibold",
+        muted
+          ? "text-slate-500 dark:text-slate-400"
+          : "text-violet-700 dark:text-violet-300"
+      ),
+    });
+  }
+  // ยังไม่ได้สั่งจนได้โปร — บอกเงื่อนไขขั้นแรกไว้แบบจาง ๆ
+  // ข้ามเมื่อมีบรรทัด "อีกกี่หีบ" อยู่แล้ว เพราะสองอันนี้บอกเรื่องเดียวกัน
+  if (primaryLines.length === 0 && !hasNext && entryTier) {
+    primaryLines.push({
+      key: "entry",
+      text: formatPromoTierLabelVerbose(entryTier.tier),
+      className: "font-normal text-slate-500 dark:text-slate-400",
+    });
   }
 
-  // ชิปโปรปัจจุบัน — พื้นหลังชัดเพื่ออ่านง่ายในโหมดสว่าง
-  const currentChip =
-    currentKind === "premium"
-      ? "bg-violet-100 text-violet-800 ring-1 ring-violet-200 dark:bg-violet-500/15 dark:text-violet-200 dark:ring-violet-500/25"
-      : currentKind === "discount_baht" || currentKind === "discount_pct"
-        ? "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-200 dark:ring-emerald-500/25"
-        : "bg-slate-100 text-slate-700 ring-1 ring-slate-200 dark:bg-slate-700/40 dark:text-slate-200 dark:ring-slate-600/40";
-
-  const chipBase = cn(
-    "inline-flex max-w-full items-center gap-1 rounded-md px-1.5 py-0.5 font-semibold",
-    variant === "compact" ? "text-[10px]" : "text-[11px] leading-tight"
-  );
-
-  const currentPromoChip = showCurrentPromo ? (
-    canClickPromoChip ? (
-      <button
-        type="button"
-        title="กดดูรายละเอียดโปร"
-        onClick={openInspector}
-        className={cn(
-          chipBase,
-          currentChip,
-          "cursor-pointer transition-shadow hover:ring-2"
-        )}
-      >
-        <span className="truncate">{currentPromo}</span>
-      </button>
-    ) : (
-      <span className={cn(chipBase, currentChip)} title={currentPromo!}>
-        <span className="truncate">{currentPromo}</span>
-      </span>
-    )
-  ) : null;
-
-  const content = (
-    <div className={cn("flex min-w-0 flex-wrap items-center gap-1")}>
-      {currentPromoChip}
-      {renderFreeGoodChip && freeGood && (
+  /** บรรทัดบริบท — ข้อมูลประกอบที่ไม่ควรแย่งสายตาบรรทัดหลัก */
+  const metaItems: { key: string; node: ReactNode }[] = [];
+  if (showGroupChip && isPooled && groupCode) {
+    metaItems.push({
+      key: "group",
+      node: (
         <span
-          className={cn(
-            chipBase,
-            "bg-violet-100 text-violet-800 ring-1 ring-violet-200 dark:bg-violet-500/15 dark:text-violet-200 dark:ring-violet-500/25"
-          )}
-          title={freeGood.premiumName}
+          className="inline-flex items-center gap-1 font-medium text-slate-600 dark:text-slate-300"
+          title={`อยู่ในกลุ่มโปร ${groupCode} — ยอดสั่งของสินค้าในกลุ่มนี้รวมกันเพื่อไต่ขั้นโปรได้`}
         >
-          <span className="truncate">แถม {freeGood.premiumName} ×{freeGood.qty}</span>
-        </span>
-      )}
-      {(showCurrentPromo || showFreeGood) &&
-        endsInDays != null &&
-        endsInDays <= 7 && (
           <span
             className={cn(
-              chipBase,
-              "bg-orange-100 text-orange-800 ring-1 ring-orange-300 dark:bg-orange-500/20 dark:text-orange-200 dark:ring-orange-500/30"
+              "h-1.5 w-1.5 shrink-0 rounded-full",
+              promoGroupDotClass(promoGroupStripeFor(groupCode))
             )}
-            title="โปรใกล้หมด — สั่งก่อนหมดเขต"
-          >
-            ⏰ {endsInDays <= 0 ? "หมดวันนี้" : `หมดใน ${endsInDays} วัน`}
-          </span>
-        )}
-      {atMaxPromo && (
-        <span
-          className={cn(
-            chipBase,
-            "bg-amber-100 text-amber-800 ring-1 ring-amber-300 dark:bg-amber-500/20 dark:text-amber-200 dark:ring-amber-500/30"
-          )}
-          title="สินค้านี้ได้ส่วนลด/ของแถมขั้นสูงสุดแล้ว"
-        >
-          ★ สูงสุด
+          />
+          {groupCode}
         </span>
-      )}
-      {hasNext && (
-        <NextPromoHint
-          qtyToNext={qtyToNext!}
-          nextPromo={nextPromo!}
-          nextPromoQty={nextPromoQty!}
-          onApplyNext={onApplyNext}
-          textSize={textSize}
-        />
-      )}
-      {canOpenInspector && !showCurrentPromo && (hasNext || showFreeGood) && (
-        <button
-          type="button"
-          title="กดดูรายละเอียดโปร"
-          onClick={openInspector}
-          className={cn(
-            "inline-flex shrink-0 items-center font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-400",
-            textSize
-          )}
+      ),
+    });
+  }
+  if (
+    (showCurrentPromo || showFreeGood) &&
+    endsInDays != null &&
+    endsInDays <= 7
+  ) {
+    metaItems.push({
+      key: "ends",
+      node: (
+        <span
+          className="font-semibold text-orange-600 dark:text-orange-400"
+          title="โปรใกล้หมด — สั่งก่อนหมดเขต"
         >
-          ดูโปร
-        </button>
-      )}
-    </div>
-  );
+          {endsInDays <= 0 ? "หมดวันนี้" : `หมดใน ${endsInDays} วัน`}
+        </span>
+      ),
+    });
+  }
+  if (atMaxPromo) {
+    metaItems.push({
+      key: "max",
+      node: (
+        <span title="สินค้านี้ได้ส่วนลด/ของแถมขั้นสูงสุดแล้ว">ขั้นสูงสุด</span>
+      ),
+    });
+  }
+  if (!showCurrentPromo && entryTier && entryTier.steps > 1) {
+    metaItems.push({
+      key: "steps",
+      node: (
+        <span title="กดเพื่อดูขั้นบันไดทั้งหมด">{entryTier.steps} ขั้น</span>
+      ),
+    });
+  }
 
   const skuModal =
     skuModalOpen && inspector ? (
       <C4PromoModal
         skuCode={inspector.skuCode}
         storeCode={inspector.storeCode}
+        promoGroup={isPooled ? (inspector.promoGroup ?? undefined) : undefined}
+        stockMemberSkus={isPooled ? inspector.stockMemberSkus : undefined}
         stagedQty={inspector.stagedQty ?? {}}
-        onConfirm={inspector.readOnly ? undefined : inspector.onConfirmStaged}
+        onConfirm={
+          inspector.readOnly
+            ? undefined
+            : inspector.onConfirmStaged
+              ? (staged) =>
+                  inspector.onConfirmStaged!(
+                    staged,
+                    isPooled ? inspector.stockMemberSkus : undefined
+                  )
+              : undefined
+        }
         suggestByProduct={inspector.suggestByProduct}
         readOnly={inspector.readOnly}
         onClose={() => setSkuModalOpen(false)}
       />
     ) : null;
+
+  // ไม่มีอะไรจะบอกเลย
+  if (primaryLines.length === 0 && metaItems.length === 0 && !hasNext) {
+    return (
+      <>
+        <span className={cn(sizeMain, "text-slate-400")}>
+          {hasPromoLadder && variant !== "compact" ? "ไม่มีส่วนลด" : "—"}
+        </span>
+        {skuModal}
+      </>
+    );
+  }
+
+  const primaryBlock =
+    primaryLines.length > 0 ? (
+      <div className={cn("flex min-w-0 flex-col", sizeMain, "leading-snug")}>
+        {primaryLines.map((line) => (
+          <span key={line.key} className={cn("truncate", line.className)}>
+            {line.text}
+          </span>
+        ))}
+      </div>
+    ) : null;
+
+  const content = (
+    <div className="flex min-w-0 flex-col gap-0.5">
+      {/* บรรทัดหลักกดได้ทั้งแถบ — เปิดขั้นบันไดโปรทั้งหมด */}
+      {primaryBlock &&
+        (canOpenInspector ? (
+          <button
+            type="button"
+            onClick={openInspector}
+            title={`${primaryLines.map((l) => l.text).join(" · ")} — กดดูขั้นบันไดโปรทั้งหมด`}
+            className="min-w-0 rounded text-left transition-opacity hover:opacity-70"
+          >
+            {primaryBlock}
+          </button>
+        ) : (
+          <div title={primaryLines.map((l) => l.text).join(" · ")}>
+            {primaryBlock}
+          </div>
+        ))}
+
+      {metaItems.length > 0 && (
+        <div
+          className={cn(
+            "flex min-w-0 flex-wrap items-center gap-x-1 leading-tight text-slate-400 dark:text-slate-500",
+            sizeMeta
+          )}
+        >
+          {metaItems.map((item, i) => (
+            <Fragment key={item.key}>
+              {i > 0 && <span aria-hidden>·</span>}
+              {item.node}
+            </Fragment>
+          ))}
+        </div>
+      )}
+
+      {hasNext && (
+        <NextPromoHint
+          qtyToNext={qtyToNext!}
+          nextPromo={nextPromo!}
+          nextPromoQty={nextPromoQty!}
+          onApplyNext={onApplyNext}
+          textSize={sizeMeta}
+        />
+      )}
+
+      {canOpenInspector && !primaryBlock && (
+        <button
+          type="button"
+          title="กดดูรายละเอียดโปร"
+          onClick={openInspector}
+          className={cn(
+            "self-start font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-400",
+            sizeMeta
+          )}
+        >
+          ดูขั้นบันไดโปร
+        </button>
+      )}
+    </div>
+  );
 
   if (variant === "card") {
     return (
@@ -262,7 +366,7 @@ export function PromoDetailCell({
     <>
       <div
         className={cn(
-          "flex min-w-0 items-start gap-0.5",
+          "flex min-w-0 items-start",
           variant === "table" && "max-w-[220px]",
           variant === "compact" && "max-w-full"
         )}
@@ -287,10 +391,17 @@ function NextPromoHint({
   onApplyNext?: (qty: number) => void;
   textSize: string;
 }) {
+  // เน้น "อีกกี่หีบ" ให้เด่นกว่าส่วนที่เหลือ เพราะเป็นตัวเลขที่ต้องตัดสินใจ
   const label = `อีก ${qtyToNext} หีบ ${nextPromo}`;
   const chip = cn(
-    "inline-flex max-w-full items-center gap-1 rounded-md px-1.5 py-0.5 font-medium",
+    "inline-flex max-w-full items-center gap-1 self-start rounded-md px-1.5 py-0.5",
     textSize
+  );
+  const inner = (
+    <>
+      <span className="shrink-0 font-bold">+{qtyToNext} หีบ</span>
+      <span className="truncate opacity-90">{nextPromo}</span>
+    </>
   );
 
   if (onApplyNext) {
@@ -300,11 +411,11 @@ function NextPromoHint({
         onClick={() => onApplyNext(nextPromoQty)}
         className={cn(
           chip,
-          "bg-sky-100 text-sky-800 ring-1 ring-sky-200 transition-colors hover:bg-sky-200 dark:bg-sky-500/15 dark:text-sky-200 dark:ring-sky-500/25 dark:hover:bg-sky-500/25"
+          "bg-sky-50 text-sky-800 ring-1 ring-sky-200 transition-colors hover:bg-sky-100 dark:bg-sky-500/10 dark:text-sky-200 dark:ring-sky-500/25 dark:hover:bg-sky-500/20"
         )}
-        title={label}
+        title={`${label} — กดเพื่อปรับจำนวนสั่งเป็น ${nextPromoQty} หีบ`}
       >
-        <span className="truncate">{label}</span>
+        {inner}
       </button>
     );
   }
@@ -313,11 +424,11 @@ function NextPromoHint({
     <span
       className={cn(
         chip,
-        "bg-sky-50 text-sky-800 ring-1 ring-sky-200 dark:bg-sky-500/15 dark:text-sky-200 dark:ring-sky-500/25"
+        "bg-sky-50 text-sky-800 ring-1 ring-sky-200 dark:bg-sky-500/10 dark:text-sky-200 dark:ring-sky-500/25"
       )}
       title={`มีโปรถัดไป — ยืนยันสั่งตามจำนวนนี้จะได้โปรปัจจุบัน · ${label}`}
     >
-      <span className="truncate">{label}</span>
+      {inner}
     </span>
   );
 }

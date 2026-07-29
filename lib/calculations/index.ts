@@ -84,10 +84,68 @@ export function getCvdFlag(
   return "red";
 }
 
+/** เหตุผลของธง CVD หลังสั่ง — แยก "สั่งน้อยไป" ออกจาก "สั่งเยอะไป" เพราะรับมือคนละแบบ */
+export type CvdFlagReason =
+  | "under" // สั่งแล้วยังไม่ถึง MIN → เสี่ยงขาดสต็อกอยู่ดี
+  | "over" // สั่งแล้วเกินเพดานมาก → ของค้างสต็อก
+  | "minPack" // เกินเพดานเพราะ 1 หีบคือขั้นต่ำที่สั่งได้ ไม่ใช่เพราะสั่งเกิน
+  | null;
+
+export interface OrderCvdResult {
+  cvdEst: number | null;
+  flag: CvdFlag | null;
+  reason: CvdFlagReason;
+  /** true = เตือนได้ แต่ไม่ควรกั้นไม่ให้สั่ง */
+  blocking: boolean;
+}
+
+/**
+ * ธง CVD หลังสั่ง พร้อมเหตุผล
+ *
+ * เคสสำคัญ: สินค้าขายช้ามากและของหมด ระบบแนะนำ 1 หีบ แต่ 1 หีบก็พอขายได้เป็นเดือน
+ * → CVD ทะลุเพดาน → เดิมติดธงแดงแล้วกั้นไม่ให้สั่ง ทั้งที่ "ไม่สั่งเลย" คือทางเลือกที่แย่กว่า
+ * (ของหมดจริง) และสั่งน้อยกว่า 1 หีบก็ทำไม่ได้ จึงถือเป็น `minPack` — เตือนเหลือง สั่งได้
+ */
+export function getOrderCvdFlag(
+  stock: number,
+  orderQty: number,
+  avgSales: number,
+  minDays: number,
+  maxDays: number
+): OrderCvdResult {
+  if (orderQty <= 0) {
+    return { cvdEst: null, flag: null, reason: null, blocking: false };
+  }
+  // ไม่มีขายเฉลี่ย = ประเมิน CVD ไม่ได้ — ไม่ติดธงกั้นสั่ง
+  if (avgSales <= 0) {
+    return { cvdEst: null, flag: null, reason: null, blocking: false };
+  }
+
+  const cvdEst = calcCvdEstimate(stock, orderQty, avgSales);
+  const flag = getCvdFlag(cvdEst, minDays, maxDays);
+
+  if (flag !== "red") {
+    return { cvdEst, flag, reason: null, blocking: false };
+  }
+
+  // แดงเพราะสั่งน้อยไป → เตือนจริง ปรับเพิ่มได้
+  if (cvdEst !== null && cvdEst < minDays) {
+    return { cvdEst, flag, reason: "under", blocking: true };
+  }
+
+  // แดงเพราะเกินเพดาน แต่สั่งแค่ 1 หีบ = ขั้นต่ำที่เป็นไปได้ → ลดจากแดงเป็นเหลือง
+  if (orderQty <= 1) {
+    return { cvdEst, flag: "yellow", reason: "minPack", blocking: false };
+  }
+
+  return { cvdEst, flag, reason: "over", blocking: true };
+}
+
 export type { PromoResult, PromoTierInput, PromoTierKind } from "./promo";
 
 export {
   formatPromoTierLabel,
+  formatPromoTierLabelVerbose,
   getPromoForQty,
   calcNetUnitPrice,
   calcLineAmount,

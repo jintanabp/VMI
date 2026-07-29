@@ -82,6 +82,8 @@ export function ProductSalesPanel({
   packSize?: number;
 }) {
   const [viewDays, setViewDays] = useState<number>(days);
+  /** null = เลือกหน่วยอัตโนมัติตามปริมาณ (สินค้าขายช้าอ่านเป็นชิ้นง่ายกว่า) */
+  const [unitPref, setUnitPref] = useState<"case" | "piece" | null>(null);
 
   // react-query: key ผูก sku/fromDb/days → ปุ่มรีเฟรช invalidate ["sales-daily"] ได้
   // และไม่รั่วข้ามร้าน (ต่างจาก module Map เดิม) + ได้ gc/staleTime ฟรี
@@ -102,13 +104,21 @@ export function ProductSalesPanel({
   const everSold = Boolean(summary?.hasData);
   // factsales นับเป็นชิ้น — หารเป็นหีบให้ตรงกับคอลัมน์อื่นในตาราง
   const pack = packSize > 0 ? packSize : 1;
+  const canSwitchUnit = pack > 1;
+  // ยอดรวมเป็นหีบน้อยกว่า 10 = กราฟจะเต็มไปด้วย 0.x อ่านไม่ออก → ตั้งต้นเป็นชิ้น
+  const unit =
+    unitPref ??
+    (canSwitchUnit && (summary?.total ?? 0) / pack < 10 ? "piece" : "case");
+  const divisor = unit === "case" ? pack : 1;
+  const unitLabel = unit === "case" ? "หีบ" : "ชิ้น";
+
   const series = useMemo(
-    () => (summary?.series ?? []).map((d) => ({ ...d, qty: d.qty / pack })),
-    [summary, pack]
+    () => (summary?.series ?? []).map((d) => ({ ...d, qty: d.qty / divisor })),
+    [summary, divisor]
   );
-  const total = (summary?.total ?? 0) / pack;
-  const avgPerDay = (summary?.avgPerDay ?? 0) / pack;
-  const avgPerWeek = (summary?.avgPerWeek ?? 0) / pack;
+  const total = (summary?.total ?? 0) / divisor;
+  const avgPerDay = (summary?.avgPerDay ?? 0) / divisor;
+  const avgPerWeek = (summary?.avgPerWeek ?? 0) / divisor;
   const isMonthView = viewDays >= 30;
 
   const peak = useMemo(() => {
@@ -147,6 +157,33 @@ export function ProductSalesPanel({
     </div>
   );
 
+  /** สลับหน่วยหีบ/ชิ้น — สินค้าขายวันละไม่กี่ชิ้นดูเป็นหีบแล้วเป็น 0.0 ทั้งแถว */
+  const unitToggle = canSwitchUnit ? (
+    <div
+      className="inline-flex overflow-hidden rounded-md border border-slate-200 dark:border-slate-700"
+      title={`${formatNumber(pack, 0)} ชิ้น/หีบ`}
+    >
+      {(["case", "piece"] as const).map((u) => (
+        <button
+          key={u}
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setUnitPref(u);
+          }}
+          className={cn(
+            "px-2 py-0.5 text-[11px] font-medium transition",
+            unit === u
+              ? "bg-slate-700 text-white dark:bg-slate-200 dark:text-slate-900"
+              : "bg-white text-slate-500 hover:bg-slate-100 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800"
+          )}
+        >
+          {u === "case" ? "หีบ" : "ชิ้น"}
+        </button>
+      ))}
+    </div>
+  ) : null;
+
   if (loading) {
     return (
       <p className="py-3 text-center text-xs text-slate-500 dark:text-slate-400">
@@ -171,13 +208,17 @@ export function ProductSalesPanel({
           title="ยอดขายจริงจากบิล (factsales) — คนละชุดกับคอลัมน์ 'ขายเฉลี่ย·คลัง' ที่มาจาก stock_cover"
         >
           <BarChart3 className="h-3.5 w-3.5 text-teal-600" />
-          ยอดขาย {viewDays} วัน · บิล (หีบ)
+          ยอดขาย {viewDays} วัน · บิล ({unitLabel})
         </span>
         {dayToggle}
-        <SummaryPill label="เฉลี่ย/วัน" value={formatNumber(avgPerDay, 1)} />
+        {unitToggle}
+        <SummaryPill
+          label="เฉลี่ย/วัน"
+          value={formatNumber(avgPerDay, avgPerDay > 0 && avgPerDay < 1 ? 2 : 1)}
+        />
         <SummaryPill
           label="เฉลี่ย/สัปดาห์"
-          value={formatNumber(avgPerWeek, 0)}
+          value={formatNumber(avgPerWeek, avgPerWeek > 0 && avgPerWeek < 1 ? 2 : 0)}
           tone="teal"
           icon
         />

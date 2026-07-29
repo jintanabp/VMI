@@ -134,6 +134,35 @@ export function promoGroupBadgeClass(
   return map[stripe];
 }
 
+/**
+ * สีประจำกลุ่มโปรที่คงที่ตามรหัสกลุ่ม
+ *
+ * ต่างจาก annotatePromoGroupStripes ที่ให้สีตามลำดับแถว (ใช้ได้เฉพาะตอนเรียงแบบกลุ่มโปร
+ * ซึ่งแถวในกลุ่มเดียวกันติดกัน) — ตัวนี้ hash จากรหัสกลุ่ม จึงได้สีเดิมเสมอไม่ว่าจะเรียงแบบไหน
+ * ทำให้ผู้ใช้กวาดตาแล้วรู้ว่าสินค้าตัวไหนอยู่กลุ่มเดียวกัน แม้แถวจะกระจายอยู่คนละที่
+ */
+export function promoGroupStripeFor(group: string): PromoGroupStripe {
+  let hash = 0;
+  for (let i = 0; i < group.length; i++) {
+    hash = (hash * 31 + group.charCodeAt(i)) >>> 0;
+  }
+  return (hash % 4) as PromoGroupStripe;
+}
+
+/** สีจุดนำหน้ารหัสกลุ่ม — ใช้แทนป้ายเต็มใบเมื่อพื้นที่จำกัด (คอลัมน์โปรในตาราง) */
+export function promoGroupDotClass(
+  stripe: PromoGroupStripe | null | undefined
+): string {
+  if (stripe == null) return "bg-slate-400";
+  const map: Record<PromoGroupStripe, string> = {
+    0: "bg-violet-500",
+    1: "bg-sky-500",
+    2: "bg-emerald-500",
+    3: "bg-amber-500",
+  };
+  return map[stripe];
+}
+
 /** นับจำนวน SKU ที่อยู่ในกลุ่มจาก master C4 */
 export function countPromoGroupMembers(
   rowsForGroup: { product: string }[]

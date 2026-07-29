@@ -38,6 +38,69 @@ export function StockCaseCell({
   );
 }
 
+/**
+ * ขายเฉลี่ยต่อวัน — หน่วยหีบอ่านยากมากเมื่อสินค้าขายช้า (0.0 หีบ/วัน ไม่บอกอะไรเลย)
+ * จึงกำกับหน่วยชิ้นไว้ใต้ตัวเลขเสมอเมื่อรู้ค่า ชิ้น/หีบ
+ */
+export function StockAvgSalesCell({
+  avgCases,
+  packSize,
+  compact = false,
+  inline = false,
+}: {
+  avgCases: number;
+  packSize: number;
+  compact?: boolean;
+  /** true = วางชิ้นต่อท้ายในบรรทัดเดียว (การ์ดมือถือ), false = ซ้อนใต้ตัวเลข (ตาราง) */
+  inline?: boolean;
+}) {
+  const hasPack = packSize > 1;
+  const avgPieces = avgCases * packSize;
+  // ขายช้ามากจนปัดเป็น 0.0 — โชว์ทศนิยมเพิ่มแทนที่จะแสดง 0 เฉย ๆ
+  const piecesDecimals = avgPieces > 0 && avgPieces < 0.1 ? 2 : 1;
+  const casesText = formatNumber(
+    avgCases,
+    avgCases > 0 && avgCases < 0.1 ? 2 : 1
+  );
+  const piecesText = formatNumber(avgPieces, piecesDecimals);
+
+  return (
+    <span
+      className={cn(
+        "inline-flex tabular-nums",
+        inline
+          ? "items-baseline gap-1"
+          : "flex-col items-end leading-tight",
+        compact && "text-xs"
+      )}
+      title={
+        hasPack
+          ? `ขายเฉลี่ย ${formatNumber(avgCases, 2)} หีบ/วัน = ${piecesText} ชิ้น/วัน (${formatNumber(packSize, 0)} ชิ้น/หีบ)`
+          : `ขายเฉลี่ย ${formatNumber(avgCases, 2)} หีบ/วัน (ไม่มีข้อมูลชิ้น/หีบ)`
+      }
+    >
+      <span
+        className={cn(
+          "text-slate-800 dark:text-slate-200",
+          inline && "font-semibold text-slate-900 dark:text-slate-100"
+        )}
+      >
+        {casesText}
+      </span>
+      {hasPack && (
+        <span
+          className={cn(
+            "font-normal text-slate-400 dark:text-slate-500",
+            inline ? "text-[10px]" : "text-[9px]"
+          )}
+        >
+          {inline ? `(${piecesText} ชิ้น)` : `${piecesText} ชิ้น`}
+        </span>
+      )}
+    </span>
+  );
+}
+
 export function StockListPriceCell({
   unitPrice,
   expired,

@@ -5,6 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
+  Pencil,
+  Plus,
   RefreshCw,
   Search,
   Shield,
@@ -693,6 +695,16 @@ function StoreAccountsPanel({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [vdaDraft, setVdaDraft] = useState<Record<string, string>>({});
+  /** อีเมลของแถวที่กำลังแก้อยู่ (null = ไม่มี) + ค่าที่พิมพ์ไว้ */
+  const [editingEmail, setEditingEmail] = useState<string | null>(null);
+  const [emailDraft, setEmailDraft] = useState("");
+  const [addOpen, setAddOpen] = useState(false);
+  const [addForm, setAddForm] = useState({
+    email: "",
+    vdaCode: "",
+    canManageMinMax: false,
+  });
+  const [addError, setAddError] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -735,6 +747,64 @@ function StoreAccountsPanel({
         const d = await res.json();
         alert(d.error ?? "ทำรายการไม่สำเร็จ");
       }
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /** แอดมินเพิ่มบัญชีร้านค้าเอง — อนุมัติทันที ร้านตั้งรหัสเองครั้งแรกที่เข้าระบบ */
+  async function addAccount() {
+    const email = addForm.email.trim().toLowerCase();
+    if (!email) {
+      setAddError("กรอกอีเมลก่อน");
+      return;
+    }
+    setBusy("__add__");
+    setAddError("");
+    try {
+      const res = await fetch(appPath("/api/admin/store-accounts"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...addForm, email }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setAddError(data.error ?? "เพิ่มบัญชีไม่สำเร็จ");
+        return;
+      }
+      setAddForm({ email: "", vdaCode: "", canManageMinMax: false });
+      setAddOpen(false);
+      await load();
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /** เปลี่ยนอีเมลที่ใช้ล็อกอิน — รหัสผ่านและสิทธิเดิมคงอยู่ */
+  async function saveEmail(currentEmail: string) {
+    const next = emailDraft.trim().toLowerCase();
+    if (!next || next === currentEmail) {
+      setEditingEmail(null);
+      return;
+    }
+    setBusy(currentEmail);
+    try {
+      const res = await fetch(appPath("/api/admin/store-accounts"), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: currentEmail,
+          action: "set-email",
+          newEmail: next,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.error ?? "เปลี่ยนอีเมลไม่สำเร็จ");
+        return;
+      }
+      setEditingEmail(null);
+      await load();
     } finally {
       setBusy(null);
     }
@@ -872,12 +942,95 @@ function StoreAccountsPanel({
 
       <Card>
         <CardHeader>
-          <CardTitle>ร้านค้าที่อนุมัติแล้ว ({approved.length})</CardTitle>
-          <CardDescription>
-            ตั้งค่า VDA และสิทธิจัดการ min/max ต่อบัญชี
-          </CardDescription>
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0">
+              <CardTitle>ร้านค้าที่อนุมัติแล้ว ({approved.length})</CardTitle>
+              <CardDescription>
+                เพิ่มบัญชีเอง · แก้อีเมล · ตั้งค่า VDA และสิทธิจัดการ min/max
+              </CardDescription>
+            </div>
+            <Button
+              size="sm"
+              variant={addOpen ? "ghost" : "outline"}
+              onClick={() => {
+                setAddOpen((v) => !v);
+                setAddError("");
+              }}
+            >
+              {addOpen ? (
+                "ยกเลิก"
+              ) : (
+                <>
+                  <Plus className="h-4 w-4" />
+                  เพิ่มบัญชีร้านค้า
+                </>
+              )}
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="space-y-2">
+          {addOpen && (
+            <div className="space-y-2 rounded-lg border border-teal-200 bg-teal-50/50 p-3 dark:border-teal-800/60 dark:bg-teal-950/20">
+              <p className="text-xs text-slate-600 dark:text-slate-300">
+                บัญชีจะถูกอนุมัติทันที — ร้านค้าตั้งรหัสผ่านเองครั้งแรกที่เข้าระบบ
+                (แอดมินไม่ต้องตั้งรหัสให้)
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  type="email"
+                  autoComplete="off"
+                  className="h-8 min-w-0 flex-1 text-sm"
+                  placeholder="อีเมลร้านค้า เช่น store@example.com"
+                  value={addForm.email}
+                  onChange={(e) =>
+                    setAddForm((f) => ({ ...f, email: e.target.value }))
+                  }
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void addAccount();
+                  }}
+                />
+                <select
+                  className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs dark:border-slate-700 dark:bg-slate-900"
+                  value={addForm.vdaCode}
+                  onChange={(e) =>
+                    setAddForm((f) => ({ ...f, vdaCode: e.target.value }))
+                  }
+                >
+                  <option value="">— เลือก VDA —</option>
+                  {vdaOptions.map((v) => (
+                    <option key={v} value={v}>
+                      {v.toUpperCase()}
+                    </option>
+                  ))}
+                </select>
+                <label className="flex items-center gap-1.5 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={addForm.canManageMinMax}
+                    onChange={(e) =>
+                      setAddForm((f) => ({
+                        ...f,
+                        canManageMinMax: e.target.checked,
+                      }))
+                    }
+                  />
+                  จัดการ min/max
+                </label>
+                <Button
+                  size="sm"
+                  disabled={busy === "__add__"}
+                  onClick={() => void addAccount()}
+                >
+                  {busy === "__add__" ? "กำลังเพิ่ม..." : "เพิ่มบัญชี"}
+                </Button>
+              </div>
+              {addError && (
+                <p className="text-xs font-medium text-red-600 dark:text-red-400">
+                  {addError}
+                </p>
+              )}
+            </div>
+          )}
           {approved.length === 0 ? (
             <p className="py-4 text-center text-sm text-slate-500">
               ยังไม่มีร้านค้าที่อนุมัติ
@@ -889,12 +1042,60 @@ function StoreAccountsPanel({
                 className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700"
               >
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{a.email}</p>
-                  <p className="text-xs text-slate-500">
-                    VDA: {a.vdaCode?.toUpperCase() || "—"}
-                    {a.mustSetPassword ? " · ยังไม่ตั้งรหัส" : ""}
-                  </p>
+                  {editingEmail === a.email ? (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Input
+                        type="email"
+                        autoComplete="off"
+                        autoFocus
+                        className="h-8 min-w-0 flex-1 text-sm"
+                        value={emailDraft}
+                        onChange={(e) => setEmailDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") void saveEmail(a.email);
+                          if (e.key === "Escape") setEditingEmail(null);
+                        }}
+                      />
+                      <Button
+                        size="sm"
+                        disabled={busy === a.email}
+                        onClick={() => void saveEmail(a.email)}
+                      >
+                        บันทึก
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setEditingEmail(null)}
+                      >
+                        ยกเลิก
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="truncate text-sm font-medium">{a.email}</p>
+                      <p className="text-xs text-slate-500">
+                        VDA: {a.vdaCode?.toUpperCase() || "—"}
+                        {a.mustSetPassword ? " · ยังไม่ตั้งรหัส" : ""}
+                      </p>
+                    </>
+                  )}
                 </div>
+                {editingEmail === a.email ? null : (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={busy === a.email}
+                    title="เปลี่ยนอีเมลที่ใช้ล็อกอิน (รหัสผ่านและสิทธิเดิมคงอยู่)"
+                    onClick={() => {
+                      setEditingEmail(a.email);
+                      setEmailDraft(a.email);
+                    }}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                    แก้อีเมล
+                  </Button>
+                )}
                 {vdaSelect(a)}
                 <Button
                   size="sm"

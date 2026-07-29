@@ -7,15 +7,18 @@ import { buildFabricStockPayload } from "@/lib/fabric/stock-rows";
 import { buildPromoInspector } from "@/lib/promo/promo-inspector";
 import { isPooledPromoGroup } from "@/lib/promo/promo-group-display";
 import { formatPremiumUnit } from "@/lib/calculations";
-import { sortStockRows, type StockSortDir, type StockSortKey } from "@/lib/stock/sort";
+import {
+  isStockSortKey,
+  sortStockRows,
+  type StockSortDir,
+} from "@/lib/stock/sort";
+import { filterStockRows, isStockView } from "@/lib/stock/filters";
 import { matchesProductSearch } from "@/lib/utils";
 import {
   CUSTOMER_STORE_COOKIE,
   CUSTOMER_STORE_CODE_COOKIE,
 } from "@/lib/auth/roles";
 import type { StockRowComputed } from "@/lib/repositories/types";
-
-const SORT_KEYS: StockSortKey[] = ["code", "brand", "section", "promoGroup"];
 
 const NUM_INT = "#,##0";
 const NUM_1DP = "#,##0.0";
@@ -91,10 +94,16 @@ export async function GET(request: Request) {
   const brand = searchParams.get("brand") ?? "";
   const section = searchParams.get("section") ?? "";
   const search = (searchParams.get("search") ?? "").trim();
-  const needsOnly = searchParams.get("needsOnly") === "1";
-  const sortKeyParam = searchParams.get("sort") as StockSortKey | null;
-  const sortKey =
-    sortKeyParam && SORT_KEYS.includes(sortKeyParam) ? sortKeyParam : "code";
+  const viewParam = searchParams.get("view");
+  // needsOnly = พารามิเตอร์เดิมของหน้าเก่า — รองรับต่อไปเผื่อมีคน bookmark ลิงก์ไว้
+  const view = isStockView(viewParam)
+    ? viewParam
+    : searchParams.get("needsOnly") === "1"
+      ? "needs"
+      : "all";
+  const hideNoSales = searchParams.get("hideNoSales") === "1";
+  const sortKeyParam = searchParams.get("sort");
+  const sortKey = isStockSortKey(sortKeyParam) ? sortKeyParam : "code";
   const sortDir: StockSortDir =
     searchParams.get("dir") === "asc" ? "asc" : "desc";
 
@@ -103,9 +112,12 @@ export async function GET(request: Request) {
   // กรองแบบเดียวกับหน้าเว็บ เพื่อให้ไฟล์ตรงกับสิ่งที่ผู้ใช้เห็นบนจอ
   let rows = payload.rows;
   if (search) rows = rows.filter((r) => matchesProductSearch(search, r));
-  if (needsOnly) rows = rows.filter((r) => r.needsOrder);
-  if (brand) rows = rows.filter((r) => (r.brand ?? "") === brand);
-  if (section) rows = rows.filter((r) => (r.section ?? "") === section);
+  rows = filterStockRows(rows, {
+    view,
+    brand: brand || null,
+    section: section || null,
+    hideNoSales,
+  });
   rows = sortStockRows(rows, sortKey, sortDir);
 
   const wb = new ExcelJS.Workbook();
@@ -126,6 +138,7 @@ export async function GET(request: Request) {
     { header: "คงเหลือ (ชิ้น)", key: "pieces", width: 13, numFmt: NUM_INT },
     { header: "ขายเฉลี่ย/วัน (หีบ)", key: "avg", width: 15, numFmt: NUM_1DP },
     { header: "CVD (วัน)", key: "cvd", width: 11, numFmt: NUM_1DP },
+    { header: "ไม่ขาย 1 เดือน", key: "noSales", width: 13 },
     { header: "MIN (วัน)", key: "minDays", width: 10, numFmt: NUM_INT },
     { header: "MAX (วัน)", key: "maxDays", width: 10, numFmt: NUM_INT },
     { header: "แนะนำสั่ง (หีบ)", key: "suggest", width: 13, numFmt: NUM_INT },
@@ -154,6 +167,7 @@ export async function GET(request: Request) {
       pieces: r.stockPieces,
       avg: r.avgQtyOutL7 ?? r.avgSales,
       cvd: r.stockCvd,
+      noSales: r.noSales30 ? "ใช่" : "",
       minDays: r.minDays,
       maxDays: r.maxDays,
       suggest: r.suggestOrder,

@@ -8,6 +8,8 @@ import {
   setCanManageMinMax,
   adminResetPassword,
   deleteStoreAccount,
+  createStoreAccountByAdmin,
+  changeStoreAccountEmail,
 } from "@/lib/auth/store-account";
 
 async function requireAdmin() {
@@ -23,6 +25,35 @@ export async function GET() {
   }
   const accounts = await listStoreAccounts();
   return NextResponse.json({ accounts });
+}
+
+/** แอดมินเพิ่มบัญชีร้านค้าเอง — อนุมัติทันที ร้านตั้งรหัสผ่านเองครั้งแรกที่เข้าระบบ */
+export async function POST(request: Request) {
+  const admin = await requireAdmin();
+  if (!admin) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+
+  const body = await request.json().catch(() => ({}));
+  const email = String(body.email ?? "").trim().toLowerCase();
+  if (!email) {
+    return NextResponse.json({ error: "ต้องระบุอีเมล" }, { status: 400 });
+  }
+
+  try {
+    const account = await createStoreAccountByAdmin({
+      email,
+      vdaCode: String(body.vdaCode ?? ""),
+      approvedBy: admin.email,
+      canManageMinMax: !!body.canManageMinMax,
+    });
+    return NextResponse.json({ success: true, account });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "เพิ่มบัญชีไม่สำเร็จ" },
+      { status: 400 }
+    );
+  }
 }
 
 export async function PATCH(request: Request) {
@@ -61,6 +92,13 @@ export async function PATCH(request: Request) {
       }
       case "reset-password": {
         const row = await adminResetPassword(email);
+        return NextResponse.json({ success: true, account: row });
+      }
+      case "set-email": {
+        const row = await changeStoreAccountEmail(
+          email,
+          String(body.newEmail ?? "")
+        );
         return NextResponse.json({ success: true, account: row });
       }
       default:
