@@ -264,6 +264,7 @@ export async function buildFabricStockPayload(
     promoGroupMembers: number;
     skuName: string;
     section: string;
+    packSize: number;
     meta: ReturnType<NonNullable<typeof skuDir>["metaForSku"]>;
     priceLookup: ReturnType<NonNullable<typeof skuDir>["getLookupPrice"]> | undefined;
     suggestOrder: number;
@@ -328,6 +329,8 @@ export async function buildFabricStockPayload(
       skuDir?.nameForSku(cover.productCode) || sku.name || cover.productName;
     const meta = skuDir?.metaForSku(cover.productCode) ?? null;
     const section = meta?.section ?? "";
+    // stock_cover_day นับเป็นชิ้น แต่ promo tier C4 / ราคา นับเป็นหีบ
+    const packSize = meta?.packSize && meta.packSize > 0 ? meta.packSize : 1;
 
     // ลำดับ: แก้รายตัว (ไม่ใช่ค่า default 7/15) → แบรนด์ (Section) → default
     const groupThreshold = section
@@ -339,13 +342,24 @@ export async function buildFabricStockPayload(
     );
 
     // blocklist: ถ้าถึงกำหนดหยุดสั่งแล้ว ไม่ต้องแนะนำ (แต่ถ้า effectiveFrom เป็นอนาคต ยังแนะนำปกติ)
+    // อยู่ในช่วงหยุดสั่งจริงหรือยัง — effectiveTo = null คือหยุดถาวร
+    // ช่วงที่หมดอายุแล้วจะกลับมาแนะนำสั่งเอง แต่แถวยังอยู่ใน DB เป็นประวัติ
     const block = blockBySkuId.get(sku.id);
-    const blocked = block != null && block.effectiveFrom <= now;
+    const blocked =
+      block != null &&
+      block.effectiveFrom <= now &&
+      (block.effectiveTo == null || block.effectiveTo >= now);
     const isNew = sku.createdAt != null && sku.createdAt.getTime() >= newCutoffMs;
 
+    // หน่วยหีบ — ค่านี้ไปรวมเป็น groupPools แล้วเทียบกับขั้นบันได C4 ที่นับเป็นหีบ
     const suggestOrder = blocked
       ? 0
-      : calcSuggestOrder(cover.qtyAvailable, avgSales, minDays, maxDays);
+      : calcSuggestOrder(
+          cover.qtyAvailable / packSize,
+          avgSales / packSize,
+          minDays,
+          maxDays
+        );
 
     pending.push({
       cover,
@@ -361,6 +375,7 @@ export async function buildFabricStockPayload(
       promoGroupMembers,
       skuName,
       section,
+      packSize,
       meta,
       priceLookup,
       suggestOrder,
@@ -405,11 +420,13 @@ export async function buildFabricStockPayload(
         barcode: item.meta?.barcode ?? "",
         section: item.section,
         brand: item.meta?.brand ?? "",
+        packSize: item.packSize,
         poolQtyForDiscount: poolQty,
         isNew: item.isNew,
         blocked: item.blocked,
         blockReason: item.block?.reason ?? null,
         blockEffectiveFrom: item.block?.effectiveFrom?.toISOString() ?? null,
+        blockEffectiveTo: item.block?.effectiveTo?.toISOString() ?? null,
         sku: {
           code: item.sku.code,
           name: item.skuName,

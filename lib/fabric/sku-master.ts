@@ -21,6 +21,8 @@ export interface SkuMeta {
   barcode: string;
   section: string;
   brand: string;
+  /** ชิ้นต่อหีบ จาก PackingSize — 1 เมื่อ master ไม่มีค่า (ถือว่านับเป็นหีบอยู่แล้ว) */
+  packSize: number;
 }
 
 function splitCodeName(value: string): string {
@@ -71,6 +73,11 @@ export class SkuMasterDirectory {
 
   brandForSku(code: string): string {
     return this.metaByCode.get(code.trim())?.brand ?? "";
+  }
+
+  /** ชิ้นต่อหีบ — คืน 1 เมื่อไม่มีข้อมูล เพื่อให้การหารปลอดภัยเสมอ */
+  packSizeForSku(code: string): number {
+    return this.metaByCode.get(code.trim())?.packSize ?? 1;
   }
 
   getLookupPrice(
@@ -138,13 +145,16 @@ export class SkuMasterDirectory {
         n.brand_nameenglish ||
         n.brand ||
         "";
+      // ชิ้นต่อหีบ — stock_cover_day นับเป็นชิ้น แต่ราคา/โปร C4 นับเป็นหีบ
+      const packSize =
+        Math.max(1, Math.round(parseNum(n.packingsize || n.pack_size))) || 1;
 
       count++;
       if (!nameByCode.has(productCode)) {
         nameByCode.set(productCode, name);
       }
       if (!metaByCode.has(productCode)) {
-        metaByCode.set(productCode, { barcode, section, brand });
+        metaByCode.set(productCode, { barcode, section, brand, packSize });
       }
 
       const creditCol =

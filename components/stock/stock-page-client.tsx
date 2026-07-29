@@ -39,6 +39,11 @@ import {
   Minus,
   Plus,
   RotateCcw,
+  ArrowDownUp,
+  ArrowUp,
+  ArrowDown,
+  History,
+  Download,
 } from "lucide-react";
 import { AppHeader } from "@/components/layout/app-header";
 import { PageShell } from "@/components/layout/page-shell";
@@ -54,6 +59,7 @@ import {
 import { ProductSalesPanel } from "@/components/stock/product-sales-panel";
 import { StopOrderModal } from "@/components/stock/stop-order-modal";
 import {
+  StockCaseCell,
   StockDiscountPerCaseCell,
   StockListPriceCell,
   StockNetPriceCell,
@@ -73,17 +79,25 @@ import {
 import { cn, looksLikeProductCodeQuery, matchesProductSearch } from "@/lib/utils";
 import {
   calcCvdEstimate,
+  formatBaht,
   formatDays,
   formatNumber,
   getCvdFlag,
   type CvdFlag,
 } from "@/lib/calculations";
 import {
+  DEFAULT_STOCK_SORT,
+  STOCK_SORT_OPTIONS,
+  isFixedOrderSort,
+  sortStockRows,
+  type StockSortKey,
+  type StockSortState,
+} from "@/lib/stock/sort";
+import {
   annotatePromoGroupStripes,
   followsPooledPromoGroup,
   isPooledPromoGroup,
   promoGroupRowBgClass,
-  sortStockDisplayRows,
   type PromoGroupStripe,
 } from "@/lib/promo/promo-group-display";
 import {
@@ -160,6 +174,7 @@ export function StockPageClient({
   const [showNewOnly, setShowNewOnly] = useState(false);
   const [showCriticalOnly, setShowCriticalOnly] = useState(false);
   const [stopOpen, setStopOpen] = useState(false);
+  const [sort, setSort] = useState<StockSortState>(DEFAULT_STOCK_SORT);
   const [sessionReady, setSessionReady] = useState(false);
   const [pendingFocusSku, setPendingFocusSku] = useState<string | null>(null);
 
@@ -183,6 +198,24 @@ export function StockPageClient({
     refetchOnWindowFocus: false,
   });
 
+  /** สรุปที่เคยสั่งไปแล้วใน 14 วัน — ใช้เตือนกันสั่งซ้ำ (โหลดแยกจาก payload สต็อก) */
+  const { data: recentOrders } = useQuery<{
+    days: number;
+    bySku: Record<string, RecentOrderSummary>;
+  }>({
+    queryKey: ["order-history-recent"],
+    queryFn: async () => {
+      const res = await fetch(
+        appPath("/api/store/order-history?summary=1&days=14"),
+        { cache: "no-store" }
+      );
+      if (!res.ok) throw new Error("โหลดประวัติการสั่งไม่สำเร็จ");
+      return res.json();
+    },
+    staleTime: 60_000,
+  });
+  const recentBySku = recentOrders?.bySku ?? EMPTY_RECENT;
+
   /** true = desktop table (≥1024px); false = mobile/card list */
   const [isDesktop, setIsDesktop] = useState(false);
   useEffect(() => {
@@ -198,6 +231,50 @@ export function StockPageClient({
   const suggestByProduct = useMemo(() => buildSuggestByProduct(rows), [rows]);
   const activeVda = data?.activeFromDb ?? storeCode;
   const dataDate = data?.dataDate ?? null;
+  // header ของหน้านี้เป็นแบบ compact (ซ่อนบล็อกชื่อร้าน) จึงต่อชื่อร้านเข้ากับ title เอง
+  const headerTitle = useMemo(() => {
+    const base = `สต็อก · ${activeVda.toUpperCase()}`;
+    const name = storeName?.trim();
+    if (!name || name.toUpperCase() === activeVda.toUpperCase()) return base;
+    return `${base} · ${name}`;
+  }, [activeVda, storeName]);
+
+  /** จำการเรียงลำดับที่ผู้ใช้เลือกไว้ข้ามการรีเฟรชหน้า */
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem("vmi_stock_sort");
+      if (!raw) return;
+      const saved = JSON.parse(raw) as StockSortState;
+      if (
+        STOCK_SORT_OPTIONS.some((o) => o.key === saved?.key) &&
+        (saved.dir === "asc" || saved.dir === "desc")
+      ) {
+        setSort(saved);
+      }
+    } catch {
+      // ignore corrupt session
+    }
+  }, []);
+
+  /** ส่งออก Excel ตามตัวกรอง/การเรียงที่เห็นบนจอ (สร้างไฟล์ฝั่ง server) */
+  const exportExcel = useCallback(() => {
+    const params = new URLSearchParams({ sort: sort.key, dir: sort.dir });
+    if (viewScope.brand) params.set("brand", viewScope.brand);
+    if (viewScope.section) params.set("section", viewScope.section);
+    if (viewScope.needsOnly) params.set("needsOnly", "1");
+    const q = search.trim();
+    if (q) params.set("search", q);
+    window.location.href = `${appPath("/api/stock/export")}?${params.toString()}`;
+  }, [sort, viewScope, search]);
+
+  const applySort = useCallback((next: StockSortState) => {
+    setSort(next);
+    try {
+      sessionStorage.setItem("vmi_stock_sort", JSON.stringify(next));
+    } catch {
+      // sessionStorage เต็ม/ถูกปิด — เรียงได้ต่อ แค่ไม่จำ
+    }
+  }, []);
 
   /** คืนค่าการเลือก + จำนวนจาก session เมื่อกลับจากหน้า order */
   useEffect(() => {
@@ -336,10 +413,17 @@ export function StockPageClient({
     }
   }, [refreshing, queryClient]);
 
-  // สินค้าใหม่ลอยขึ้นบนสุด แต่ต้องจัดกลุ่มโปรครั้งเดียวทั้งตาราง (แยก new/rest ทำให้สินค้าไม่มีกลุ่มไปต่อท้ายกลุ่มโปร)
+  // แถบสี/แถวหัวกลุ่มโปรใช้ได้ต่อเมื่อแถวในกลุ่มเดียวกันติดกัน — จริงเฉพาะตอนเรียงแบบ "กลุ่มโปรโมชั่น"
+  // เรียงแบบอื่นจึงปิดแถบสีไว้ ไม่งั้นสีจะสลับมั่วทั้งตาราง
   const displayRows = useMemo(() => {
-    return annotatePromoGroupStripes(sortStockDisplayRows(filtered));
-  }, [filtered]);
+    const sorted = sortStockRows(filtered, sort.key, sort.dir);
+    if (sort.key === "promoGroup") return annotatePromoGroupStripes(sorted);
+    return sorted.map((row) => ({
+      ...row,
+      promoGroupStripe: null as PromoGroupStripe | null,
+      promoGroupIsFirst: false,
+    }));
+  }, [filtered, sort]);
 
   const groupMemberSkusMap = useMemo(
     () => buildGroupMemberSkusMap(displayRows),
@@ -641,16 +725,19 @@ export function StockPageClient({
 
   const stats = useMemo(() => {
     let totalStock = 0;
+    let totalStockExact = 0;
     let totalValue = 0;
     let totalAvg = 0;
     let needsOrder = 0;
     for (const r of rows) {
-      totalStock += r.stock;
+      // หน่วยหีบทั้งหมด — stockCases (หีบเต็ม) สำหรับแสดง, stock (ทศนิยม) สำหรับมูลค่า/CVD
+      totalStock += r.stockCases;
+      totalStockExact += r.stock;
       totalValue += r.stock * (r.unitPrice ?? 0);
       totalAvg += r.avgSales;
       if (r.needsOrder) needsOrder++;
     }
-    const cvdAll = totalAvg > 0 ? totalStock / totalAvg : null;
+    const cvdAll = totalAvg > 0 ? totalStockExact / totalAvg : null;
     return {
       total: rows.length,
       totalStock,
@@ -728,7 +815,7 @@ export function StockPageClient({
       <AppHeader
         compact
         wide
-        title={`สต็อก · ${activeVda.toUpperCase()}`}
+        title={headerTitle}
         storeCode={storeCode}
         storeName={storeName}
         storeAddress={storeAddress}
@@ -753,7 +840,8 @@ export function StockPageClient({
             <StockStatCard
               icon={<Wallet className="h-4 w-4" />}
               label="มูลค่าสินค้ารวม"
-              value={`฿${formatNumber(stats.totalValue, 0)}`}
+              title="คงเหลือ (หีบ) × ราคา/หีบ"
+              value={formatBaht(stats.totalValue)}
             />
             <StockStatCard
               icon={<CalendarClock className="h-4 w-4" />}
@@ -919,6 +1007,21 @@ export function StockPageClient({
                 <span className="hidden sm:inline">รีเซ็ตแนะนำ</span>
               </Button>
             )}
+            {rows.length > 0 && (
+              <StockSortControl sort={sort} onChange={applySort} />
+            )}
+            {rows.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="whitespace-nowrap"
+                onClick={exportExcel}
+                title="ส่งออกตารางนี้ (ตามตัวกรอง/การเรียงปัจจุบัน) พร้อมราคาและโปรโมชั่นทั้งหมด"
+              >
+                <Download className="h-4 w-4" />
+                <span className="hidden sm:inline">Excel</span>
+              </Button>
+            )}
           </div>
         </div>
 
@@ -1017,6 +1120,7 @@ export function StockPageClient({
                       expanded={expanded.has(row.skuId)}
                       onToggleExpand={() => toggleExpand(row.skuId)}
                       showFreeGoodRow={isFreeGoodHostRow(displayRows, index)}
+                      recentOrder={recentBySku[row.skuCode]}
                     />
                     );
                   })}
@@ -1056,16 +1160,47 @@ export function StockPageClient({
                     title="เลือกรายการที่ควรสั่ง (ตามตัวกรอง)"
                   />
                 </th>
-                <th className="px-1 py-2">SKU</th>
+                <th className="px-1 py-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      applySort({
+                        key: "code",
+                        dir:
+                          sort.key === "code" && sort.dir === "desc"
+                            ? "asc"
+                            : "desc",
+                      })
+                    }
+                    className="inline-flex items-center gap-0.5 hover:text-teal-700 dark:hover:text-teal-400"
+                    title="เรียงตามรหัสสินค้า"
+                  >
+                    SKU
+                    {sort.key === "code" &&
+                      (sort.dir === "asc" ? (
+                        <ArrowUp className="h-3 w-3" />
+                      ) : (
+                        <ArrowDown className="h-3 w-3" />
+                      ))}
+                  </button>
+                </th>
                 <th className="px-1 py-2">ชื่อสินค้า</th>
-                <th className="px-1 py-2 text-right">สต็อก</th>
                 <th
                   className="px-1 py-2 text-right leading-tight"
-                  title="ขายเฉลี่ยต่อวัน 7 วัน จาก stock_cover (avg_qty_out_L7) — ไม่ใช่ยอดบิล factsales"
+                  title="คงเหลือหน่วยหีบ · เศษที่ไม่ครบหีบ (ชิ้น) — แปลงจาก qty_available ด้วย PackingSize"
+                >
+                  สต็อก<br />
+                  <span className="font-normal text-[9px] text-slate-400">
+                    หีบ/เศษ
+                  </span>
+                </th>
+                <th
+                  className="px-1 py-2 text-right leading-tight"
+                  title="ขายเฉลี่ยต่อวัน 7 วัน จาก stock_cover (avg_qty_out_L7) หน่วยหีบ — ไม่ใช่ยอดบิล factsales"
                 >
                   ขายเฉลี่ย<br />
                   <span className="font-normal text-[9px] text-slate-400">
-                    7 วัน · คลัง
+                    7 วัน · หีบ
                   </span>
                 </th>
                 <th className="px-1 py-2 text-right">CVD</th>
@@ -1201,11 +1336,14 @@ export function StockPageClient({
                               type="button"
                               onClick={() => unblock(row.skuId)}
                               className="inline-flex shrink-0 items-center gap-0.5 rounded bg-red-100 px-1 py-0.5 text-[9px] font-bold text-red-700 hover:bg-red-200 dark:bg-red-950/50 dark:text-red-300"
-                              title={`หยุดสั่ง: ${row.blockReason ?? ""} — กดเพื่อยกเลิก`}
+                              title={`${formatBlockTitle(row)} — กดเพื่อยกเลิก`}
                             >
                               <Ban className="h-2.5 w-2.5" />
                               หยุดสั่ง
                             </button>
+                          )}
+                          {recentBySku[row.skuCode] && (
+                            <OrderedBadge info={recentBySku[row.skuCode]!} />
                           )}
                           {row.noSales30 && !row.blocked && (
                             <span
@@ -1236,8 +1374,13 @@ export function StockPageClient({
                           </button>
                         </div>
                       </td>
-                      <td className="px-1 py-1.5 text-right tabular-nums text-xs">
-                        {formatNumber(row.stock, 0)}
+                      <td className="px-1 py-1.5 text-right text-xs">
+                        <StockCaseCell
+                          cases={row.stockCases}
+                          remainder={row.stockRemainder}
+                          pieces={row.stockPieces}
+                          packSize={row.packSize}
+                        />
                       </td>
                       <td className="px-1 py-1.5 text-right tabular-nums text-xs">
                         {formatNumber(row.avgQtyOutL7 ?? row.avgSales, 1)}
@@ -1356,6 +1499,7 @@ export function StockPageClient({
                             <ProductSalesPanel
                               skuCode={row.skuCode}
                               fromDb={row.fromDb ?? activeVda}
+                              packSize={row.packSize}
                             />
                           </ExpandedMeasure>
                         </td>
@@ -1512,10 +1656,12 @@ const StockMobileRow = memo(function StockMobileRow({
   expanded,
   onToggleExpand,
   showFreeGoodRow,
+  recentOrder,
 }: {
   row: DisplayRow;
   storeCode: string;
   qty: number;
+  recentOrder?: RecentOrderSummary;
   selected: boolean;
   orderCvd: number | null;
   orderFlag: CvdFlag | null;
@@ -1612,6 +1758,11 @@ const StockMobileRow = memo(function StockMobileRow({
               {row.barcode}
             </p>
           )}
+          {recentOrder && (
+            <span className="mt-1 inline-flex">
+              <OrderedBadge info={recentOrder} />
+            </span>
+          )}
         </button>
         <StockQtyStepper
           qty={qty}
@@ -1624,9 +1775,16 @@ const StockMobileRow = memo(function StockMobileRow({
         />
       </MobileRowTop>
       <MobileRowStats className="pl-7">
-        <MobileStat label="สต็อก" value={formatNumber(row.stock, 0)} />
+        <MobileStat label="สต็อก · หีบ/เศษ">
+          <StockCaseCell
+            cases={row.stockCases}
+            remainder={row.stockRemainder}
+            pieces={row.stockPieces}
+            packSize={row.packSize}
+          />
+        </MobileStat>
         <MobileStat
-          label="ขายเฉลี่ย · คลัง"
+          label="ขายเฉลี่ย · หีบ"
           value={formatNumber(row.avgQtyOutL7 ?? row.avgSales, 1)}
           title="จาก stock_cover (avg_qty_out_L7) — ไม่ใช่ยอดบิล"
         />
@@ -1708,7 +1866,11 @@ const StockMobileRow = memo(function StockMobileRow({
       )}
       {expanded && (
         <MobileRowExtra className="pl-7">
-          <ProductSalesPanel skuCode={row.skuCode} fromDb={row.fromDb ?? storeCode} />
+          <ProductSalesPanel
+            skuCode={row.skuCode}
+            fromDb={row.fromDb ?? storeCode}
+            packSize={row.packSize}
+          />
         </MobileRowExtra>
       )}
     </MobileRow>
@@ -1799,6 +1961,115 @@ function StockStatCard({
         </p>
       </div>
     </button>
+  );
+}
+
+/** สรุปการสั่งล่าสุดต่อ SKU จาก /api/store/order-history?summary=1 */
+type RecentOrderSummary = {
+  totalQty: number;
+  lastQty: number;
+  orderedAt: string;
+  status: string;
+  daysAgo: number;
+  orderCount: number;
+};
+
+const EMPTY_RECENT: Record<string, RecentOrderSummary> = {};
+
+/** ป้ายเตือน "สั่งไปแล้ว" — กันร้านสั่งซ้ำโดยไม่รู้ตัว */
+function OrderedBadge({ info }: { info: RecentOrderSummary }) {
+  const pending = info.status === "pending_approval";
+  const when =
+    info.daysAgo === 0 ? "วันนี้" : `${formatNumber(info.daysAgo, 0)} วันก่อน`;
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[9px] font-bold",
+        pending
+          ? "bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-200"
+          : "bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300"
+      )}
+      title={`สั่งไปแล้ว ${formatNumber(info.totalQty, 0)} หีบ จาก ${formatNumber(info.orderCount, 0)} ออเดอร์ใน 14 วัน · ล่าสุด ${when}${pending ? " (ยังรออนุมัติ)" : ""}`}
+    >
+      <History className="h-2.5 w-2.5" />
+      สั่งแล้ว {formatNumber(info.totalQty, 0)} · {when}
+    </span>
+  );
+}
+
+/** tooltip badge หยุดสั่ง — เหตุผล + ช่วงวันที่ (ไม่มีวันสิ้นสุด = ถาวร) */
+function formatBlockTitle(row: {
+  blockReason?: string | null;
+  blockEffectiveFrom?: string | null;
+  blockEffectiveTo?: string | null;
+}): string {
+  const fmt = (iso: string) =>
+    new Date(iso).toLocaleDateString("th-TH", {
+      day: "2-digit",
+      month: "short",
+      year: "2-digit",
+    });
+  const parts = [`หยุดสั่ง: ${row.blockReason ?? ""}`];
+  if (row.blockEffectiveFrom) {
+    parts.push(
+      row.blockEffectiveTo
+        ? `${fmt(row.blockEffectiveFrom)} – ${fmt(row.blockEffectiveTo)}`
+        : `ตั้งแต่ ${fmt(row.blockEffectiveFrom)} · ถาวร`
+    );
+  }
+  return parts.join(" · ");
+}
+
+/** เลือกคีย์เรียงลำดับ + สลับขึ้น/ลง — ค่าเริ่มต้นคือรหัสสินค้ามากไปน้อย */
+function StockSortControl({
+  sort,
+  onChange,
+}: {
+  sort: StockSortState;
+  onChange: (next: StockSortState) => void;
+}) {
+  const label =
+    STOCK_SORT_OPTIONS.find((o) => o.key === sort.key)?.label ?? "รหัสสินค้า";
+  const fixedOrder = isFixedOrderSort(sort.key);
+  return (
+    <div className="inline-flex items-center overflow-hidden rounded-md border border-slate-200 dark:border-slate-700">
+      <ArrowDownUp className="ml-1.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
+      <select
+        value={sort.key}
+        onChange={(e) =>
+          onChange({ key: e.target.value as StockSortKey, dir: sort.dir })
+        }
+        aria-label="เรียงตาม"
+        title="เรียงตาม"
+        className="bg-transparent py-1 pl-1 pr-1 text-xs text-slate-700 outline-none dark:text-slate-200"
+      >
+        {STOCK_SORT_OPTIONS.map((o) => (
+          <option key={o.key} value={o.key}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <button
+        type="button"
+        disabled={fixedOrder}
+        onClick={() =>
+          onChange({ key: sort.key, dir: sort.dir === "asc" ? "desc" : "asc" })
+        }
+        title={
+          fixedOrder
+            ? "เรียงตามกลุ่มโปรโมชั่นใช้ลำดับตายตัว (กลุ่มโปรอยู่บนสุด)"
+            : `${label} · ${sort.dir === "asc" ? "น้อยไปมาก" : "มากไปน้อย"}`
+        }
+        aria-label={`สลับเป็น${sort.dir === "asc" ? "มากไปน้อย" : "น้อยไปมาก"}`}
+        className="border-l border-slate-200 px-1.5 py-1 text-slate-500 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent dark:border-slate-700 dark:hover:bg-slate-800"
+      >
+        {sort.dir === "asc" ? (
+          <ArrowUp className="h-3.5 w-3.5" />
+        ) : (
+          <ArrowDown className="h-3.5 w-3.5" />
+        )}
+      </button>
+    </div>
   );
 }
 

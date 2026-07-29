@@ -5,6 +5,8 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Ban } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { cn } from "@/lib/utils";
 
 export function StopOrderModal({
   open,
@@ -21,6 +23,8 @@ export function StopOrderModal({
 }) {
   const [reason, setReason] = useState("");
   const [effectiveFrom, setEffectiveFrom] = useState("");
+  const [effectiveTo, setEffectiveTo] = useState("");
+  const [permanent, setPermanent] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -28,6 +32,8 @@ export function StopOrderModal({
     if (!open) return;
     setReason("");
     setEffectiveFrom("");
+    setEffectiveTo("");
+    setPermanent(true);
     setError("");
     setSaving(false);
   }, [open]);
@@ -36,6 +42,10 @@ export function StopOrderModal({
 
   async function submit() {
     if (skuIds.length === 0) return;
+    if (!permanent && !effectiveTo) {
+      setError("ระบุวันที่สิ้นสุด หรือติ๊ก “หยุดสั่งถาวร”");
+      return;
+    }
     setSaving(true);
     setError("");
     try {
@@ -46,6 +56,8 @@ export function StopOrderModal({
           skuIds,
           reason: reason.trim(),
           effectiveFrom: effectiveFrom || undefined,
+          effectiveTo: permanent ? undefined : effectiveTo,
+          permanent,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -57,6 +69,7 @@ export function StopOrderModal({
       }
       setReason("");
       setEffectiveFrom("");
+      setEffectiveTo("");
       await onSuccess();
       onClose();
     } finally {
@@ -78,7 +91,7 @@ export function StopOrderModal({
           หยุดสั่ง {selectedCount} รายการ
         </h3>
         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-          ระบบจะไม่แนะนำสั่งสินค้าเหล่านี้ตั้งแต่วันที่กำหนด และแจ้งเซลล์ที่ดูแลร้าน
+          ระบบจะไม่แนะนำสั่งสินค้าเหล่านี้ในช่วงวันที่กำหนด และแจ้งเซลล์ที่ดูแลร้าน
         </p>
 
         <label className="mt-4 block text-xs font-semibold text-slate-600 dark:text-slate-300">
@@ -93,16 +106,53 @@ export function StopOrderModal({
           className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none ring-teal-500/30 focus:ring-2 dark:border-slate-700 dark:bg-slate-900"
         />
 
-        <label className="mt-3 block text-xs font-semibold text-slate-600 dark:text-slate-300">
-          เริ่มหยุดสั่งตั้งแต่
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
+              ตั้งแต่วันที่
+            </label>
+            <input
+              type="datetime-local"
+              value={effectiveFrom}
+              onChange={(e) => setEffectiveFrom(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none ring-teal-500/30 focus:ring-2 dark:border-slate-700 dark:bg-slate-900"
+            />
+            <p className="mt-1 text-[11px] text-slate-400">เว้นว่าง = เริ่มทันที</p>
+          </div>
+          <div>
+            <label
+              className={cn(
+                "block text-xs font-semibold text-slate-600 dark:text-slate-300",
+                permanent && "text-slate-400 dark:text-slate-600"
+              )}
+            >
+              ถึงวันที่
+            </label>
+            <input
+              type="datetime-local"
+              value={effectiveTo}
+              disabled={permanent}
+              min={effectiveFrom || undefined}
+              onChange={(e) => setEffectiveTo(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none ring-teal-500/30 focus:ring-2 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:disabled:bg-slate-800"
+            />
+            <p className="mt-1 text-[11px] text-slate-400">
+              {permanent ? "หยุดถาวร" : "กลับมาแนะนำสั่งหลังวันนี้"}
+            </p>
+          </div>
+        </div>
+
+        <label className="mt-3 flex cursor-pointer items-center gap-2 text-xs font-medium text-slate-700 dark:text-slate-300">
+          <Checkbox
+            checked={permanent}
+            onCheckedChange={(v) => {
+              const next = v === true;
+              setPermanent(next);
+              if (next) setEffectiveTo("");
+            }}
+          />
+          หยุดสั่งถาวร (ไม่กำหนดวันสิ้นสุด)
         </label>
-        <input
-          type="datetime-local"
-          value={effectiveFrom}
-          onChange={(e) => setEffectiveFrom(e.target.value)}
-          className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none ring-teal-500/30 focus:ring-2 dark:border-slate-700 dark:bg-slate-900"
-        />
-        <p className="mt-1 text-[11px] text-slate-400">เว้นว่าง = เริ่มทันที</p>
 
         {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
 

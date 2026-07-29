@@ -1,6 +1,43 @@
 import { formatNumber } from "@/lib/calculations";
 import { cn } from "@/lib/utils";
 
+/**
+ * คงเหลือแบบ "หีบ/เศษ" — stock_cover_day นับเป็นชิ้น จึงหารด้วย PackingSize
+ * ทั้งสองตัวเลขขนาดเท่ากัน คั่นด้วย "/" ให้อ่านเป็นค่าเดียว
+ * ล็อกความกว้างสองฝั่งเท่ากัน (3ch) เพื่อให้ "/" ตรงกันทุกแถว
+ */
+export function StockCaseCell({
+  cases,
+  remainder,
+  pieces,
+  packSize,
+  compact = false,
+}: {
+  cases: number;
+  remainder: number;
+  pieces: number;
+  packSize: number;
+  compact?: boolean;
+}) {
+  const title =
+    packSize > 1
+      ? `${formatNumber(cases, 0)} หีบ ${formatNumber(remainder, 0)} ชิ้น · รวม ${formatNumber(pieces, 0)} ชิ้น (${formatNumber(packSize, 0)} ชิ้น/หีบ)`
+      : `${formatNumber(cases, 0)} หีบ (ไม่มีข้อมูลชิ้น/หีบ)`;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-baseline justify-end font-medium tabular-nums whitespace-nowrap text-slate-800 dark:text-slate-200",
+        compact && "text-xs"
+      )}
+      title={title}
+    >
+      <span className="min-w-[3ch] text-right">{formatNumber(cases, 0)}</span>
+      <span className="mx-px text-slate-300 dark:text-slate-600">/</span>
+      <span className="min-w-[3ch] text-left">{formatNumber(remainder, 0)}</span>
+    </span>
+  );
+}
+
 export function StockListPriceCell({
   unitPrice,
   expired,

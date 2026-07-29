@@ -2,18 +2,23 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ClipboardList, Package } from "lucide-react";
+import { ClipboardList, History, Package } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const tabs = [
   { href: "/stock", label: "สต็อก", icon: Package },
   { href: "/order", label: "สั่งสินค้า", icon: ClipboardList },
+  { href: "/history", label: "ประวัติ", icon: History },
 ] as const;
 
 export function CustomerMobileNav() {
   const pathname = usePathname();
 
-  if (!pathname.startsWith("/stock") && !pathname.startsWith("/order")) {
+  if (
+    !pathname.startsWith("/stock") &&
+    !pathname.startsWith("/order") &&
+    !pathname.startsWith("/history")
+  ) {
     return null;
   }
 

@@ -136,6 +136,7 @@ model StoreSkuBlock {
   skuId          String
   reason         String
   effectiveFrom  DateTime  @default(now()) // เริ่มหยุดสั่งตั้งแต่เมื่อไหร่ (อาจเป็นอนาคต)
+  effectiveTo    DateTime?                 // สิ้นสุดการหยุดสั่ง (null = หยุดถาวร)
   createdBy      String    @default("")
   createdAt      DateTime  @default(now())
   acknowledgedAt DateTime?                 // เซลล์กดรับทราบเมื่อไหร่ (null = ยังไม่อ่าน)

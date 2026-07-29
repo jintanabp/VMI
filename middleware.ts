@@ -7,7 +7,7 @@ const SALES_SESSION_COOKIE = "vmi_sales_session";
 const SALES_PREVIEW_COOKIE = "vmi_sales_preview";
 const SALES_PREVIEW_INFO_COOKIE = "vmi_sales_preview_info";
 
-const customerRoutes = ["/stock", "/order", "/manage"];
+const customerRoutes = ["/stock", "/order", "/manage", "/history"];
 const salesRoutes = ["/sales"];
 const adminRoutes = ["/admin"];
 
@@ -59,6 +59,7 @@ export const config = {
     "/stock/:path*",
     "/order/:path*",
     "/manage/:path*",
+    "/history/:path*",
     "/sales/:path*",
     "/admin/:path*",
   ],

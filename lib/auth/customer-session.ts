@@ -1,6 +1,7 @@
 import type { Store } from "@prisma/client";
 import { getCustomerDirectory, fabricMastersReady, fabricStockReady } from "@/lib/fabric";
 import { listStockFromDbSources } from "@/lib/fabric/stock-rows";
+import { resolveVdaStoreName } from "@/lib/fabric/vda-store-name";
 import { getRepositories } from "@/lib/repositories";
 import {
   CUSTOMER_STORE_CODE_COOKIE,
@@ -31,10 +32,12 @@ function isVdaCode(code: string): boolean {
 
 function enrichFromFabric(store: Store): CustomerStoreContext {
   if (isVdaCode(store.code)) {
+    // ถ้า map vda → customercode ได้ ใช้ชื่อร้านจาก dim_customer แทนรหัสเปล่า
+    const vdaName = resolveVdaStoreName(store.code);
     return {
       id: store.id,
       code: store.code,
-      name: store.code.toUpperCase(),
+      name: vdaName || store.code.toUpperCase(),
       addressName: "คลัง VDA",
       isVda: true,
     };

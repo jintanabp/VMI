@@ -24,6 +24,7 @@ import {
 import { AppHeader } from "@/components/layout/app-header";
 import { PageShell } from "@/components/layout/page-shell";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { cn, matchesProductSearch } from "@/lib/utils";
 import type { StockRowComputed } from "@/lib/repositories/types";
 
@@ -392,7 +393,21 @@ interface BlockItem {
   skuName: string;
   reason: string;
   effectiveFrom: string;
+  /** null = หยุดถาวร */
+  effectiveTo: string | null;
   createdAt: string;
+}
+
+/** ช่วงวันที่หยุดสั่งแบบอ่านง่าย */
+function formatBlockPeriod(from: string, to: string | null): string {
+  const fmt = (iso: string) =>
+    new Date(iso).toLocaleDateString("th-TH", {
+      day: "2-digit",
+      month: "short",
+      year: "2-digit",
+    });
+  if (!to) return `ตั้งแต่ ${fmt(from)} · ถาวร`;
+  return `${fmt(from)} – ${fmt(to)}`;
 }
 
 function toDatetimeLocal(iso: string): string {
@@ -457,16 +472,28 @@ function BlockRow({
   const [editing, setEditing] = useState(false);
   const [reason, setReason] = useState(block.reason);
   const [effective, setEffective] = useState(toDatetimeLocal(block.effectiveFrom));
+  const [effectiveTo, setEffectiveTo] = useState(
+    block.effectiveTo ? toDatetimeLocal(block.effectiveTo) : ""
+  );
+  const [permanent, setPermanent] = useState(block.effectiveTo == null);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     setReason(block.reason);
     setEffective(toDatetimeLocal(block.effectiveFrom));
-  }, [block.reason, block.effectiveFrom]);
+    setEffectiveTo(block.effectiveTo ? toDatetimeLocal(block.effectiveTo) : "");
+    setPermanent(block.effectiveTo == null);
+  }, [block.reason, block.effectiveFrom, block.effectiveTo]);
 
   async function save() {
     if (!reason.trim()) return;
+    if (!permanent && !effectiveTo) {
+      setError("ระบุวันที่สิ้นสุด หรือติ๊กหยุดถาวร");
+      return;
+    }
     setBusy(true);
+    setError("");
     try {
       const res = await fetch(appPath("/api/store/blocklist"), {
         method: "POST",
@@ -475,11 +502,21 @@ function BlockRow({
           skuIds: [block.skuId],
           reason: reason.trim(),
           effectiveFrom: effective ? new Date(effective).toISOString() : undefined,
+          effectiveTo:
+            permanent || !effectiveTo
+              ? undefined
+              : new Date(effectiveTo).toISOString(),
+          permanent,
         }),
       });
       if (res.ok) {
         setEditing(false);
         onChanged();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setError(
+          typeof data.error === "string" ? data.error : "บันทึกไม่สำเร็จ"
+        );
       }
     } finally {
       setBusy(false);
@@ -547,20 +584,57 @@ function BlockRow({
             placeholder="เหตุผล"
             className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none ring-teal-500/30 focus:ring-2 dark:border-slate-700 dark:bg-slate-900"
           />
-          <input
-            type="datetime-local"
-            value={effective}
-            onChange={(e) => setEffective(e.target.value)}
-            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none ring-teal-500/30 focus:ring-2 dark:border-slate-700 dark:bg-slate-900"
-          />
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block">
+              <span className="text-[11px] font-medium text-slate-500">
+                ตั้งแต่วันที่
+              </span>
+              <input
+                type="datetime-local"
+                value={effective}
+                onChange={(e) => setEffective(e.target.value)}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none ring-teal-500/30 focus:ring-2 dark:border-slate-700 dark:bg-slate-900"
+              />
+            </label>
+            <label className="block">
+              <span className="text-[11px] font-medium text-slate-500">
+                ถึงวันที่
+              </span>
+              <input
+                type="datetime-local"
+                value={effectiveTo}
+                disabled={permanent}
+                min={effective || undefined}
+                onChange={(e) => setEffectiveTo(e.target.value)}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none ring-teal-500/30 focus:ring-2 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:disabled:bg-slate-800"
+              />
+            </label>
+          </div>
+          <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-slate-700 dark:text-slate-300">
+            <Checkbox
+              checked={permanent}
+              onCheckedChange={(v) => {
+                const next = v === true;
+                setPermanent(next);
+                if (next) setEffectiveTo("");
+              }}
+            />
+            หยุดสั่งถาวร
+          </label>
+          {error && <p className="text-xs text-red-600">{error}</p>}
           <div className="flex justify-end gap-2">
             <Button
               size="sm"
               variant="ghost"
               onClick={() => {
                 setEditing(false);
+                setError("");
                 setReason(block.reason);
                 setEffective(toDatetimeLocal(block.effectiveFrom));
+                setEffectiveTo(
+                  block.effectiveTo ? toDatetimeLocal(block.effectiveTo) : ""
+                );
+                setPermanent(block.effectiveTo == null);
               }}
               disabled={busy}
             >
@@ -583,12 +657,7 @@ function BlockRow({
             เหตุผล: {block.reason}
           </p>
           <p className="mt-0.5 text-[11px] text-slate-400">
-            เริ่มหยุด{" "}
-            {new Date(block.effectiveFrom).toLocaleDateString("th-TH", {
-              day: "2-digit",
-              month: "short",
-              year: "2-digit",
-            })}
+            หยุดสั่ง {formatBlockPeriod(block.effectiveFrom, block.effectiveTo)}
           </p>
         </>
       )}

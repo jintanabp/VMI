@@ -73,10 +73,13 @@ export function ProductSalesPanel({
   skuCode,
   fromDb,
   days = 7,
+  packSize = 1,
 }: {
   skuCode: string;
   fromDb?: string | null;
   days?: number;
+  /** ชิ้นต่อหีบ — factsales นับเป็นชิ้น แต่ทั้งแอปแสดงเป็นหีบ */
+  packSize?: number;
 }) {
   const [viewDays, setViewDays] = useState<number>(days);
 
@@ -97,10 +100,15 @@ export function ProductSalesPanel({
 
   const summary = data?.summary;
   const everSold = Boolean(summary?.hasData);
-  const series = useMemo(() => summary?.series ?? [], [summary]);
-  const total = summary?.total ?? 0;
-  const avgPerDay = summary?.avgPerDay ?? 0;
-  const avgPerWeek = summary?.avgPerWeek ?? 0;
+  // factsales นับเป็นชิ้น — หารเป็นหีบให้ตรงกับคอลัมน์อื่นในตาราง
+  const pack = packSize > 0 ? packSize : 1;
+  const series = useMemo(
+    () => (summary?.series ?? []).map((d) => ({ ...d, qty: d.qty / pack })),
+    [summary, pack]
+  );
+  const total = (summary?.total ?? 0) / pack;
+  const avgPerDay = (summary?.avgPerDay ?? 0) / pack;
+  const avgPerWeek = (summary?.avgPerWeek ?? 0) / pack;
   const isMonthView = viewDays >= 30;
 
   const peak = useMemo(() => {
@@ -163,7 +171,7 @@ export function ProductSalesPanel({
           title="ยอดขายจริงจากบิล (factsales) — คนละชุดกับคอลัมน์ 'ขายเฉลี่ย·คลัง' ที่มาจาก stock_cover"
         >
           <BarChart3 className="h-3.5 w-3.5 text-teal-600" />
-          ยอดขาย {viewDays} วัน · บิล
+          ยอดขาย {viewDays} วัน · บิล (หีบ)
         </span>
         {dayToggle}
         <SummaryPill label="เฉลี่ย/วัน" value={formatNumber(avgPerDay, 1)} />

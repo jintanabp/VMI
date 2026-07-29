@@ -22,9 +22,19 @@ export interface StockRowComputed {
   section?: string;
   /** แบรนด์สินค้า */
   brand?: string;
+  /** ชิ้นต่อหีบ จาก PackingSize (1 = master ไม่มีค่า) */
+  packSize: number;
+  /** คงเหลือดิบหน่วยชิ้น (qty_available) — ใช้แสดงเศษเท่านั้น */
+  stockPieces: number;
+  /** จำนวนหีบเต็ม = floor(stockPieces / packSize) */
+  stockCases: number;
+  /** เศษที่ไม่ครบหีบ (ชิ้น) */
+  stockRemainder: number;
+  /** คงเหลือหน่วยหีบ (ทศนิยมได้) — ใช้คำนวณทุกสูตร */
   stock: number;
+  /** ยอดขายเฉลี่ยต่อวัน หน่วยหีบ */
   avgSales: number;
-  /** ยอดขายเฉลี่ยต่อวัน 7 วัน (avg_qty_out_L7 ดิบ) สำหรับแสดงในคอลัมน์ "ขายเฉลี่ย 7 วัน" */
+  /** ยอดขายเฉลี่ยต่อวัน 7 วัน (avg_qty_out_L7) หน่วยหีบ */
   avgQtyOutL7?: number;
   /** ไม่มียอดขายเลยใน 30 วันล่าสุด (ทั้ง L7 และ L30 = 0/ว่าง) — ใช้ mark ในตาราง */
   noSales30?: boolean;
@@ -32,9 +42,11 @@ export interface StockRowComputed {
   maxDays: number;
   /** ที่มาของ min/max: sku = แก้รายตัว, section = ตามแบรนด์, default = 7/15 */
   thresholdSource?: "sku" | "section" | "default";
+  /** MIN/MAX หน่วยหีบ */
   minStock: number;
   maxStock: number;
   stockCvd: number | null;
+  /** จำนวนแนะนำสั่ง หน่วยหีบ (ปัดขึ้นเป็นหีบเต็ม) */
   suggestOrder: number;
   currentPromo: string | null;
   nextPromo: string | null;
@@ -71,6 +83,8 @@ export interface StockRowComputed {
   blockReason?: string | null;
   /** วันเวลาเริ่มหยุดสั่ง (ISO) — อาจเป็นอนาคต */
   blockEffectiveFrom?: string | null;
+  /** วันเวลาสิ้นสุดการหยุดสั่ง (ISO) — null = หยุดถาวร */
+  blockEffectiveTo?: string | null;
 }
 
 export type StockItemWithSku = StockItem & { sku: Sku & { promoTiers: PromoTier[] } };

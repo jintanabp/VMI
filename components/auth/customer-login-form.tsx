@@ -20,6 +20,8 @@ export function CustomerLoginForm({
 }) {
   const router = useRouter();
   const [vdaOptions, setVdaOptions] = useState<string[]>([]);
+  /** รหัส VDA -> ชื่อร้านจาก dim_customer (ว่างได้เมื่อไม่มี mapping) */
+  const [vdaNames, setVdaNames] = useState<Record<string, string>>({});
   const [loadingVda, setLoadingVda] = useState(true);
   const [vda, setVda] = useState("");
   const [loading, setLoading] = useState(false);
@@ -28,9 +30,10 @@ export function CustomerLoginForm({
   useEffect(() => {
     fetch(appPath("/api/vda"))
       .then((r) => r.json())
-      .then((data: { sources?: string[] }) => {
+      .then((data: { sources?: string[]; names?: Record<string, string> }) => {
         const sources = Array.isArray(data.sources) ? data.sources : [];
         setVdaOptions(sources);
+        setVdaNames(data.names ?? {});
       })
       .catch(() => setVdaOptions([]))
       .finally(() => setLoadingVda(false));
@@ -124,6 +127,14 @@ export function CustomerLoginForm({
                   >
                     {formatVdaLabel(code)}
                   </span>
+                  {vdaNames[code] && (
+                    <span
+                      className="line-clamp-2 text-center text-xs leading-tight text-slate-500 dark:text-slate-400"
+                      title={vdaNames[code]}
+                    >
+                      {vdaNames[code]}
+                    </span>
+                  )}
                 </button>
               );
             })}

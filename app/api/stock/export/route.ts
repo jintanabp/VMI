@@ -1,0 +1,282 @@
+import { cookies } from "next/headers";
+import { NextResponse } from "next/server";
+import ExcelJS from "exceljs";
+import { fabricStockReady } from "@/lib/fabric";
+import { bangkokDateStr } from "@/lib/fabric/bkk-date";
+import { buildFabricStockPayload } from "@/lib/fabric/stock-rows";
+import { buildPromoInspector } from "@/lib/promo/promo-inspector";
+import { isPooledPromoGroup } from "@/lib/promo/promo-group-display";
+import { formatPremiumUnit } from "@/lib/calculations";
+import { sortStockRows, type StockSortDir, type StockSortKey } from "@/lib/stock/sort";
+import { matchesProductSearch } from "@/lib/utils";
+import {
+  CUSTOMER_STORE_COOKIE,
+  CUSTOMER_STORE_CODE_COOKIE,
+} from "@/lib/auth/roles";
+import type { StockRowComputed } from "@/lib/repositories/types";
+
+const SORT_KEYS: StockSortKey[] = ["code", "brand", "section", "promoGroup"];
+
+const NUM_INT = "#,##0";
+const NUM_1DP = "#,##0.0";
+const NUM_BAHT = '#,##0.00';
+
+type Col = {
+  header: string;
+  key: string;
+  width: number;
+  numFmt?: string;
+};
+
+function applySheet(sheet: ExcelJS.Worksheet, cols: Col[]) {
+  sheet.columns = cols.map((c) => ({
+    header: c.header,
+    key: c.key,
+    width: c.width,
+    style: c.numFmt ? { numFmt: c.numFmt } : undefined,
+  }));
+  const header = sheet.getRow(1);
+  header.font = { bold: true };
+  header.alignment = { vertical: "middle", wrapText: true };
+  header.fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "FFE2E8F0" },
+  };
+  sheet.views = [{ state: "frozen", ySplit: 1 }];
+  sheet.autoFilter = {
+    from: { row: 1, column: 1 },
+    to: { row: 1, column: cols.length },
+  };
+}
+
+/** ช่วงหยุดสั่งแบบอ่านง่ายในไฟล์ export */
+function blockLabel(row: StockRowComputed): string {
+  if (!row.blocked && !row.blockEffectiveFrom) return "";
+  const fmt = (iso: string) => bangkokDateStr(new Date(iso));
+  const period = row.blockEffectiveFrom
+    ? row.blockEffectiveTo
+      ? `${fmt(row.blockEffectiveFrom)} – ${fmt(row.blockEffectiveTo)}`
+      : `ตั้งแต่ ${fmt(row.blockEffectiveFrom)} · ถาวร`
+    : "";
+  const parts = [row.blocked ? "หยุดสั่ง" : "ตั้งเวลาหยุดสั่ง"];
+  if (row.blockReason) parts.push(row.blockReason);
+  if (period) parts.push(period);
+  return parts.join(" · ");
+}
+
+function freeGoodLabel(row: StockRowComputed): string {
+  const fg = row.freeGood;
+  if (!fg || fg.qty <= 0) return "";
+  return `${fg.premiumName || fg.premiumProduct} ${fg.qty} ${fg.unitLabel}`;
+}
+
+export async function GET(request: Request) {
+  const cookieStore = await cookies();
+  const storeId = cookieStore.get(CUSTOMER_STORE_COOKIE)?.value;
+  const storeCode = cookieStore.get(CUSTOMER_STORE_CODE_COOKIE)?.value;
+
+  if (!storeId || !storeCode) {
+    return NextResponse.json({ error: "ไม่พบ session" }, { status: 401 });
+  }
+  if (!fabricStockReady()) {
+    return NextResponse.json(
+      { error: "ยังไม่พร้อมใช้งาน — ต้อง sync stock_cover_day ก่อน" },
+      { status: 503 }
+    );
+  }
+
+  const { searchParams } = new URL(request.url);
+  const fromDb = searchParams.get("fromDb") ?? storeCode;
+  const brand = searchParams.get("brand") ?? "";
+  const section = searchParams.get("section") ?? "";
+  const search = (searchParams.get("search") ?? "").trim();
+  const needsOnly = searchParams.get("needsOnly") === "1";
+  const sortKeyParam = searchParams.get("sort") as StockSortKey | null;
+  const sortKey =
+    sortKeyParam && SORT_KEYS.includes(sortKeyParam) ? sortKeyParam : "code";
+  const sortDir: StockSortDir =
+    searchParams.get("dir") === "asc" ? "asc" : "desc";
+
+  const payload = await buildFabricStockPayload(storeId, storeCode, fromDb);
+
+  // กรองแบบเดียวกับหน้าเว็บ เพื่อให้ไฟล์ตรงกับสิ่งที่ผู้ใช้เห็นบนจอ
+  let rows = payload.rows;
+  if (search) rows = rows.filter((r) => matchesProductSearch(search, r));
+  if (needsOnly) rows = rows.filter((r) => r.needsOrder);
+  if (brand) rows = rows.filter((r) => (r.brand ?? "") === brand);
+  if (section) rows = rows.filter((r) => (r.section ?? "") === section);
+  rows = sortStockRows(rows, sortKey, sortDir);
+
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "VMI";
+  wb.created = new Date();
+
+  // ---- ชีต 1: สต็อก ----
+  const stockSheet = wb.addWorksheet("สต็อก");
+  applySheet(stockSheet, [
+    { header: "รหัสสินค้า", key: "code", width: 12 },
+    { header: "บาร์โค้ด", key: "barcode", width: 16 },
+    { header: "ชื่อสินค้า", key: "name", width: 38 },
+    { header: "แบรนด์", key: "brand", width: 18 },
+    { header: "กลุ่มสินค้า", key: "section", width: 20 },
+    { header: "ชิ้น/หีบ", key: "packSize", width: 9, numFmt: NUM_INT },
+    { header: "คงเหลือ (หีบ)", key: "cases", width: 12, numFmt: NUM_INT },
+    { header: "เศษ (ชิ้น)", key: "remainder", width: 10, numFmt: NUM_INT },
+    { header: "คงเหลือ (ชิ้น)", key: "pieces", width: 13, numFmt: NUM_INT },
+    { header: "ขายเฉลี่ย/วัน (หีบ)", key: "avg", width: 15, numFmt: NUM_1DP },
+    { header: "CVD (วัน)", key: "cvd", width: 11, numFmt: NUM_1DP },
+    { header: "MIN (วัน)", key: "minDays", width: 10, numFmt: NUM_INT },
+    { header: "MAX (วัน)", key: "maxDays", width: 10, numFmt: NUM_INT },
+    { header: "แนะนำสั่ง (หีบ)", key: "suggest", width: 13, numFmt: NUM_INT },
+    { header: "ราคา/หีบ", key: "price", width: 12, numFmt: NUM_BAHT },
+    { header: "ส่วนลด (บาท/หีบ)", key: "discBaht", width: 15, numFmt: NUM_BAHT },
+    { header: "ส่วนลด (%)", key: "discPct", width: 11, numFmt: NUM_1DP },
+    { header: "ราคาสุทธิ/หีบ", key: "net", width: 13, numFmt: NUM_BAHT },
+    { header: "มูลค่าคงเหลือ", key: "stockValue", width: 15, numFmt: NUM_BAHT },
+    { header: "กลุ่มโปร", key: "promoGroup", width: 14 },
+    { header: "โปรปัจจุบัน", key: "currentPromo", width: 26 },
+    { header: "โปรขั้นถัดไป", key: "nextPromo", width: 26 },
+    { header: "ของแถม", key: "freeGood", width: 26 },
+    { header: "สถานะหยุดสั่ง", key: "block", width: 34 },
+  ]);
+
+  for (const r of rows) {
+    stockSheet.addRow({
+      code: r.skuCode,
+      barcode: r.barcode ?? "",
+      name: r.skuName,
+      brand: r.brand ?? "",
+      section: r.section ?? "",
+      packSize: r.packSize,
+      cases: r.stockCases,
+      remainder: r.stockRemainder,
+      pieces: r.stockPieces,
+      avg: r.avgQtyOutL7 ?? r.avgSales,
+      cvd: r.stockCvd,
+      minDays: r.minDays,
+      maxDays: r.maxDays,
+      suggest: r.suggestOrder,
+      price: r.unitPrice,
+      discBaht: r.discountBahtPerCase,
+      discPct: r.discountPctPerCase,
+      net: r.netUnitPrice ?? r.unitPrice,
+      stockValue: r.unitPrice != null ? r.stock * r.unitPrice : null,
+      promoGroup: r.promoGroup ?? "",
+      currentPromo: r.currentPromo ?? "",
+      nextPromo: r.nextPromo
+        ? `${r.nextPromo}${r.nextPromoQty != null ? ` (ที่ ${r.nextPromoQty} หีบ)` : ""}`
+        : "",
+      freeGood: freeGoodLabel(r),
+      block: blockLabel(r),
+    });
+  }
+
+  // ---- ชีต 2: โปรโมชั่น (1 แถว = 1 ขั้นบันได) ----
+  const promoSheet = wb.addWorksheet("โปรโมชั่น");
+  applySheet(promoSheet, [
+    { header: "รหัสสินค้า", key: "code", width: 12 },
+    { header: "ชื่อสินค้า", key: "name", width: 38 },
+    { header: "กลุ่มโปร", key: "group", width: 14 },
+    { header: "ตั้งแต่จำนวน (หีบ)", key: "fromQty", width: 16, numFmt: NUM_INT },
+    { header: "ส่วนลด (บาท/หีบ)", key: "discBaht", width: 16, numFmt: NUM_BAHT },
+    { header: "ส่วนลด (%)", key: "discPct", width: 11, numFmt: NUM_1DP },
+    { header: "สินค้าแถม", key: "premiumCode", width: 12 },
+    { header: "ชื่อสินค้าแถม", key: "premiumName", width: 32 },
+    { header: "จำนวนแถม", key: "premiumQty", width: 11, numFmt: NUM_INT },
+    { header: "หน่วยแถม", key: "premiumUnit", width: 10 },
+  ]);
+
+  for (const r of rows) {
+    for (const t of r.promoTiers ?? []) {
+      promoSheet.addRow({
+        code: r.skuCode,
+        name: r.skuName,
+        group: r.promoGroup ?? "",
+        fromQty: t.minQty,
+        discBaht: t.discBaht ?? null,
+        discPct: t.discPct ?? null,
+        premiumCode: t.premiumProduct ?? "",
+        premiumName: t.premiumName ?? "",
+        premiumQty: t.premiumQty ?? null,
+        premiumUnit: t.premiumUnit ? formatPremiumUnit(t.premiumUnit) : "",
+      });
+    }
+  }
+
+  // ---- ชีต 3: โปรกลุ่ม (1 แถว = 1 ASSORTEDPRODUCTGROUP) ----
+  const groupSheet = wb.addWorksheet("โปรกลุ่ม");
+  applySheet(groupSheet, [
+    { header: "กลุ่มโปร", key: "group", width: 14 },
+    { header: "SKU ในกลุ่ม (C4)", key: "members", width: 15, numFmt: NUM_INT },
+    { header: "SKU ในตารางนี้", key: "inTable", width: 13, numFmt: NUM_INT },
+    { header: "รายชื่อ SKU ในตารางนี้", key: "skus", width: 46 },
+    { header: "รวมที่แนะนำสั่ง (หีบ)", key: "poolQty", width: 18, numFmt: NUM_INT },
+    { header: "ขั้นที่ได้ตอนนี้", key: "currentTier", width: 26 },
+    { header: "ขั้นถัดไป", key: "nextTier", width: 26 },
+    { header: "อีกกี่หีบถึงขั้นถัดไป", key: "qtyToNext", width: 18, numFmt: NUM_INT },
+    { header: "ขั้นบันไดทั้งหมด", key: "ladder", width: 60 },
+  ]);
+
+  // รวมข้อมูลรายกลุ่มจากแถวที่ export (กลุ่มที่มีสมาชิก > 1 เท่านั้น = โปรที่รวมยอดกันได้)
+  const groups = new Map<
+    string,
+    { skus: string[]; poolQty: number; row: StockRowComputed }
+  >();
+  for (const r of rows) {
+    if (!isPooledPromoGroup(r.promoGroup, r.promoGroupMembers)) continue;
+    const key = r.promoGroup!.trim();
+    const entry = groups.get(key) ?? { skus: [], poolQty: 0, row: r };
+    entry.skus.push(r.skuCode);
+    entry.poolQty += r.suggestOrder;
+    groups.set(key, entry);
+  }
+
+  for (const [group, entry] of [...groups.entries()].sort(([a], [b]) =>
+    a.localeCompare(b, undefined, { numeric: true })
+  )) {
+    let ladder = "";
+    try {
+      const inspector = buildPromoInspector({ storeCode, group });
+      ladder = inspector.ladder
+        .map((t) => {
+          const benefit = t.discBaht
+            ? `ลด ${t.discBaht} บาท/หีบ`
+            : t.discPct
+              ? `ลด ${t.discPct}%`
+              : t.premiumQty
+                ? `แถม ${t.premiumName || t.premiumProduct} ${t.premiumQty} ${t.premiumUnitLabel}`
+                : "-";
+          return `≥${t.fromQty} หีบ: ${benefit}`;
+        })
+        .join(" | ");
+    } catch {
+      // promo master ยังไม่พร้อม — ปล่อยว่าง ไม่ทำให้ export ทั้งไฟล์ล้ม
+    }
+
+    groupSheet.addRow({
+      group,
+      // members = จำนวนสมาชิกใน C4 master ซึ่งอาจมากกว่าที่คลังนี้มีของ
+      members: entry.row.promoGroupMembers ?? entry.skus.length,
+      inTable: entry.skus.length,
+      skus: entry.skus.join(", "),
+      poolQty: entry.poolQty,
+      currentTier: entry.row.currentPromo ?? "",
+      nextTier: entry.row.nextPromo ?? "",
+      qtyToNext: entry.row.qtyToNext,
+      ladder,
+    });
+  }
+
+  const buffer = await wb.xlsx.writeBuffer();
+  const filename = `stock-${storeCode.toLowerCase()}-${bangkokDateStr(new Date())}.xlsx`;
+
+  return new NextResponse(buffer as ArrayBuffer, {
+    headers: {
+      "Content-Type":
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Cache-Control": "no-store",
+    },
+  });
+}

@@ -51,6 +51,8 @@ export async function GET() {
       skuName: b.sku.name,
       reason: b.reason,
       effectiveFrom: b.effectiveFrom.toISOString(),
+      // null = หยุดถาวร
+      effectiveTo: b.effectiveTo?.toISOString() ?? null,
       createdAt: b.createdAt.toISOString(),
     })),
   });
@@ -80,6 +82,25 @@ export async function POST(request: Request) {
   const parsed = body.effectiveFrom ? new Date(body.effectiveFrom) : new Date();
   const effectiveFrom = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
 
+  // permanent = true หรือไม่ระบุวันสิ้นสุด → หยุดถาวร (effectiveTo = null)
+  let effectiveTo: Date | null = null;
+  if (body.permanent !== true && body.effectiveTo) {
+    const to = new Date(body.effectiveTo);
+    if (Number.isNaN(to.getTime())) {
+      return NextResponse.json(
+        { error: "วันที่สิ้นสุดไม่ถูกต้อง" },
+        { status: 400 }
+      );
+    }
+    if (to <= effectiveFrom) {
+      return NextResponse.json(
+        { error: "วันที่สิ้นสุดต้องอยู่หลังวันที่เริ่ม" },
+        { status: 400 }
+      );
+    }
+    effectiveTo = to;
+  }
+
   // กัน skuId ที่ไม่มีจริง (FK) — เฉพาะที่มีในตาราง Sku
   const existing = await prisma.sku.findMany({
     where: { id: { in: skuIds } },
@@ -94,8 +115,21 @@ export async function POST(request: Request) {
     validIds.map((skuId) =>
       prisma.storeSkuBlock.upsert({
         where: { storeId_skuId: { storeId, skuId } },
-        create: { storeId, skuId, reason, effectiveFrom, createdBy: email },
-        update: { reason, effectiveFrom, createdBy: email, acknowledgedAt: null },
+        create: {
+          storeId,
+          skuId,
+          reason,
+          effectiveFrom,
+          effectiveTo,
+          createdBy: email,
+        },
+        update: {
+          reason,
+          effectiveFrom,
+          effectiveTo,
+          createdBy: email,
+          acknowledgedAt: null,
+        },
       })
     )
   );

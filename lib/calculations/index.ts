@@ -40,6 +40,26 @@ export function calcSuggestOrder(
   return Math.ceil(raw);
 }
 
+/**
+ * แยกจำนวนชิ้นเป็น "หีบเต็ม + เศษ"
+ * stock_cover_day นับเป็นชิ้น แต่ราคา/โปร C4/ออเดอร์ นับเป็นหีบ
+ */
+export function piecesToCases(
+  pieces: number,
+  packSize: number
+): { cases: number; remainder: number } {
+  const p = packSize > 0 ? packSize : 1;
+  const cases = Math.floor(pieces / p);
+  return { cases, remainder: Math.round(pieces - cases * p) };
+}
+
+/** "209" เมื่อครบหีบพอดี, "2 · 9" เมื่อมีเศษ (หีบ · เศษชิ้น) */
+export function formatCaseRemainder(cases: number, remainder: number): string {
+  const c = formatNumber(cases, 0);
+  if (remainder <= 0) return c;
+  return `${c} · ${formatNumber(remainder, 0)}`;
+}
+
 export function calcCvdEstimate(
   stock: number,
   orderQty: number,

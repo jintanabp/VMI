@@ -3,8 +3,9 @@
 import { appPath } from "@/lib/paths";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   ArrowLeft,
   CheckCircle2,
   Pencil,
@@ -45,6 +46,7 @@ import {
   calcNetUnitPrice,
   formatBaht,
   formatDays,
+  formatNumber,
   getCvdFlag,
   getPromoForQty,
   type PromoResult,
@@ -324,6 +326,37 @@ export function OrderPageClient({
     router.push("/stock");
   }
 
+  /** เตือนสั่งซ้ำ — SKU ที่เพิ่งสั่งไปใน 14 วันและยังไม่ถูกปฏิเสธ */
+  const { data: recentOrders } = useQuery<{
+    days: number;
+    bySku: Record<
+      string,
+      { totalQty: number; daysAgo: number; status: string; orderCount: number }
+    >;
+  }>({
+    queryKey: ["order-history-recent"],
+    queryFn: async () => {
+      const res = await fetch(
+        appPath("/api/store/order-history?summary=1&days=14"),
+        { cache: "no-store" }
+      );
+      if (!res.ok) throw new Error("โหลดประวัติการสั่งไม่สำเร็จ");
+      return res.json();
+    },
+    staleTime: 60_000,
+  });
+
+  const duplicateLines = useMemo(() => {
+    const bySku = recentOrders?.bySku;
+    if (!bySku) return [];
+    return lines
+      .map((line) => ({ line, info: bySku[line.row.skuCode] }))
+      .filter(
+        (x): x is { line: (typeof lines)[number]; info: NonNullable<typeof x.info> } =>
+          x.info != null
+      );
+  }, [lines, recentOrders]);
+
   const submitMutation = useMutation({
     mutationFn: async () => {
       const res = await fetch(appPath("/api/orders"), {
@@ -436,6 +469,37 @@ export function OrderPageClient({
         {hasRedFlag && (
           <div className="mb-2 shrink-0 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
             มีรายการ CVD ไม่เหมาะสม (สีแดง) — กด «แก้ที่สต็อก» เพื่อกลับไปปรับจำนวน
+          </div>
+        )}
+
+        {duplicateLines.length > 0 && (
+          <div className="mb-2 shrink-0 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200">
+            <p className="flex items-center gap-1.5 font-semibold">
+              <AlertTriangle className="h-4 w-4" />
+              {duplicateLines.length} รายการเคยสั่งไปแล้วใน{" "}
+              {recentOrders?.days ?? 14} วัน — ตรวจสอบก่อนส่งซ้ำ
+            </p>
+            <ul className="mt-1 space-y-0.5 text-xs">
+              {duplicateLines.map(({ line, info }) => (
+                <li key={line.row.skuId} className="truncate">
+                  <span className="font-mono font-semibold">
+                    {line.row.skuCode}
+                  </span>{" "}
+                  {line.row.skuName} · สั่งไปแล้ว{" "}
+                  {formatNumber(info.totalQty, 0)} หีบ เมื่อ{" "}
+                  {info.daysAgo === 0
+                    ? "วันนี้"
+                    : `${formatNumber(info.daysAgo, 0)} วันก่อน`}
+                  {info.status === "pending_approval" && " (ยังรออนุมัติ)"}
+                </li>
+              ))}
+            </ul>
+            <a
+              href={appPath("/history")}
+              className="mt-1.5 inline-block text-xs font-semibold underline underline-offset-2"
+            >
+              ดูประวัติการสั่งทั้งหมด
+            </a>
           </div>
         )}
 

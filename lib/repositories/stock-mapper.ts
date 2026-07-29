@@ -6,6 +6,7 @@ import {
   calcStockCvd,
   calcSuggestOrder,
   getPromoForQty,
+  piecesToCases,
   type PromoResult,
   type PromoTierInput,
 } from "@/lib/calculations";
@@ -18,9 +19,13 @@ export function mapStockRow(
   storeId: string,
   item: {
     skuId: string;
+    /** คงเหลือหน่วยชิ้น (qty_available ดิบ) */
     stock: number;
+    /** ยอดขายเฉลี่ยหน่วยชิ้น/วัน */
     avgSales: number;
     avgQtyOutL7?: number;
+    /** ชิ้นต่อหีบ — ไม่ระบุ = 1 (ถือว่าข้อมูลเป็นหีบอยู่แล้ว) */
+    packSize?: number;
     noSales30?: boolean;
     minDays: number;
     maxDays: number;
@@ -45,14 +50,28 @@ export function mapStockRow(
     blocked?: boolean;
     blockReason?: string | null;
     blockEffectiveFrom?: string | null;
+    blockEffectiveTo?: string | null;
   }
 ): StockRowComputed {
-  const minStock = calcMinStock(item.avgSales, item.minDays);
-  const maxStock = calcMaxStock(item.avgSales, item.maxDays);
+  // แปลง ชิ้น → หีบ ที่นี่จุดเดียว แล้วปลายน้ำเป็นหีบล้วน
+  // (ราคา CreditPrice และ promo tier C4 นับเป็นหีบ ส่วน stock_cover_day นับเป็นชิ้น)
+  const packSize = item.packSize && item.packSize > 0 ? item.packSize : 1;
+  const stockPieces = item.stock;
+  const { cases: stockCases, remainder: stockRemainder } = piecesToCases(
+    stockPieces,
+    packSize
+  );
+  const stock = stockPieces / packSize;
+  const avgSales = item.avgSales / packSize;
+  const avgQtyOutL7 = (item.avgQtyOutL7 ?? item.avgSales) / packSize;
+
+  const minStock = calcMinStock(avgSales, item.minDays);
+  const maxStock = calcMaxStock(avgSales, item.maxDays);
   // ถ้าอยู่ใน blocklist (ถึงกำหนดแล้ว) ไม่ต้องแนะนำสั่ง
+  // calcSuggestOrder ปัด Math.ceil อยู่แล้ว — พอเป็นหน่วยหีบจึงได้ "ปัดขึ้นเป็นหีบเต็ม"
   const suggestOrder = item.blocked
     ? 0
-    : calcSuggestOrder(item.stock, item.avgSales, item.minDays, item.maxDays);
+    : calcSuggestOrder(stock, avgSales, item.minDays, item.maxDays);
 
   let discountBaht: number | null = null;
   let discountPct: number | null = null;
@@ -109,16 +128,20 @@ export function mapStockRow(
     barcode: item.barcode ?? "",
     section: item.section ?? "",
     brand: item.brand ?? "",
-    stock: item.stock,
-    avgSales: item.avgSales,
-    avgQtyOutL7: item.avgQtyOutL7 ?? item.avgSales,
+    packSize,
+    stockPieces,
+    stockCases,
+    stockRemainder,
+    stock,
+    avgSales,
+    avgQtyOutL7,
     noSales30: item.noSales30 ?? false,
     minDays: item.minDays,
     maxDays: item.maxDays,
     thresholdSource: item.thresholdSource ?? "default",
     minStock,
     maxStock,
-    stockCvd: calcStockCvd(item.stock, item.avgSales),
+    stockCvd: calcStockCvd(stock, avgSales),
     suggestOrder,
     currentPromo: showPromo ? promo.currentPromo : null,
     nextPromo: showPromo ? promo.nextPromo : null,
@@ -143,6 +166,7 @@ export function mapStockRow(
     blocked: item.blocked ?? false,
     blockReason: item.blockReason ?? null,
     blockEffectiveFrom: item.blockEffectiveFrom ?? null,
+    blockEffectiveTo: item.blockEffectiveTo ?? null,
     freeGood: null,
   };
 }

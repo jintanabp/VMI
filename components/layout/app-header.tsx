@@ -141,6 +141,17 @@ export function AppHeader({
             สินค้า
           </Link>
           <Link
+            href="/history"
+            className={cn(
+              "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+              pathname.startsWith("/history")
+                ? "bg-white text-teal-700 shadow-sm dark:bg-slate-900 dark:text-teal-400"
+                : "text-slate-500 hover:text-slate-800 dark:text-slate-400"
+            )}
+          >
+            ประวัติสั่ง
+          </Link>
+          <Link
             href="/manage"
             className={cn(
               "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
@@ -311,9 +322,15 @@ export function AppHeader({
                   <div className="mt-1 space-y-0.5">
                     <p className="truncate text-sm text-slate-600 dark:text-slate-400">
                       {isVda ? (
-                        <span className="font-semibold text-slate-800 dark:text-slate-200">
-                          คลัง {storeCode.toUpperCase()}
-                        </span>
+                        <>
+                          <span className="font-semibold text-slate-800 dark:text-slate-200">
+                            คลัง {storeCode.toUpperCase()}
+                          </span>
+                          {storeName &&
+                          storeName.toUpperCase() !== storeCode.toUpperCase()
+                            ? ` · ${storeName}`
+                            : ""}
+                        </>
                       ) : (
                         <>
                           <span className="font-semibold text-slate-800 dark:text-slate-200">
