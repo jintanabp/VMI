@@ -399,7 +399,7 @@ function NextPromoHint({
   );
   const inner = (
     <>
-      <span className="shrink-0 font-bold">+{qtyToNext} หีบ</span>
+      <span className="shrink-0 font-bold">อีก {qtyToNext} หีบ</span>
       <span className="truncate opacity-90">{nextPromo}</span>
     </>
   );
