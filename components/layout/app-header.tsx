@@ -3,6 +3,7 @@
 import { appPath } from "@/lib/paths";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, LogOut, Package, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -146,6 +147,20 @@ export function AppHeader({
               ? "Admin"
               : null;
 
+  // จำนวนแจ้งเตือนที่ยังไม่อ่าน — endpoint นับอย่างเดียว จึง poll ได้ถี่
+  const { data: notif } = useQuery<{ unread: number }>({
+    queryKey: ["store-notifications-count"],
+    queryFn: async () => {
+      const r = await fetch(appPath("/api/store/notifications?count=1"));
+      if (!r.ok) return { unread: 0 };
+      return r.json();
+    },
+    enabled: role === "customer",
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
+  });
+  const unreadNotifications = notif?.unread ?? 0;
+
   const toolbar = (
     <div className="flex w-full flex-wrap items-center gap-1.5 sm:gap-2 md:w-auto md:flex-nowrap md:justify-end">
       {role === "customer" && (
@@ -164,13 +179,22 @@ export function AppHeader({
           <Link
             href="/history"
             className={cn(
-              "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+              "relative rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
               pathname.startsWith("/history")
                 ? "bg-white text-teal-700 shadow-sm dark:bg-slate-900 dark:text-teal-400"
                 : "text-slate-500 hover:text-slate-800 dark:text-slate-400"
             )}
           >
             ประวัติสั่ง
+            {/* พนักงานทำอะไรกับออเดอร์แล้วร้านต้องรู้ — เดิมต้องเข้าไปเช็คเอง */}
+            {unreadNotifications > 0 && (
+              <span
+                className="absolute -right-1 -top-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white"
+                title={`${unreadNotifications} การแจ้งเตือนใหม่`}
+              >
+                {unreadNotifications > 9 ? "9+" : unreadNotifications}
+              </span>
+            )}
           </Link>
           <Link
             href="/manage"

@@ -3,7 +3,7 @@
 import { appPath } from "@/lib/paths";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Trash2 } from "lucide-react";
 import { useSalesSession } from "@/hooks/use-sales-session";
 import { useSalesPreview } from "@/hooks/use-sales-preview";
 import { AppHeader } from "@/components/layout/app-header";
@@ -18,6 +18,7 @@ import {
   poSplitIssues,
 } from "@/components/sales/po-split-panel";
 import { RejectOrderModal } from "@/components/sales/reject-order-modal";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   OrderReviewTable,
   type ReviewOrderItem,
@@ -65,6 +66,7 @@ export function SalesOrdersClient() {
   /** รายการที่ติ๊กไว้เพื่อย้ายกลุ่ม PO (ล้างเมื่อเปลี่ยนออเดอร์) */
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
   const [rejectOpen, setRejectOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   /** เลข PO ที่ออกหลังอนุมัติ — เดิม route คืน poExportPath มาแล้วถูกทิ้ง */
   const [issuedPos, setIssuedPos] = useState<
     { poNumber: string; label: string; itemCount: number; totalQty: number }[]
@@ -227,6 +229,36 @@ export function SalesOrdersClient() {
       return next;
     });
   }
+
+  /** ลบออเดอร์ — ทำได้เฉพาะที่ยังไม่ออก PO (เซิร์ฟเวอร์กั้นอีกชั้น) */
+  const deleteMutation = useMutation({
+    mutationFn: async (orderId: string) => {
+      const res = await fetch(
+        `${appPath("/api/orders")}?orderId=${encodeURIComponent(orderId)}`,
+        { method: "DELETE" }
+      );
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as {
+          error?: unknown;
+        } | null;
+        throw new Error(
+          typeof data?.error === "string"
+            ? data.error
+            : `ลบออเดอร์ไม่สำเร็จ (${res.status})`
+        );
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      setActionError(null);
+      setSelectedId(null);
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
+      queryClient.invalidateQueries({ queryKey: ["sales-pending-count"] });
+    },
+    onError: (err) => {
+      setActionError(err instanceof Error ? err.message : "ลบออเดอร์ไม่สำเร็จ");
+    },
+  });
 
   const actionMutation = useMutation({
     mutationFn: async (payload: {
@@ -608,6 +640,18 @@ export function SalesOrdersClient() {
                   />
                   <div className="vmi-sales-action-bar flex gap-2 max-xl:fixed max-xl:inset-x-0 max-xl:bottom-0 max-xl:z-50 max-xl:border-t max-xl:border-slate-200 max-xl:p-3 max-xl:pb-[max(0.75rem,env(safe-area-inset-bottom))] max-xl:shadow-[0_-4px_20px_rgb(0_0_0/0.06)] dark:max-xl:border-slate-700 xl:mt-2 xl:flex-wrap xl:border-t xl:border-slate-200 xl:pt-2 dark:xl:border-slate-700">
                     <Button
+                      variant="outline"
+                      className="shrink-0"
+                      disabled={
+                        actionMutation.isPending || deleteMutation.isPending
+                      }
+                      title="ลบออเดอร์นี้ออกจากระบบ (ทำได้ก่อนออก PO)"
+                      onClick={() => setDeleteOpen(true)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      <span className="hidden sm:inline">ลบ</span>
+                    </Button>
+                    <Button
                       variant="destructive"
                       className="max-xl:flex-1"
                       disabled={actionMutation.isPending}
@@ -643,6 +687,29 @@ export function SalesOrdersClient() {
                   อนุมัติแล้ว — ออก PO เรียบร้อย
                 </p>
               )}
+
+              <ConfirmDialog
+                open={deleteOpen}
+                title="ลบออเดอร์นี้?"
+                body={
+                  <>
+                    ออเดอร์ของ{" "}
+                    <span className="font-medium">
+                      {formatStoreLabel(
+                        selected.store.code,
+                        selected.store.name
+                      )}
+                    </span>{" "}
+                    ({selected.items.length} รายการ) จะถูกลบออกจากระบบถาวร
+                    และระบบจะแจ้งให้ร้านทราบ
+                  </>
+                }
+                confirmLabel="ลบออเดอร์"
+                onConfirm={async () => {
+                  await deleteMutation.mutateAsync(selected.id);
+                }}
+                onClose={() => setDeleteOpen(false)}
+              />
 
               <RejectOrderModal
                 open={rejectOpen}

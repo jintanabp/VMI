@@ -4,7 +4,7 @@ import { appPath } from "@/lib/paths";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { Bell, ClipboardList } from "lucide-react";
+import { Bell, ClipboardList, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /** แถบสลับหน้า ฝั่งเซลล์: คำสั่งซื้อ / การแจ้งเตือน (พร้อม badge จำนวนที่ยังไม่อ่าน) */
@@ -17,23 +17,20 @@ export function SalesNav() {
   });
   const unseen = data?.unseenCount ?? 0;
 
-  // จำนวนออเดอร์รอตรวจ (badge บนแท็บคำสั่งซื้อ) — poll เหมือนการแจ้งเตือน
-  // response มี items อยู่แล้ว จึงนับ "ร้านแก้ราคา" ได้โดยไม่ต้องยิง request เพิ่ม
-  const { data: pending } = useQuery<
-    { id: string; items?: { priceFlagged?: boolean }[] }[]
-  >({
-    queryKey: ["orders", "pending_approval", "nav-count"],
+  // จำนวนออเดอร์รอตรวจ (badge บนแท็บคำสั่งซื้อ)
+  // เดิมดึงลิสต์ออเดอร์ทั้งหมดพร้อม items มานับ .length ทุก 60 วิ ต่อแท็บที่เปิด
+  // queryKey แยกจาก ["orders"] เพื่อไม่ให้ถูกล้างทุกครั้งที่หน้า invalidate ลิสต์
+  const { data: counts } = useQuery<{ pending: number; priceFlagged: number }>({
+    queryKey: ["sales-pending-count"],
     queryFn: async () => {
-      const r = await fetch(appPath("/api/orders?status=pending_approval"));
-      if (!r.ok) return [];
-      const d = await r.json();
-      return Array.isArray(d) ? d : [];
+      const r = await fetch(appPath("/api/sales/pending-count"));
+      if (!r.ok) return { pending: 0, priceFlagged: 0 };
+      return r.json();
     },
     refetchInterval: 60_000,
   });
-  const pendingCount = pending?.length ?? 0;
-  const priceFlaggedCount =
-    pending?.filter((o) => o.items?.some((i) => i.priceFlagged)).length ?? 0;
+  const pendingCount = counts?.pending ?? 0;
+  const priceFlaggedCount = counts?.priceFlagged ?? 0;
 
   const tabs = [
     {
@@ -43,6 +40,14 @@ export function SalesNav() {
       badge: pendingCount,
       warnBadge: priceFlaggedCount,
       warnTitle: `${priceFlaggedCount} ออเดอร์มีราคาที่ร้านแก้เอง`,
+    },
+    {
+      href: "/sales/po",
+      label: "ใบสั่งซื้อ (PO)",
+      icon: FileText,
+      badge: 0,
+      warnBadge: 0,
+      warnTitle: "",
     },
     {
       href: "/sales/notifications",

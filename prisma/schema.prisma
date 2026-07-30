@@ -103,6 +103,27 @@ model PoSequence {
   lastN  Int    @default(0)
 }
 
+/// แจ้งเตือนร้านค้าเมื่อพนักงานทำอะไรกับออเดอร์
+/// เก็บ snapshot ข้อความไว้เลย ไม่ผูกกับ Order ด้วย FK เพราะออเดอร์ที่ถูกลบ
+/// ก็ยังต้องแจ้งร้านให้รู้ว่าถูกลบ
+model StoreNotification {
+  id        String    @id @default(cuid())
+  storeId   String
+  /// approved | rejected | deleted | price_changed | qty_changed
+  kind      String
+  title     String
+  detail    String    @default("")
+  /// เลข PO ที่เกี่ยวข้อง คั่นด้วย comma (ว่างได้)
+  poNumbers String    @default("")
+  orderId   String?
+  actorEmail String   @default("")
+  createdAt DateTime  @default(now())
+  readAt    DateTime?
+
+  @@index([storeId, readAt])
+  @@index([storeId, createdAt])
+}
+
 model OrderItem {
   id           String @id @default(cuid())
   orderId      String

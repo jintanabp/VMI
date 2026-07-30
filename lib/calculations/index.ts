@@ -89,13 +89,17 @@ export type CvdFlagReason =
   | "under" // สั่งแล้วยังไม่ถึง MIN → เสี่ยงขาดสต็อกอยู่ดี
   | "over" // สั่งแล้วเกินเพดานมาก → ของค้างสต็อก
   | "minPack" // เกินเพดานเพราะ 1 หีบคือขั้นต่ำที่สั่งได้ ไม่ใช่เพราะสั่งเกิน
+  | "outOfStock" // ของหมดแล้ว สั่งเข้ามาเท่าไรก็ยังไม่ถึง MIN — สั่งได้ ดีกว่าไม่สั่ง
   | null;
 
 export interface OrderCvdResult {
   cvdEst: number | null;
   flag: CvdFlag | null;
   reason: CvdFlagReason;
-  /** true = เตือนได้ แต่ไม่ควรกั้นไม่ให้สั่ง */
+  /**
+   * true = จำนวนไม่เหมาะสมพอที่ควร "ยืนยันอีกครั้ง" ก่อนส่ง
+   * ไม่ใช่การห้ามส่ง — คำแนะนำต้องไม่ทำให้ผู้ใช้ส่งออเดอร์ไม่ได้เลย
+   */
   blocking: boolean;
 }
 
@@ -128,8 +132,14 @@ export function getOrderCvdFlag(
     return { cvdEst, flag, reason: null, blocking: false };
   }
 
-  // แดงเพราะสั่งน้อยไป → เตือนจริง ปรับเพิ่มได้
+  // แดงเพราะสั่งน้อยไป
   if (cvdEst !== null && cvdEst < minDays) {
+    // ของหมดอยู่แล้ว → "ยังไม่ถึง MIN" เป็นเรื่องจริงแต่ไม่ใช่เหตุให้ห้ามสั่ง
+    // สินค้าขายดีที่ของหมด สั่ง 1 หีบก็ได้ CVD ต่ำกว่า MIN เสมอ
+    // (คลังอาจมีให้เบิกแค่นั้น หรือร้านตั้งใจเติมน้อย) — เดิมกั้นจนส่งออเดอร์ไม่ได้เลย
+    if (stock <= 0) {
+      return { cvdEst, flag, reason: "outOfStock", blocking: false };
+    }
     return { cvdEst, flag, reason: "under", blocking: true };
   }
 

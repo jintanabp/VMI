@@ -56,6 +56,7 @@ import {
 } from "@/components/promo/free-good-subrow";
 import { ProductSalesPanel } from "@/components/stock/product-sales-panel";
 import { StopOrderModal } from "@/components/stock/stop-order-modal";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   StockToolbar,
   type StockViewCounts,
@@ -176,6 +177,7 @@ export function StockPageClient({
   const [refreshing, setRefreshing] = useState(false);
   const [refreshMsg, setRefreshMsg] = useState("");
   const [stopOpen, setStopOpen] = useState(false);
+  const [confirmRiskyOpen, setConfirmRiskyOpen] = useState(false);
   const [sort, setSort] = useState<StockSortState>(DEFAULT_STOCK_SORT);
   const [mode, setMode] = useState<StockBrowseMode>(DEFAULT_STOCK_BROWSE_MODE);
   const [sessionReady, setSessionReady] = useState(false);
@@ -938,7 +940,10 @@ export function StockPageClient({
         row.minDays,
         row.maxDays
       );
-      if (!blocking || flag == null) return null;
+      // เดิมโชว์เฉพาะเคสที่กั้นการส่ง — เคส outOfStock/minPack ที่ "สั่งได้"
+      // ก็ต้องอธิบายด้วย ไม่งั้นผู้ใช้เห็นธงแดงแล้วไม่รู้ว่าทำอะไรได้
+      void blocking;
+      if (flag == null || reason == null) return null;
       return cvdFlagHint(flag, reason, row);
     },
     [resolveLineQty]
@@ -1607,8 +1612,8 @@ export function StockPageClient({
           <p className="min-w-0 flex-1 truncate text-center text-xs text-slate-600 sm:text-sm dark:text-slate-400">
             {selected.size > 0 ? (
               selectedRedCount > 0 ? (
-                <span className="font-semibold text-red-600 dark:text-red-400">
-                  มี {selectedRedCount} รายการจำนวนไม่เหมาะสม — ปรับก่อนตรวจสอบ
+                <span className="font-semibold text-amber-700 dark:text-amber-400">
+                  มี {selectedRedCount} รายการจำนวนไม่เหมาะสม — ปรับได้ หรือกดตรวจสอบเพื่อยืนยัน
                 </span>
               ) : selectedZeroQtyCount > 0 ? (
                 <span className="font-semibold text-amber-700 dark:text-amber-400">
@@ -1682,17 +1687,21 @@ export function StockPageClient({
           <Button
             size="sm"
             className="mx-auto shrink-0 sm:mx-0 sm:px-5"
-            disabled={
-              selected.size === 0 ||
-              selectedRedCount > 0 ||
-              selectedZeroQtyCount > 0
-            }
-            onClick={goToOrder}
+            // จำนวน 0 กั้นได้ (ส่งไปก็ไม่มีความหมาย) แต่ "จำนวนไม่เหมาะสม" เป็นคำแนะนำ
+            // ห้ามกั้นจนส่งไม่ได้ — ขอให้ยืนยันครั้งเดียวแทน
+            disabled={selected.size === 0 || selectedZeroQtyCount > 0}
+            onClick={() => {
+              if (selectedRedCount > 0) {
+                setConfirmRiskyOpen(true);
+                return;
+              }
+              goToOrder();
+            }}
             title={
-              selectedRedCount > 0
-                ? "มีรายการจำนวนไม่เหมาะสม ปรับก่อนตรวจสอบ"
-                : selectedZeroQtyCount > 0
-                  ? "มีรายการจำนวน 0 ปรับก่อนตรวจสอบ"
+              selectedZeroQtyCount > 0
+                ? "มีรายการจำนวน 0 ปรับก่อนตรวจสอบ"
+                : selectedRedCount > 0
+                  ? "มีรายการจำนวนไม่เหมาะสม — กดแล้วจะให้ยืนยันก่อนส่ง"
                   : undefined
             }
           >
@@ -1703,6 +1712,22 @@ export function StockPageClient({
           </Button>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmRiskyOpen}
+        tone="default"
+        title="ยืนยันจำนวนที่สั่ง"
+        body={
+          <>
+            มี {selectedRedCount} รายการที่จำนวนยังไม่เข้าเป้าหมาย MIN/MAX
+            <br />
+            ส่งต่อไปให้พนักงานตรวจได้ — พนักงานจะเห็นธงเตือนนี้ด้วย
+          </>
+        }
+        confirmLabel="ตรวจสอบคำสั่ง"
+        onConfirm={() => goToOrder()}
+        onClose={() => setConfirmRiskyOpen(false)}
+      />
 
       <StopOrderModal
         open={stopOpen}

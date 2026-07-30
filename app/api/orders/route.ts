@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { z } from "zod";
 import { getRepositories } from "@/lib/repositories";
 import { approveWithPoSplit } from "@/lib/po/approve-with-split";
+import { notifyStore } from "@/lib/orders/store-notify";
 import {
   CUSTOMER_STORE_CODE_COOKIE,
   CUSTOMER_STORE_COOKIE,
@@ -268,13 +269,14 @@ export async function PATCH(request: Request) {
   // approve/reject ไม่เคยเช็คสถานะเดิม — ยิง PATCH ซ้ำได้เรื่อย ๆ ทับ approvedAt
   // และเขียนไฟล์ PO ใหม่ทุกครั้ง หรือพลิก approved → rejected ย้อนหลังได้
   // การแก้ราคา/จัดกลุ่ม PO ก็ต้องทำได้เฉพาะตอนยังรออนุมัติเช่นกัน
-  const current = await prisma.order.findUnique({
+  const order = await prisma.order.findUnique({
     where: { id: orderId },
-    select: { status: true },
+    select: { status: true, storeId: true },
   });
-  if (!current) {
+  if (!order) {
     return NextResponse.json({ error: "ไม่พบออเดอร์" }, { status: 404 });
   }
+  const current = order;
   if (current.status !== "pending_approval") {
     return NextResponse.json(
       {
@@ -295,6 +297,21 @@ export async function PATCH(request: Request) {
         salesSession.email,
         body.poNumbers ?? {}
       );
+      const pos = result.purchaseOrders;
+      await notifyStore({
+        storeId: order.storeId,
+        kind: "approved",
+        title:
+          pos.length > 1
+            ? `อนุมัติแล้ว — ออก ${pos.length} PO`
+            : "อนุมัติคำสั่งซื้อแล้ว",
+        detail: pos
+          .map((po) => `${po.poNumber} · ${po.label} · ${po.totalQty} หีบ`)
+          .join(" | "),
+        poNumbers: pos.map((po) => po.poNumber),
+        orderId,
+        actorEmail: salesSession.email,
+      });
       return NextResponse.json(result);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "อนุมัติไม่สำเร็จ";
@@ -309,12 +326,20 @@ export async function PATCH(request: Request) {
   }
 
   if (action === "reject") {
-    const order = await orders.rejectOrder(
+    const rejected = await orders.rejectOrder(
       orderId,
       body.reason,
       salesSession.email
     );
-    return NextResponse.json(order);
+    await notifyStore({
+      storeId: order.storeId,
+      kind: "rejected",
+      title: "คำสั่งซื้อถูกปฏิเสธ",
+      detail: body.reason?.trim() || "ไม่ได้ระบุเหตุผล",
+      orderId,
+      actorEmail: salesSession.email,
+    });
+    return NextResponse.json(rejected);
   }
 
   if (action === "updatePrice") {
@@ -335,6 +360,17 @@ export async function PATCH(request: Request) {
       }
       throw err;
     }
+    await notifyStore({
+      storeId: order.storeId,
+      kind: "price_changed",
+      title: "พนักงานปรับราคาในคำสั่งซื้อ",
+      detail:
+        body.unitPriceOverride == null
+          ? "ยกเลิกราคาที่ตั้งไว้ กลับไปใช้ราคาระบบ"
+          : `ตั้งราคาเป็น ${body.unitPriceOverride} บาท/หีบ`,
+      orderId,
+      actorEmail: salesSession.email,
+    });
     return NextResponse.json(await orders.getOrderById(orderId));
   }
 
@@ -356,9 +392,85 @@ export async function PATCH(request: Request) {
       }
       throw err;
     }
-    const order = await orders.getOrderById(orderId);
-    return NextResponse.json(order);
+    await notifyStore({
+      storeId: order.storeId,
+      kind: "qty_changed",
+      title: "พนักงานปรับจำนวนในคำสั่งซื้อ",
+      detail: `ปรับเป็น ${body.finalQty} หีบ`,
+      orderId,
+      actorEmail: salesSession.email,
+    });
+    return NextResponse.json(await orders.getOrderById(orderId));
   }
 
   return NextResponse.json({ error: "Invalid action" }, { status: 400 });
+}
+
+/**
+ * พนักงานลบคำสั่งซื้อ
+ *
+ * ลบได้เฉพาะที่ยังไม่ออก PO (`pending_approval` / `rejected`)
+ * ออเดอร์ที่อนุมัติแล้วมีเลข PO ออกไปแล้ว — ลบทิ้งจะทำให้เลข PO ลอย
+ * และกระทบเอกสารที่ส่งต่อไปฝ่ายจัดซื้อ จึงต้องปฏิเสธ
+ */
+export async function DELETE(request: Request) {
+  const salesSession = await getSalesSession();
+  if (!salesSession) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { searchParams } = new URL(request.url);
+  const orderId = searchParams.get("orderId")?.trim();
+  if (!orderId) {
+    return NextResponse.json({ error: "ต้องระบุ orderId" }, { status: 400 });
+  }
+
+  try {
+    await assertOrderAccess(orderId, salesSession);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Forbidden";
+    if (msg === "ORDER_NOT_FOUND") {
+      return NextResponse.json({ error: "ไม่พบออเดอร์" }, { status: 404 });
+    }
+    return NextResponse.json(
+      { error: "ไม่มีสิทธิ์จัดการออเดอร์นี้" },
+      { status: 403 }
+    );
+  }
+
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: {
+      status: true,
+      storeId: true,
+      createdAt: true,
+      _count: { select: { items: true, purchaseOrders: true } },
+    },
+  });
+  if (!order) {
+    return NextResponse.json({ error: "ไม่พบออเดอร์" }, { status: 404 });
+  }
+  if (order.status === "approved" || order._count.purchaseOrders > 0) {
+    return NextResponse.json(
+      {
+        error:
+          "ออเดอร์นี้อนุมัติและออก PO แล้ว ลบไม่ได้ — ถ้าต้องยกเลิก ให้ทำที่ฝ่ายจัดซื้อ",
+      },
+      { status: 409 }
+    );
+  }
+
+  // OrderItem มี onDelete: Cascade อยู่แล้ว
+  await prisma.order.delete({ where: { id: orderId } });
+
+  await notifyStore({
+    storeId: order.storeId,
+    kind: "deleted",
+    title: "คำสั่งซื้อถูกลบโดยพนักงาน",
+    detail: `ออเดอร์ ${order._count.items} รายการ ที่ส่งเมื่อ ${order.createdAt.toLocaleDateString("th-TH")} ถูกลบออกจากระบบ`,
+    orderId,
+    actorEmail: salesSession.email,
+  });
+
+  return NextResponse.json({ success: true, deletedId: orderId });
 }
