@@ -154,14 +154,20 @@ export {
   isBenefitTier,
 } from "./promo";
 
-export type { PriceFlagReason, PriceOverrideVerdict } from "./price-override";
+export type {
+  OrderLinePriceSource,
+  PriceFlagReason,
+  PriceOverrideVerdict,
+} from "./price-override";
 
 export {
   PRICE_MATCH_EPSILON,
   evaluatePriceOverride,
   isPriceMismatch,
   priceFlagLabel,
+  priceSourceLabel,
   resolveEffectivePrice,
+  resolveOrderLinePrice,
   roundBaht,
 } from "./price-override";
 

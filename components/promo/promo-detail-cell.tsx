@@ -187,8 +187,8 @@ export function PromoDetailCell({
 
      เหลือพื้นหลังสีเฉพาะบรรทัดที่ 3 ซึ่งเป็นปุ่มกดจริง ๆ ที่เหลือเป็นข้อความ
      ──────────────────────────────────────────────────────────────── */
-  const sizeMain = variant === "compact" ? "text-[11px]" : "text-xs";
-  const sizeMeta = variant === "compact" ? "text-[9px]" : "text-[10px]";
+  const sizeMain = variant === "compact" ? "vmi-t-sm" : "text-xs";
+  const sizeMeta = "vmi-t-xs";
 
   const benefitColor = muted
     ? "text-slate-500 dark:text-slate-400"

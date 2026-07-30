@@ -7,6 +7,7 @@ import { buildFabricStockPayload } from "@/lib/fabric/stock-rows";
 import { resolveVdaStoreName } from "@/lib/fabric/vda-store-name";
 import { buildPromoInspector } from "@/lib/promo/promo-inspector";
 import { isPooledPromoGroup } from "@/lib/promo/promo-group-display";
+import { buildPromoTitle } from "@/lib/promo/promo-title";
 import { formatPremiumUnit } from "@/lib/calculations";
 import {
   isStockSortKey,
@@ -14,7 +15,10 @@ import {
   type StockSortDir,
 } from "@/lib/stock/sort";
 import { filterStockRows, isStockView } from "@/lib/stock/filters";
-import { buildOrderFormSheet } from "@/lib/stock/export-order-form";
+import {
+  blockLabel,
+  buildOrderFormSheet,
+} from "@/lib/stock/export-order-form";
 import { matchesProductSearch } from "@/lib/utils";
 import {
   CUSTOMER_STORE_COOKIE,
@@ -55,59 +59,98 @@ function applySheet(sheet: ExcelJS.Worksheet, cols: Col[]) {
   };
 }
 
-/** ช่วงหยุดสั่งแบบอ่านง่ายในไฟล์ export */
-function blockLabel(row: StockRowComputed): string {
-  if (!row.blocked && !row.blockEffectiveFrom) return "";
-  const fmt = (iso: string) => bangkokDateStr(new Date(iso));
-  const period = row.blockEffectiveFrom
-    ? row.blockEffectiveTo
-      ? `${fmt(row.blockEffectiveFrom)} – ${fmt(row.blockEffectiveTo)}`
-      : `ตั้งแต่ ${fmt(row.blockEffectiveFrom)} · ถาวร`
-    : "";
-  const parts = [row.blocked ? "หยุดสั่ง" : "ตั้งเวลาหยุดสั่ง"];
-  if (row.blockReason) parts.push(row.blockReason);
-  if (period) parts.push(period);
-  return parts.join(" · ");
-}
-
 function freeGoodLabel(row: StockRowComputed): string {
   const fg = row.freeGood;
   if (!fg || fg.qty <= 0) return "";
   return `${fg.premiumName || fg.premiumProduct} ${fg.qty} ${fg.unitLabel}`;
 }
 
-export async function GET(request: Request) {
-  const cookieStore = await cookies();
-  const storeId = cookieStore.get(CUSTOMER_STORE_COOKIE)?.value;
-  const storeCode = cookieStore.get(CUSTOMER_STORE_CODE_COOKIE)?.value;
+/** พารามิเตอร์ที่รับได้ทั้งจาก query string (GET) และ JSON body (POST) */
+interface ExportParams {
+  fromDb?: string;
+  brand?: string;
+  section?: string;
+  search?: string;
+  view?: string;
+  needsOnly?: string;
+  hideNoSales?: string;
+  sort?: string;
+  dir?: string;
+  /** "code:qty,code:qty" หรือ object — จำนวนที่ผู้ใช้ตั้งบนหน้าจอ */
+  qty?: string | Record<string, number>;
+  /** รหัส SKU ที่ติ๊กเลือกไว้ */
+  selected?: string | string[];
+  onlySelected?: string | boolean;
+}
 
-  if (!storeId || !storeCode) {
-    return NextResponse.json({ error: "ไม่พบ session" }, { status: 401 });
+function paramsFromSearch(sp: URLSearchParams): ExportParams {
+  const out: Record<string, unknown> = {};
+  for (const k of [
+    "fromDb",
+    "brand",
+    "section",
+    "search",
+    "view",
+    "needsOnly",
+    "hideNoSales",
+    "sort",
+    "dir",
+    "qty",
+    "selected",
+    "onlySelected",
+  ] as const) {
+    const v = sp.get(k);
+    if (v != null) out[k] = v;
   }
-  if (!fabricStockReady()) {
-    return NextResponse.json(
-      { error: "ยังไม่พร้อมใช้งาน — ต้อง sync stock_cover_day ก่อน" },
-      { status: 503 }
-    );
-  }
+  return out as ExportParams;
+}
 
-  const { searchParams } = new URL(request.url);
-  const fromDb = searchParams.get("fromDb") ?? storeCode;
-  const brand = searchParams.get("brand") ?? "";
-  const section = searchParams.get("section") ?? "";
-  const search = (searchParams.get("search") ?? "").trim();
-  const viewParam = searchParams.get("view");
+function parseQtyMap(v: ExportParams["qty"]): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (!v) return out;
+  const put = (code: string, n: unknown) => {
+    const q = Math.floor(Number(n));
+    if (Number.isFinite(q) && q > 0) out[code.trim()] = q;
+  };
+  if (typeof v === "object") {
+    for (const [code, n] of Object.entries(v)) put(code, n);
+    return out;
+  }
+  for (const pair of v.split(",")) {
+    const [code, n] = pair.split(":");
+    if (code) put(code, n);
+  }
+  return out;
+}
+
+function parseSelected(v: ExportParams["selected"]): Set<string> {
+  if (!v) return new Set();
+  const list = Array.isArray(v) ? v : v.split(",");
+  return new Set(list.map((c) => String(c).trim()).filter(Boolean));
+}
+
+async function buildWorkbook(
+  storeId: string,
+  storeCode: string,
+  params: ExportParams
+): Promise<ExcelJS.Workbook> {
+  const fromDb = params.fromDb || storeCode;
+  const brand = params.brand ?? "";
+  const section = params.section ?? "";
+  const search = (params.search ?? "").trim();
   // needsOnly = พารามิเตอร์เดิมของหน้าเก่า — รองรับต่อไปเผื่อมีคน bookmark ลิงก์ไว้
-  const view = isStockView(viewParam)
-    ? viewParam
-    : searchParams.get("needsOnly") === "1"
+  const view = isStockView(params.view)
+    ? params.view
+    : params.needsOnly === "1"
       ? "needs"
       : "all";
-  const hideNoSales = searchParams.get("hideNoSales") === "1";
-  const sortKeyParam = searchParams.get("sort");
-  const sortKey = isStockSortKey(sortKeyParam) ? sortKeyParam : "code";
-  const sortDir: StockSortDir =
-    searchParams.get("dir") === "asc" ? "asc" : "desc";
+  const hideNoSales = params.hideNoSales === "1";
+  const sortKey = isStockSortKey(params.sort) ? params.sort : "code";
+  const sortDir: StockSortDir = params.dir === "asc" ? "asc" : "desc";
+  const qtyByCode = parseQtyMap(params.qty);
+  const selectedCodes = parseSelected(params.selected);
+  const onlySelected =
+    params.onlySelected === "1" || params.onlySelected === true;
 
   const payload = await buildFabricStockPayload(storeId, storeCode, fromDb);
 
@@ -120,6 +163,10 @@ export async function GET(request: Request) {
     section: section || null,
     hideNoSales,
   });
+  // ส่งออกเต็นเฉพาะแถวที่ติ๊กเลือกไว้
+  if (onlySelected && selectedCodes.size > 0) {
+    rows = rows.filter((r) => selectedCodes.has(r.skuCode));
+  }
   rows = sortStockRows(rows, sortKey, sortDir);
 
   const wb = new ExcelJS.Workbook();
@@ -135,6 +182,7 @@ export async function GET(request: Request) {
     storeName,
     rows,
     asOf: new Date(),
+    qtyByCode,
   });
 
   // ---- ชีต 2: สต็อก (รายละเอียดเต็ม สำหรับวิเคราะห์) ----
@@ -155,6 +203,7 @@ export async function GET(request: Request) {
     { header: "MIN (วัน)", key: "minDays", width: 10, numFmt: NUM_INT },
     { header: "MAX (วัน)", key: "maxDays", width: 10, numFmt: NUM_INT },
     { header: "แนะนำสั่ง (หีบ)", key: "suggest", width: 13, numFmt: NUM_INT },
+    { header: "จำนวนสั่ง (หีบ)", key: "orderQty", width: 13, numFmt: NUM_INT },
     { header: "ราคา/หีบ", key: "price", width: 12, numFmt: NUM_BAHT },
     { header: "ส่วนลด (บาท/หีบ)", key: "discBaht", width: 15, numFmt: NUM_BAHT },
     { header: "ส่วนลด (%)", key: "discPct", width: 11, numFmt: NUM_1DP },
@@ -184,6 +233,8 @@ export async function GET(request: Request) {
       minDays: r.minDays,
       maxDays: r.maxDays,
       suggest: r.suggestOrder,
+      orderQty:
+        qtyByCode[r.skuCode] ?? (r.suggestOrder > 0 ? r.suggestOrder : null),
       price: r.unitPrice,
       discBaht: r.discountBahtPerCase,
       discPct: r.discountPctPerCase,
@@ -234,6 +285,7 @@ export async function GET(request: Request) {
   // ---- ชีต 4: โปรกลุ่ม (1 แถว = 1 ASSORTEDPRODUCTGROUP) ----
   const groupSheet = wb.addWorksheet("โปรกลุ่ม");
   applySheet(groupSheet, [
+    { header: "ชื่อโปร", key: "promoName", width: 40 },
     { header: "กลุ่มโปร", key: "group", width: 14 },
     { header: "SKU ในกลุ่ม (C4)", key: "members", width: 15, numFmt: NUM_INT },
     { header: "SKU ในตารางนี้", key: "inTable", width: 13, numFmt: NUM_INT },
@@ -282,6 +334,13 @@ export async function GET(request: Request) {
     }
 
     groupSheet.addRow({
+      // C4 ไม่มีคอลัมน์ชื่อโปร — สังเคราะห์จากเงื่อนไขเหมือนที่หน้าเว็บแสดง
+      promoName: buildPromoTitle({
+        group,
+        tiers: entry.row.promoTiers,
+        memberCount: entry.row.promoGroupMembers ?? entry.skus.length,
+        endsInDays: entry.row.currentPromoEndsInDays ?? null,
+      }).headline,
       group,
       // members = จำนวนสมาชิกใน C4 master ซึ่งอาจมากกว่าที่คลังนี้มีของ
       members: entry.row.promoGroupMembers ?? entry.skus.length,
@@ -295,6 +354,41 @@ export async function GET(request: Request) {
     });
   }
 
+  return wb;
+}
+
+async function requireStore(): Promise<
+  | { ok: true; storeId: string; storeCode: string }
+  | { ok: false; res: NextResponse }
+> {
+  const cookieStore = await cookies();
+  const storeId = cookieStore.get(CUSTOMER_STORE_COOKIE)?.value;
+  const storeCode = cookieStore.get(CUSTOMER_STORE_CODE_COOKIE)?.value;
+
+  if (!storeId || !storeCode) {
+    return {
+      ok: false,
+      res: NextResponse.json({ error: "ไม่พบ session" }, { status: 401 }),
+    };
+  }
+  if (!fabricStockReady()) {
+    return {
+      ok: false,
+      res: NextResponse.json(
+        { error: "ยังไม่พร้อมใช้งาน — ต้อง sync stock_cover_day ก่อน" },
+        { status: 503 }
+      ),
+    };
+  }
+  return { ok: true, storeId, storeCode };
+}
+
+async function respondWithWorkbook(
+  storeId: string,
+  storeCode: string,
+  params: ExportParams
+): Promise<NextResponse> {
+  const wb = await buildWorkbook(storeId, storeCode, params);
   const buffer = await wb.xlsx.writeBuffer();
   const filename = `form-order-${storeCode.toLowerCase()}-${bangkokDateStr(new Date())}.xlsx`;
 
@@ -306,4 +400,26 @@ export async function GET(request: Request) {
       "Cache-Control": "no-store",
     },
   });
+}
+
+export async function GET(request: Request) {
+  const guard = await requireStore();
+  if (!guard.ok) return guard.res;
+  const { searchParams } = new URL(request.url);
+  return respondWithWorkbook(
+    guard.storeId,
+    guard.storeCode,
+    paramsFromSearch(searchParams)
+  );
+}
+
+/**
+ * POST รับพารามิเตอร์ชุดเดียวกันผ่าน JSON body
+ * ใช้เมื่อรายการจำนวนที่ผู้ใช้แก้ยาวเกินกว่าที่ URL จะรองรับได้อย่างปลอดพัน
+ */
+export async function POST(request: Request) {
+  const guard = await requireStore();
+  if (!guard.ok) return guard.res;
+  const body = (await request.json().catch(() => ({}))) as ExportParams;
+  return respondWithWorkbook(guard.storeId, guard.storeCode, body);
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 import { PromoInspectorTrigger } from "@/components/promo/c4-promo-modal";
 import {
@@ -25,6 +25,8 @@ import {
   MobileStat,
 } from "@/components/ui/mobile-row";
 import { promoGroupBadgeClass } from "@/lib/promo/promo-group-display";
+import { buildPromoTitle } from "@/lib/promo/promo-title";
+import { isBenefitTier } from "@/lib/calculations";
 import {
   activeTierAt,
   sumStagedFor,
@@ -150,6 +152,26 @@ function PromoBucketCard({
   const rows = showAll ? bucket.rows : bucket.rows.slice(0, ROWS_PER_BUCKET);
   const truncated = bucket.rows.length - rows.length;
 
+  const promoTitle = useMemo(
+    () =>
+      buildPromoTitle({
+        group: bucket.promoGroup,
+        tiers: bucket.tiers,
+        memberCount: bucket.memberSkus.length,
+        endsInDays: bucket.hostRow?.currentPromoEndsInDays ?? null,
+      }),
+    [bucket.promoGroup, bucket.tiers, bucket.memberSkus.length, bucket.hostRow]
+  );
+
+  // อีกกี่หีบถึงขั้นถัดไป (ระดับกลุ่ม) — ขั้นที่ยังไม่ถึงตัวแรกหลังยอดรวมปัจจุบัน
+  const qtyToNextTier = useMemo(() => {
+    if (!isGroup) return null;
+    const next = bucket.tiers
+      .filter((t) => isBenefitTier(t) && t.minQty > pooledQty)
+      .sort((a, b) => a.minQty - b.minQty)[0];
+    return next ? next.minQty - pooledQty : null;
+  }, [isGroup, bucket.tiers, pooledQty]);
+
   const stripeBorder =
     bucket.stripe === 0
       ? "border-l-violet-400 dark:border-l-violet-500"
@@ -184,13 +206,26 @@ function PromoBucketCard({
         </button>
 
         {isGroup ? (
-          <span
-            className={cn(
-              "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-semibold ring-1",
-              promoGroupBadgeClass(bucket.stripe)
+          // C4 ไม่มีคอลัมน์ชื่อโปร — สังเคราะห์จากเงื่อนไขที่ได้จริง
+          // เดิมโชว์แค่รหัสกลุ่มดิบ ("กลุ่ม AP50K") ซึ่งร้านค้าอ่านไม่ออก
+          <span className="flex min-w-0 flex-col leading-tight">
+            <span className="flex items-center gap-1.5">
+              <span
+                className={cn(
+                  "inline-block h-2 w-2 shrink-0 rounded-full ring-1",
+                  promoGroupBadgeClass(bucket.stripe)
+                )}
+                aria-hidden
+              />
+              <span className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
+                {promoTitle.headline}
+              </span>
+            </span>
+            {promoTitle.meta && (
+              <span className="truncate text-[11px] text-slate-500 dark:text-slate-400">
+                {promoTitle.meta}
+              </span>
             )}
-          >
-            กลุ่ม {bucket.title}
           </span>
         ) : (
           <span className="text-sm font-semibold text-slate-800 dark:text-slate-200">
@@ -205,6 +240,13 @@ function PromoBucketCard({
         {isGroup && (
           <span className="text-[11px] font-medium tabular-nums text-slate-700 dark:text-slate-300">
             รวม {pooledQty} หีบ
+          </span>
+        )}
+
+        {/* ตัวเลขที่ทำให้ร้านตัดสินใจสั่งเพิ่ม — คำนวณจากยอดรวมของกลุ่ม */}
+        {isGroup && qtyToNextTier != null && qtyToNextTier > 0 && (
+          <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-400">
+            อีก {qtyToNextTier} หีบถึงขั้นถัดไป
           </span>
         )}
 

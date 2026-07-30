@@ -1,6 +1,7 @@
 "use client";
 
 import { appPath } from "@/lib/paths";
+import { StorePriceInput } from "@/components/order/store-price-input";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Filter, Sparkles } from "lucide-react";
@@ -27,9 +28,11 @@ import {
 import { cn } from "@/lib/utils";
 import {
   annotatePromoGroupStripes,
+  promoGroupBadgeClass,
   promoGroupRowBgClass,
   sortRowsByPromoGroup,
 } from "@/lib/promo/promo-group-display";
+import { Checkbox } from "@/components/ui/checkbox";
 
 export interface ReviewOrderItem {
   id: string;
@@ -48,6 +51,11 @@ export interface ReviewOrderItem {
   c4PriceExpired?: boolean | null;
   priceFlagged?: boolean;
   priceFlagReason?: string | null;
+  /** ราคาที่พนักงานตั้งเอง (แยกช่องจากของร้าน เพื่อไม่ทับหลักฐานว่าร้านขออะไร) */
+  salesPriceOverride?: number | null;
+  salesPriceBy?: string | null;
+  /** กลุ่ม PO ที่จัดไว้ ("A".."Z") */
+  poGroup?: string | null;
 }
 
 /** ข้อความอธิบายธงราคา — สร้างจากค่าที่แช่ไว้ตอนส่ง ไม่ใช่ราคาสดวันนี้ */
@@ -73,6 +81,13 @@ function priceFlagTitle(item: ReviewOrderItem): string {
 interface OrderReviewTableProps {
   storeCode: string;
   items: ReviewOrderItem[];
+  /** แก้ราคาได้เมื่อส่งมา (หน้าตรวจของพนักงาน) — null = ล้างราคาที่ตั้งไว้ */
+  onPriceChange?: (itemId: string, override: number | null) => void;
+  /** เลือกแถวเพื่อย้ายกลุ่ม PO */
+  selectedIds?: Set<string>;
+  onToggleSelect?: (itemId: string) => void;
+  /** true = แสดงคอลัมน์/ป้ายกลุ่ม PO */
+  showPoGroups?: boolean;
 }
 
 interface PromoApiLine {
@@ -104,6 +119,22 @@ interface PromoApiLine {
   } | null;
 }
 
+/** ป้ายกลุ่ม PO — ใช้ระบบสีเดียวกับกลุ่มโปรที่ผู้ใช้คุ้นจากหน้า stock */
+function PoGroupBadge({ groupKey }: { groupKey: string }) {
+  const stripe = ((groupKey.charCodeAt(0) - 65) % 4) as 0 | 1 | 2 | 3;
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center rounded px-1 py-0.5 text-[10px] font-bold ring-1",
+        promoGroupBadgeClass(stripe)
+      )}
+      title={`อยู่ใน PO-${groupKey}`}
+    >
+      PO-{groupKey}
+    </span>
+  );
+}
+
 function hasActivePromo(api: PromoApiLine | undefined) {
   return Boolean(api?.currentPromo || api?.freeGood);
 }
@@ -115,25 +146,45 @@ function PriceBlock({
   expired,
   item,
   qty,
+  onPriceChange,
 }: {
   unitPrice: number | null;
   netUnitPrice: number | null;
   lineTotal: number | null;
   expired?: boolean;
-  /** มีเมื่อร้านแก้ราคา — แสดงตัวเลขของร้านแทนราคาสดจาก API */
+  /** มีเมื่อร้าน/พนักงานแก้ราคา — แสดงตัวเลขที่ตั้งไว้แทนราคาสดจาก API */
   item?: ReviewOrderItem;
   qty?: number;
+  /** ส่งมาเมื่อพนักงานแก้ราคาได้ */
+  onPriceChange?: (override: number | null) => void;
 }) {
-  const override = item?.unitPriceOverride ?? null;
+  const storeOverride = item?.unitPriceOverride ?? null;
+  const salesOverride = item?.salesPriceOverride ?? null;
+  // ลำดับความสำคัญ: พนักงาน → ร้าน → ราคาระบบ
+  const effective = salesOverride ?? storeOverride;
 
-  // ร้านแก้ราคา → โชว์ตัวเลขที่ร้านตั้งใจ คำนวณจากสแนปช็อต C4 ณ เวลาส่ง
+  const editor = onPriceChange ? (
+    <div className="mt-1 flex justify-end">
+      <StorePriceInput
+        compact
+        value={salesOverride}
+        // ค่าอ้างอิงตอนช่องว่าง = ราคาที่ร้านขอ ถ้าไม่มีก็ราคาระบบ
+        c4UnitPrice={storeOverride ?? item?.c4UnitPrice ?? null}
+        expired={item?.c4PriceExpired ?? false}
+        mismatch={item?.priceFlagged ?? false}
+        onChange={onPriceChange}
+      />
+    </div>
+  ) : null;
+
+  // มีคนแก้ราคา → โชว์ตัวเลขที่ตั้งใจ คำนวณจากสแนปช็อต C4 ณ เวลาส่ง
   // (ไม่ใช้ lineTotal จาก API ซึ่งคิดจากราคา master วันนี้)
-  if (override != null) {
+  if (effective != null) {
     const effNet =
-      calcNetUnitPrice(override, item?.c4DiscountBaht, item?.c4DiscountPct) ??
-      override;
+      calcNetUnitPrice(effective, item?.c4DiscountBaht, item?.c4DiscountPct) ??
+      effective;
     const effTotal = qty != null ? effNet * qty : null;
-    const hasDiscount = effNet < override - 0.001;
+    const hasDiscount = effNet < effective - 0.001;
     return (
       <div className="text-right tabular-nums">
         <p className="whitespace-nowrap text-[11px] leading-tight text-slate-500 dark:text-slate-400">
@@ -145,9 +196,28 @@ function PriceBlock({
               <span className="mx-0.5 text-slate-400">→</span>
             </>
           )}
-          <span className="font-bold text-amber-700 dark:text-amber-400">
-            ร้าน {formatBaht(override)}
-          </span>
+          {storeOverride != null && (
+            <span
+              className={cn(
+                "font-bold",
+                salesOverride != null
+                  ? "text-slate-400 line-through dark:text-slate-500"
+                  : "text-amber-700 dark:text-amber-400"
+              )}
+            >
+              ร้าน {formatBaht(storeOverride)}
+            </span>
+          )}
+          {salesOverride != null && (
+            <>
+              {storeOverride != null && (
+                <span className="mx-0.5 text-slate-400">→</span>
+              )}
+              <span className="font-bold text-indigo-700 dark:text-indigo-300">
+                เซลส์ {formatBaht(salesOverride)}
+              </span>
+            </>
+          )}
         </p>
         {hasDiscount && (
           <p className="whitespace-nowrap text-[11px] leading-tight text-teal-700 dark:text-teal-400">
@@ -159,6 +229,7 @@ function PriceBlock({
             {formatBaht(effTotal)}
           </p>
         )}
+        {editor}
       </div>
     );
   }
@@ -199,11 +270,19 @@ function PriceBlock({
           {formatBaht(lineTotal)}
         </p>
       )}
+      {editor}
     </div>
   );
 }
 
-export function OrderReviewTable({ storeCode, items }: OrderReviewTableProps) {
+export function OrderReviewTable({
+  storeCode,
+  items,
+  onPriceChange,
+  selectedIds,
+  onToggleSelect,
+  showPoGroups,
+}: OrderReviewTableProps) {
   const [promoOnly, setPromoOnly] = useState(false);
   const lineKey = items.map((i) => `${i.sku.code}:${i.finalQty}`).join("|");
 
@@ -436,12 +515,22 @@ export function OrderReviewTable({ storeCode, items }: OrderReviewTableProps) {
                         <span className="w-5 shrink-0 text-xs text-slate-400">
                           {rowNum}
                         </span>
+                        {onToggleSelect && (
+                          <Checkbox
+                            className="mt-0.5 shrink-0"
+                            checked={selectedIds?.has(item.id) ?? false}
+                            onCheckedChange={() => onToggleSelect(item.id)}
+                          />
+                        )}
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-1.5">
                             <span className="font-mono text-sm font-bold text-teal-700 dark:text-teal-400">
                               {item.sku.code}
                             </span>
                             <FlagBadge flag={flag} />
+                            {showPoGroups && item.poGroup && (
+                              <PoGroupBadge groupKey={item.poGroup} />
+                            )}
                             {item.priceFlagged && (
                               <PriceFlagBadge
                                 reason={item.priceFlagReason}
@@ -475,6 +564,11 @@ export function OrderReviewTable({ storeCode, items }: OrderReviewTableProps) {
                               expired={api?.priceExpired}
                               item={item}
                               qty={item.finalQty}
+                              onPriceChange={
+                                onPriceChange
+                                  ? (v) => onPriceChange(item.id, v)
+                                  : undefined
+                              }
                             />
                           )}
                         </MobileStat>
@@ -554,7 +648,14 @@ export function OrderReviewTable({ storeCode, items }: OrderReviewTableProps) {
                     )}
                   >
                     <td className="px-2 py-2.5 align-top text-xs text-slate-400">
-                      {rowNum}
+                      {onToggleSelect ? (
+                        <Checkbox
+                          checked={selectedIds?.has(item.id) ?? false}
+                          onCheckedChange={() => onToggleSelect(item.id)}
+                        />
+                      ) : (
+                        rowNum
+                      )}
                     </td>
                     <td className="max-w-0 px-2 py-2.5 align-top">
                       <div className="min-w-0">
@@ -563,6 +664,9 @@ export function OrderReviewTable({ storeCode, items }: OrderReviewTableProps) {
                             {item.sku.code}
                           </span>
                           <FlagBadge flag={flag} />
+                          {showPoGroups && item.poGroup && (
+                            <PoGroupBadge groupKey={item.poGroup} />
+                          )}
                           {item.priceFlagged && (
                             <PriceFlagBadge
                               reason={item.priceFlagReason}
@@ -610,11 +714,21 @@ export function OrderReviewTable({ storeCode, items }: OrderReviewTableProps) {
                       {promoLoading ? (
                         <span className="text-xs text-slate-400">...</span>
                       ) : (
+                        // ต้องส่ง item/qty ให้ตรงกับการ์ดมือถือ ไม่งั้น PriceBlock
+                        // ไม่เข้า branch "ระบบ → ร้าน" แล้วจอนี้จะโชว์ราคา C4 วันนี้
+                        // ขัดกับ badge ราคาแก้เองและยอดรวมที่คิด override ไว้แล้ว
                         <PriceBlock
                           unitPrice={api?.unitPrice ?? null}
                           netUnitPrice={api?.netUnitPrice ?? null}
                           lineTotal={api?.lineTotal ?? null}
                           expired={api?.priceExpired}
+                          item={item}
+                          qty={item.finalQty}
+                          onPriceChange={
+                            onPriceChange
+                              ? (v) => onPriceChange(item.id, v)
+                              : undefined
+                          }
                         />
                       )}
                     </td>

@@ -27,5 +27,12 @@ export async function register() {
     } catch (err) {
       console.warn("[VMI] Master preload skipped:", err);
     }
+
+    // ไล่ตามข้อมูลที่ค้าง — ไม่ await เพราะไฟล์ SKU 68MB ใช้เวลา และ boot
+    // ต้องรับ traffic ได้ก่อน (ตัว catchUp หน่วง 30 วิ ในตัวเองอีกชั้น)
+    const { catchUpIfStale } = await import("./lib/fabric/scheduler");
+    void catchUpIfStale().catch((err) => {
+      console.warn("[VMI] Data catch-up skipped:", err);
+    });
   }
 }

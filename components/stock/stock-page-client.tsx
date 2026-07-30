@@ -16,6 +16,8 @@ import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useAsyncAction } from "@/hooks/use-async-action";
+import { useDataVersion } from "@/hooks/use-data-version";
+import { StockSummaryInline } from "@/components/stock/stock-summary-inline";
 import { StockQtyStepper } from "@/components/stock/stock-qty-stepper";
 import { cvdFlagHint } from "@/lib/stock/cvd-hint";
 import { StockPromoView } from "@/components/stock/stock-promo-view";
@@ -29,20 +31,10 @@ import {
 import {
   ShoppingCart,
   BarChart3,
-  Clock,
-  RefreshCw,
-  Package,
-  Boxes,
-  Wallet,
-  CalendarClock,
-  AlertTriangle,
   Ban,
   Sparkles,
   CalendarOff,
   Check,
-  Minus,
-  Plus,
-  RotateCcw,
   ArrowUp,
   ArrowDown,
   ChevronsUpDown,
@@ -88,7 +80,6 @@ import {
 } from "@/components/ui/mobile-row";
 import { cn, looksLikeProductCodeQuery, matchesProductSearch } from "@/lib/utils";
 import {
-  formatBaht,
   formatDays,
   formatNumber,
   getOrderCvdFlag,
@@ -150,8 +141,18 @@ function isStockPayload(data: unknown): data is StockApiResponse {
   );
 }
 
+/** ความสูงแถวเริ่มต้น (px) — ต้องตรงกับ --vmi-row-h ใน globals.css */
+const DEFAULT_ROW_PX = 48;
+
 const SORT_STORAGE_KEY = "vmi_stock_sort";
 const FILTER_STORAGE_KEY = "vmi_stock_filters";
+
+/** query ที่ต้องล้างเมื่อชุดข้อมูลกลางเปลี่ยน — ประกาศนอกคอมโพเนนต์ให้ reference คงที่ */
+const STOCK_INVALIDATE_KEYS = [
+  ["stock"],
+  ["sales-daily"],
+  ["order-history-recent"],
+] as const;
 
 type DisplayRow = StockRowComputed & {
   promoGroupStripe?: PromoGroupStripe | null;
@@ -179,6 +180,9 @@ export function StockPageClient({
   const [mode, setMode] = useState<StockBrowseMode>(DEFAULT_STOCK_BROWSE_MODE);
   const [sessionReady, setSessionReady] = useState(false);
   const [pendingFocusSku, setPendingFocusSku] = useState<string | null>(null);
+
+  // ข้อมูลกลาง sync ทุกเช้า — แท็บที่เปิดค้างต้องรู้เองไม่ต้องรอคนกดปุ่ม
+  useDataVersion(STOCK_INVALIDATE_KEYS);
 
   const { data, isLoading, isError, refetch } = useQuery<StockApiResponse>({
     queryKey: ["stock"],
@@ -274,23 +278,45 @@ export function StockPageClient({
    * โหลดเป็น blob แทน window.location.href — ได้สถานะ "กำลังสร้างไฟล์" จริง,
    * error ขึ้นเป็นข้อความแทนการพาไปหน้า JSON เปล่า และกดซ้ำระหว่างสร้างไม่ได้
    */
-  const exportAction = useAsyncAction(async () => {
+  const exportAction = useAsyncAction(async (scope: "all" | "selected" = "all") => {
     setRefreshMsg("");
-    // โหมดโปรบังคับเรียงแบบกลุ่มโปร ให้ไฟล์ออกมาจัดกลุ่มเหมือนที่เห็นบนจอ
-    const params = new URLSearchParams({
+    // จำนวนที่ผู้ใช้แก้บนหน้าจอต้องไปอยู่ในไฟล์ — เดิมส่งแค่ตัวกรอง/การเรียง
+    // ทำให้ไฟล์ได้ suggestOrder ของระบบ ไม่ใช่สิ่งที่ผู้ใช้ตั้งไว้
+    // qtyOverrides คีย์ด้วย skuId แต่ฝั่ง server จับคู่ด้วย skuCode
+    const codeById = new Map(rows.map((r) => [r.skuId, r.skuCode]));
+    const qtyPairs: string[] = [];
+    for (const [skuId, n] of Object.entries(qtyOverrides)) {
+      const code = codeById.get(skuId);
+      const qty = Math.floor(n);
+      if (code && qty > 0) qtyPairs.push(`${code}:${qty}`);
+    }
+
+    const body: Record<string, string> = {
+      // โหมดโปรบังคับเรียงแบบกลุ่มโปร ให้ไฟล์ออกมาจัดกลุ่มเหมือนที่เห็นบนจอ
       sort: mode === "promo" ? "promoGroup" : sort.key,
       dir: sort.dir,
-    });
-    if (filters.brand) params.set("brand", filters.brand);
-    if (filters.section) params.set("section", filters.section);
-    if (filters.view !== "all") params.set("view", filters.view);
-    if (filters.hideNoSales) params.set("hideNoSales", "1");
+    };
+    if (filters.brand) body.brand = filters.brand;
+    if (filters.section) body.section = filters.section;
+    if (filters.view !== "all") body.view = filters.view;
+    if (filters.hideNoSales) body.hideNoSales = "1";
     const q = search.trim();
-    if (q) params.set("search", q);
+    if (q) body.search = q;
+    if (qtyPairs.length > 0) body.qty = qtyPairs.join(",");
+    if (scope === "selected") {
+      body.onlySelected = "1";
+      body.selected = rows
+        .filter((r) => selected.has(r.skuId))
+        .map((r) => r.skuCode)
+        .join(",");
+    }
 
-    const res = await fetch(
-      `${appPath("/api/stock/export")}?${params.toString()}`
-    );
+    // POST เสมอ — รายการจำนวนที่แก้ไว้ยาวเกินกว่าจะใส่ใน URL ได้ปลอดภัย
+    const res = await fetch(appPath("/api/stock/export"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
     if (!res.ok) {
       throw new Error(`ส่งออกไฟล์ไม่สำเร็จ (${res.status})`);
     }
@@ -473,25 +499,27 @@ export function StockPageClient({
     try {
       const res = await fetch(appPath("/api/stock/refresh"), { method: "POST" });
       const data = (await res.json().catch(() => ({}))) as {
-        success?: boolean;
+        ok?: boolean;
+        queued?: boolean;
         message?: string;
         error?: string;
       };
-      if (!res.ok || data.success === false) {
+      if (!res.ok || data.ok === false) {
         setRefreshMsg(
-          data.message ??
-            data.error ??
-            "ดึงข้อมูลจาก Fabric ไม่สำเร็จ — แสดง cache"
+          data.message ?? data.error ?? "ตรวจข้อมูลไม่สำเร็จ — แสดง cache"
         );
       } else {
-        setRefreshMsg(data.message ?? "อัปเดตข้อมูลแล้ว");
+        // queued = ข้อมูลกลางเก่าจนต้องดึงใหม่จาก Fabric ซึ่งกินเวลาเป็นนาที
+        // ห้ามบอกว่า "อัปเดตแล้ว" — useDataVersion จะ invalidate ให้เองเมื่อเสร็จจริง
+        setRefreshMsg(data.message ?? "ข้อมูลเป็นชุดล่าสุดแล้ว");
       }
     } catch {
-      setRefreshMsg("รีเฟรชไม่สำเร็จ — ลองใหม่อีกครั้ง");
+      setRefreshMsg("ตรวจข้อมูลไม่สำเร็จ — ลองใหม่อีกครั้ง");
     } finally {
       await queryClient.invalidateQueries({ queryKey: ["stock"] });
       // รีเฟรชยอดขายรายวันในแผงที่กางอยู่ด้วย (เดิม module cache ไม่ถูกล้าง)
       await queryClient.invalidateQueries({ queryKey: ["sales-daily"] });
+      await queryClient.invalidateQueries({ queryKey: ["data-version"] });
       setRefreshing(false);
     }
   }, [refreshing, queryClient]);
@@ -541,23 +569,39 @@ export function StockPageClient({
   // จากตารางเดียวใช้ไม่ได้ ต้องปิดไว้ ไม่งั้น estimateSize จะ index แถวที่ไม่มีใน DOM
   const shouldVirtualize =
     mode === "list" && isDesktop && !isLoading && displayRows.length >= 40;
+  // ความสูงแถวมาจาก --vmi-row-h ใน globals.css (แหล่งความจริงเดียว)
+  // 48 เป็นแค่ fallback ก่อน DOM พร้อม
+  const rowBasePx = useRef(DEFAULT_ROW_PX);
   const rowVirtualizer = useVirtualizer({
     count: shouldVirtualize ? displayRows.length : 0,
     getScrollElement: () => tableScrollRef.current,
     estimateSize: (index) => {
+      const base = rowBasePx.current;
       const row = displayRows[index];
-      // 48px = ความสูงแถวจริงหลังชื่อสินค้าห่อได้ 2 บรรทัดและมีป้ายสถานะแยกบรรทัด
-      // (วัดจากหน้าจริง: 47px แถวปกติ, 48–55px แถวที่ชิปโปรห่อบรรทัด)
-      if (!row) return 48;
-      let h = 48;
-      if (row.promoGroupIsFirst && row.promoGroupStripe != null) h += 34;
-      if (isFreeGoodHostRow(displayRows, index)) h += 48;
+      if (!row) return base;
+      let h = base;
+      // สัดส่วนเดิมวัดจากหน้าจริงที่ความสูงแถว 48px — สเกลตามฐานใหม่
+      if (row.promoGroupIsFirst && row.promoGroupStripe != null) {
+        h += Math.round(base * 0.71);
+      }
+      if (isFreeGoodHostRow(displayRows, index)) h += base;
       // ใช้ความสูงที่วัดได้จริง (ถ้ามี) แทนค่าคงที่ — กัน scroll กระโดดตอน expand / toggle 7↔30
       if (expanded.has(row.skuId)) h += expandedHeights.current.get(row.skuId) ?? 220;
       return h;
     },
     overscan: 10,
   });
+
+  useEffect(() => {
+    const el = tableScrollRef.current?.closest(".vmi-stock-main");
+    const raw = el
+      ? getComputedStyle(el).getPropertyValue("--vmi-row-h")
+      : "";
+    const px = parseFloat(raw);
+    rowBasePx.current = Number.isFinite(px) && px > 0 ? px : DEFAULT_ROW_PX;
+    // re-measure หลังอ่านค่าจริง — ไม่งั้นแถวจะซ้อนหรือขาดที่ breakpoint ที่ --vmi-row-h ต่างกัน
+    if (shouldVirtualize) rowVirtualizer.measure();
+  }, [isDesktop, shouldVirtualize, rowVirtualizer]);
   const virtualItems = shouldVirtualize
     ? rowVirtualizer.getVirtualItems()
     : null;
@@ -971,123 +1015,36 @@ export function StockPageClient({
         role="customer"
       />
 
-      <main className="vmi-stock-main mx-auto w-full min-w-0 max-w-none px-3 sm:px-4 lg:px-6">
-        <div className="vmi-stock-stats shrink-0 py-2 lg:py-3">
-          <div
-            className={cn(
-              "grid grid-cols-2 gap-2 sm:grid-cols-3",
-              mode === "promo" ? "lg:grid-cols-5" : "lg:grid-cols-6"
-            )}
-          >
-            <StockStatCard
-              icon={<Package className="h-4 w-4" />}
-              label="จำนวน SKU"
-              value={formatNumber(stats.total, 0)}
-            />
-            <StockStatCard
-              icon={<Boxes className="h-4 w-4" />}
-              label="หีบคงเหลือทั้งหมด"
-              title="สต็อกคงเหลือปัจจุบันรวมทุกสินค้า (หน่วยหีบ)"
-              value={formatNumber(stats.totalStock, 0)}
-            />
-            <StockStatCard
-              icon={<Wallet className="h-4 w-4" />}
-              label="มูลค่าสินค้ารวม"
-              title="คงเหลือ (หีบ) × ราคา/หีบ"
-              value={formatBaht(stats.totalValue)}
-            />
-            {mode === "promo" ? (
-              <StockStatCard
-                icon={<Sparkles className="h-4 w-4" />}
-                label="กลุ่มโปร"
-                title="จำนวนกลุ่มโปรโมชั่นที่รวมยอดข้ามสินค้าได้"
-                value={formatNumber(
-                  promoBuckets.filter((b) => b.kind === "group").length,
-                  0
-                )}
-              />
-            ) : (
-              <StockStatCard
-                icon={<CalendarClock className="h-4 w-4" />}
-                label="วันที่สินค้าเพียงพอ (CVD)"
-                title="จำนวนวันรวมที่สินค้าเพียงพอ (Cover Day - CVD)"
-                value={formatDays(stats.cvdAll)}
-              />
-            )}
-            <StockStatCard
-              icon={<ShoppingCart className="h-4 w-4" />}
-              label="ควรสั่ง"
-              value={formatNumber(stats.needsOrder, 0)}
-              tone="amber"
-              title="กดเพื่อดูเฉพาะรายการที่ควรสั่ง"
-              active={filters.view === "needs"}
-              onClick={() =>
-                applyFilters({
-                  ...filters,
-                  view: filters.view === "needs" ? "all" : "needs",
-                })
-              }
-            />
-            {/* สต็อกวิกฤตนิยามด้วย CVD ล้วน — ไม่แสดงในโหมดที่ไม่พูดถึง CVD */}
-            {mode === "list" && (
-              <StockStatCard
-                icon={<AlertTriangle className="h-4 w-4" />}
-                label="สต็อกวิกฤต"
-                value={formatNumber(viewCounts.critical, 0)}
-                tone="red"
-                title="จะหมดก่อนถึงจำนวนวันขั้นต่ำ (กดเพื่อดูเฉพาะรายการนี้)"
-                active={filters.view === "critical"}
-                onClick={
-                  viewCounts.critical > 0
-                    ? () =>
-                        applyFilters({
-                          ...filters,
-                          view: filters.view === "critical" ? "all" : "critical",
-                        })
-                    : undefined
-                }
-              />
-            )}
-          </div>
-          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-            <div className="min-w-0">
-              {dataDate ? (
-                <p className="flex items-center gap-1 text-[11px] text-slate-400 dark:text-slate-500">
-                  <Clock className="h-3 w-3" />
-                  ข้อมูล ณ {formatDataDate(dataDate)}
-                </p>
-              ) : null}
-              {exportAction.pending && (
-                <p className="mt-0.5 text-[11px] text-teal-700 dark:text-teal-400">
-                  กำลังสร้างไฟล์ Excel…
-                </p>
-              )}
-              {!exportAction.pending && refreshMsg && (
-                <p
-                  className={cn(
-                    "mt-0.5 text-[11px]",
-                    refreshMsg.includes("ไม่สำเร็จ") || refreshMsg.includes("cache")
-                      ? "text-amber-700 dark:text-amber-400"
-                      : "text-teal-700 dark:text-teal-400"
-                  )}
-                >
-                  {refreshMsg}
-                </p>
-              )}
-            </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 gap-1.5 px-2 text-xs text-slate-500 hover:text-teal-700 dark:text-slate-400"
-              onClick={handleRefresh}
-              disabled={refreshing}
-              title="ดึงข้อมูลสินค้าล่าสุด"
-            >
-              <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} />
-              {refreshing ? "กำลังรีเฟรช..." : "รีเฟรชข้อมูล"}
-            </Button>
-          </div>
-        </div>
+      <main
+        className="vmi-stock-main mx-auto w-full min-w-0 max-w-none px-3 pt-2 sm:px-4 lg:px-6"
+      >
+        <StockSummaryInline
+          summary={{
+            total: stats.total,
+            totalStock: stats.totalStock,
+            totalValue: stats.totalValue,
+            cvdAll: stats.cvdAll,
+            promoGroups: promoBuckets.filter((b) => b.kind === "group").length,
+          }}
+          mode={mode}
+          dataDate={dataDate ? formatDataDate(dataDate) : null}
+          refreshing={refreshing}
+          statusMsg={
+            exportAction.pending
+              ? { text: "กำลังสร้างไฟล์ Excel…", tone: "info" }
+              : refreshMsg
+                ? {
+                    text: refreshMsg,
+                    tone:
+                      refreshMsg.includes("ไม่สำเร็จ") ||
+                      refreshMsg.includes("cache")
+                        ? "warn"
+                        : "info",
+                  }
+                : null
+          }
+          onRefresh={handleRefresh}
+        />
 
         <StockToolbar
           search={search}
@@ -1227,7 +1184,7 @@ export function StockPageClient({
               <col className="w-[5.5%]" />
               <col className="w-[19%]" />
             </colgroup>
-            <thead className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+            <thead className="font-medium text-slate-500 dark:text-slate-400">
               <tr>
                 <th className="px-1 py-2">
                   <Checkbox
@@ -1382,6 +1339,8 @@ export function StockPageClient({
                             showPromoButton={benefitGroups.has(
                               row.promoGroup.trim()
                             )}
+                            tiers={row.promoTiers}
+                            endsInDays={row.currentPromoEndsInDays}
                           />
                         </td>
                       </tr>
@@ -1407,7 +1366,7 @@ export function StockPageClient({
                       <td className="truncate px-1 py-1.5 font-medium text-slate-900 dark:text-slate-100">
                         <div className="truncate text-xs">{row.skuCode}</div>
                         {row.barcode && (
-                          <div className="truncate font-mono text-[9px] font-normal text-slate-400 dark:text-slate-500">
+                          <div className="truncate font-mono vmi-t-xs font-normal text-slate-400 dark:text-slate-500">
                             {row.barcode}
                           </div>
                         )}
@@ -1418,7 +1377,7 @@ export function StockPageClient({
                         <div className="flex min-w-0 flex-wrap items-center gap-1 empty:hidden">
                           {row.isNew && (
                             <span
-                              className="inline-flex shrink-0 items-center gap-0.5 rounded bg-sky-100 px-1 py-0.5 text-[9px] font-bold text-sky-700 dark:bg-sky-950/50 dark:text-sky-300"
+                              className="inline-flex shrink-0 items-center gap-0.5 rounded bg-sky-100 px-1 py-0.5 vmi-t-xs font-bold text-sky-700 dark:bg-sky-950/50 dark:text-sky-300"
                               title="สินค้าใหม่ในระบบ"
                             >
                               <Sparkles className="h-2.5 w-2.5" />
@@ -1429,7 +1388,7 @@ export function StockPageClient({
                             <button
                               type="button"
                               onClick={() => unblock(row.skuId)}
-                              className="inline-flex shrink-0 items-center gap-0.5 rounded bg-red-100 px-1 py-0.5 text-[9px] font-bold text-red-700 hover:bg-red-200 dark:bg-red-950/50 dark:text-red-300"
+                              className="inline-flex shrink-0 items-center gap-0.5 rounded bg-red-100 px-1 py-0.5 vmi-t-xs font-bold text-red-700 hover:bg-red-200 dark:bg-red-950/50 dark:text-red-300"
                               title={`${formatBlockTitle(row)} — กดเพื่อยกเลิก`}
                             >
                               <Ban className="h-2.5 w-2.5" />
@@ -1441,7 +1400,7 @@ export function StockPageClient({
                           )}
                           {row.noSales30 && !row.blocked && (
                             <span
-                              className="inline-flex shrink-0 items-center gap-0.5 rounded bg-slate-200 px-1 py-0.5 text-[9px] font-semibold text-slate-500 dark:bg-slate-700 dark:text-slate-400"
+                              className="inline-flex shrink-0 items-center gap-0.5 rounded bg-slate-200 px-1 py-0.5 vmi-t-xs font-semibold text-slate-500 dark:bg-slate-700 dark:text-slate-400"
                               title="ไม่มียอดขายใน 1 เดือนที่ผ่านมา"
                             >
                               <CalendarOff className="h-2.5 w-2.5" />
@@ -1490,7 +1449,7 @@ export function StockPageClient({
                         {formatDays(row.stockCvd)}
                       </td>
                       <td
-                        className="px-1 py-1.5 text-right tabular-nums text-[11px] text-slate-500 dark:text-slate-400"
+                        className="px-1 py-1.5 text-right tabular-nums vmi-t-sm text-slate-500 dark:text-slate-400"
                         title={`เป้าหมาย CVD ${row.minDays}–${row.maxDays} วัน`}
                       >
                         {row.minDays}/{row.maxDays} วัน
@@ -1525,7 +1484,7 @@ export function StockPageClient({
                               {formatDays(cvdEst)}
                             </span>
                             {cvdReason === "minPack" ? (
-                              <span className="inline-flex items-center gap-0.5 rounded bg-slate-100 px-1 py-px text-[9px] font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                              <span className="inline-flex items-center gap-0.5 rounded bg-slate-100 px-1 py-px vmi-t-xs font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
                                 ขั้นต่ำ 1 หีบ
                               </span>
                             ) : (
@@ -1875,6 +1834,8 @@ const StockMobileRow = memo(function StockMobileRow({
             onConfirmStaged={onConfirmStaged}
             applyVersion={promoApplyVersion}
             showPromoButton={groupHasBenefit}
+            tiers={row.promoTiers}
+            endsInDays={row.currentPromoEndsInDays}
           />
         </div>
       )}
@@ -1909,7 +1870,7 @@ const StockMobileRow = memo(function StockMobileRow({
             />
           </p>
           {row.barcode && (
-            <p className="mt-0.5 font-mono text-[10px] text-slate-400 dark:text-slate-500">
+            <p className="mt-0.5 font-mono vmi-t-xs text-slate-400 dark:text-slate-500">
               {row.barcode}
             </p>
           )}
@@ -1956,7 +1917,7 @@ const StockMobileRow = memo(function StockMobileRow({
               title={cvdFlagHint(orderFlag, orderCvdReason, row)}
             >
               {orderCvdReason === "minPack" ? (
-                <span className="inline-flex items-center rounded bg-slate-100 px-1 py-px text-[9px] font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                <span className="inline-flex items-center rounded bg-slate-100 px-1 py-px vmi-t-xs font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
                   ขั้นต่ำ 1 หีบ
                 </span>
               ) : (
@@ -1964,7 +1925,7 @@ const StockMobileRow = memo(function StockMobileRow({
               )}
               <span
                 className={cn(
-                  "text-[10px] tabular-nums",
+                  "vmi-t-xs tabular-nums",
                   orderFlag === "red"
                     ? "font-semibold text-red-600 dark:text-red-400"
                     : "text-slate-500"
@@ -2096,7 +2057,7 @@ function SortableTh({
               <br />
               <span
                 className={cn(
-                  "text-[9px] font-normal",
+                  "vmi-t-xs font-normal",
                   active ? "text-teal-600/70 dark:text-teal-400/70" : "text-slate-400"
                 )}
               >
@@ -2131,77 +2092,6 @@ function formatDataDate(iso: string) {
   });
 }
 
-function StockStatCard({
-  icon,
-  label,
-  value,
-  tone = "default",
-  title,
-  onClick,
-  active = false,
-}: {
-  icon: ReactNode;
-  label: string;
-  value: string | number;
-  tone?: "default" | "amber" | "red";
-  title?: string;
-  onClick?: () => void;
-  active?: boolean;
-}) {
-  const clickable = typeof onClick === "function";
-  return (
-    <button
-      type="button"
-      title={title}
-      onClick={onClick}
-      disabled={!clickable}
-      className={cn(
-        "flex min-w-0 items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left shadow-sm transition",
-        clickable && "cursor-pointer hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-400",
-        tone === "amber"
-          ? "border-amber-200 bg-amber-50/70 dark:border-amber-500/25 dark:bg-amber-950/20"
-          : tone === "red"
-            ? "border-red-200 bg-red-50/70 dark:border-red-500/25 dark:bg-red-950/25"
-            : "border-slate-200/80 bg-white dark:border-slate-800 dark:bg-slate-900/50",
-        active && "ring-2 ring-offset-1 dark:ring-offset-slate-950",
-        active && tone === "red" && "ring-red-400",
-        active && tone === "amber" && "ring-amber-400",
-        active && tone === "default" && "ring-teal-400"
-      )}
-    >
-      <span
-        className={cn(
-          "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
-          tone === "amber"
-            ? "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300"
-            : tone === "red"
-              ? "bg-red-100 text-red-600 dark:bg-red-500/20 dark:text-red-300"
-              : "bg-teal-50 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400"
-        )}
-      >
-        {icon}
-      </span>
-      <div className="min-w-0">
-        <p className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
-          {label}
-        </p>
-        <p
-          className={cn(
-            "truncate text-base font-bold tabular-nums leading-tight",
-            tone === "amber"
-              ? "text-amber-700 dark:text-amber-300"
-              : tone === "red"
-                ? "text-red-700 dark:text-red-300"
-                : "text-slate-800 dark:text-slate-100"
-          )}
-        >
-          {value}
-        </p>
-      </div>
-    </button>
-  );
-}
-
 /** สรุปการสั่งล่าสุดต่อ SKU จาก /api/store/order-history?summary=1 */
 type RecentOrderSummary = {
   totalQty: number;
@@ -2222,7 +2112,7 @@ function OrderedBadge({ info }: { info: RecentOrderSummary }) {
   return (
     <span
       className={cn(
-        "inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[9px] font-bold",
+        "inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 vmi-t-xs font-bold",
         pending
           ? "bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-200"
           : "bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300"

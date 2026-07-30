@@ -145,6 +145,17 @@ async function discoverFile(spec: RefreshSpec, token: string): Promise<string | 
   return chosen.fpath;
 }
 
+/** error ที่พา HTTP status มาด้วย เพื่อแยก "ยังไม่มีไฟล์ต้นทาง" (404) ออกจากปัญหาสิทธิ์ */
+class DownloadError extends Error {
+  constructor(
+    message: string,
+    readonly status: number
+  ) {
+    super(message);
+    this.name = "DownloadError";
+  }
+}
+
 async function downloadFile(url: string, token: string, dest: string): Promise<number> {
   const res = await fetch(url, {
     headers: {
@@ -154,7 +165,10 @@ async function downloadFile(url: string, token: string, dest: string): Promise<n
   });
 
   if (!res.ok) {
-    throw new Error(`Download failed (${res.status}): ${await res.text()}`);
+    throw new DownloadError(
+      `Download failed (${res.status}): ${await res.text()}`,
+      res.status
+    );
   }
 
   const buf = Buffer.from(await res.arrayBuffer());
@@ -162,13 +176,62 @@ async function downloadFile(url: string, token: string, dest: string): Promise<n
   return buf.length;
 }
 
+/**
+ * ผลการดึงไฟล์เดียว — เดิม refreshOne คืน boolean เปล่า ทำให้จำนวนแถว/ขนาด/
+ * ข้อความ error ที่คำนวณได้อยู่แล้วถูก console.info แล้วทิ้ง หน้าแอดมินจึงบอกได้แค่
+ * ✓/✗ ต่อชุดข้อมูล ค่าทุกตัวในนี้มีอยู่แล้วในฟังก์ชัน แค่ไม่เคยถูกส่งออกมา
+ */
+export interface DatasetRefreshResult {
+  name: string;
+  ok: boolean;
+  /** ไม่มี spec (env ไม่ได้ตั้ง) — ต่างจาก ok:false ที่คือพยายามแล้วล้มเหลว */
+  skipped: boolean;
+  rows: number | null;
+  bytes: number | null;
+  mtime: string | null;
+  durationMs: number;
+  error: string | null;
+  remotePath: string | null;
+  localPath: string;
+  minRows: number;
+}
+
+function emptyResult(
+  name: string,
+  localPath: string,
+  minRows: number,
+  patch: Partial<DatasetRefreshResult> = {}
+): DatasetRefreshResult {
+  return {
+    name,
+    ok: false,
+    skipped: false,
+    rows: null,
+    bytes: null,
+    mtime: null,
+    durationMs: 0,
+    error: null,
+    remotePath: null,
+    localPath,
+    minRows,
+    ...patch,
+  };
+}
+
 export async function refreshOne(
   spec: RefreshSpec | null,
   options: RefreshOptions = {}
-): Promise<boolean> {
+): Promise<DatasetRefreshResult> {
   if (!spec) {
-    return false;
+    return emptyResult("unknown", "", 0, { skipped: true, error: "not_configured" });
   }
+
+  const startedAt = Date.now();
+  const fail = (patch: Partial<DatasetRefreshResult>): DatasetRefreshResult =>
+    emptyResult(spec.name, spec.localPath, spec.minRows, {
+      durationMs: Date.now() - startedAt,
+      ...patch,
+    });
 
   let token: string;
   try {
@@ -178,14 +241,14 @@ export async function refreshOne(
     );
   } catch (err) {
     console.error(`[${spec.name}] Token error:`, err);
-    return false;
+    return fail({ error: `token: ${errText(err)}` });
   }
 
   let remotePath = spec.onelakePath;
   if (!remotePath && spec.onelakeDir) {
     remotePath = (await discoverFile(spec, token)) ?? undefined;
   }
-  if (!remotePath) return false;
+  if (!remotePath) return fail({ error: "no_remote_match" });
 
   const url = `${ONELAKE_HOST}/${spec.workspaceId}/${spec.onelakeItemId}/${remotePath}`;
   const tmp = `${spec.localPath}.tmp`;
@@ -204,17 +267,59 @@ export async function refreshOne(
     if (missing.length > 0) {
       console.error(`[${spec.name}] Validation failed: ${missing.join(", ")}`);
       fs.unlinkSync(tmp);
-      return false;
+      // validateCsvColumns ปนสองเรื่องใน missing[]: คอลัมน์ที่หาย และ
+      // ข้อความ "too_few_rows (…)" เมื่อแถวไม่ถึงขั้นต่ำ — แยกให้หน้าแอดมินอ่านง่าย
+      const cols = missing.filter((m) => !m.startsWith("too_few_rows"));
+      return fail({
+        rows: rowCount,
+        bytes: size,
+        remotePath,
+        error:
+          cols.length > 0
+            ? `validation: ${cols.join(", ")}`
+            : `too_few_rows (got ${rowCount}, need ≥${spec.minRows})`,
+        skipped: false,
+      });
     }
 
     fs.renameSync(tmp, spec.localPath);
     console.info(`[${spec.name}] OK — ${rowCount} rows → ${spec.localPath}`);
-    return true;
+    return {
+      name: spec.name,
+      ok: true,
+      skipped: false,
+      rows: rowCount,
+      bytes: size,
+      mtime: fs.statSync(spec.localPath).mtime.toISOString(),
+      durationMs: Date.now() - startedAt,
+      error: null,
+      remotePath,
+      localPath: spec.localPath,
+      minRows: spec.minRows,
+    };
   } catch (err) {
     console.error(`[${spec.name}] Refresh failed:`, err);
     if (fs.existsSync(tmp)) fs.unlinkSync(tmp);
-    return false;
+    if (err instanceof DownloadError && err.status === 404) {
+      // ยังไม่ได้ export ตารางนี้ออกมาที่ OneLake — ต่างจาก credential/สิทธิ์พัง
+      // (เคสจริง: vda*_aos_bill ที่ยังใช้ VDA_CUSTOMER_MAP/VDA_SALESMAN_MAP แทน)
+      return fail({
+        remotePath,
+        skipped: true,
+        error: `no_remote_file: ยังไม่มี ${remotePath} ใน OneLake`,
+      });
+    }
+    if (err instanceof DownloadError && (err.status === 401 || err.status === 403)) {
+      return fail({ remotePath, error: `forbidden (${err.status}) — ตรวจสิทธิ์ SP` });
+    }
+    return fail({ remotePath, error: errText(err) });
   }
+}
+
+function errText(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  // ข้อความจาก OneLake มี body ทั้งก้อน — ตัดให้พอเห็นสาเหตุแต่ไม่ท่วมไฟล์ status
+  return msg.replace(/\s+/g, " ").trim().slice(0, 300);
 }
 
 function fixedOrAuto(envKey: string, scanDir: string): { onelakePath?: string; onelakeDir?: string } {
@@ -375,25 +480,34 @@ export function buildVdaAosSpec(
   };
 }
 
-export function bootstrapIfMissing(spec: RefreshSpec | null): Promise<boolean> {
-  if (!spec) return Promise.resolve(false);
+export async function bootstrapIfMissing(
+  spec: RefreshSpec | null
+): Promise<DatasetRefreshResult | null> {
+  if (!spec) return null;
   if (fs.existsSync(spec.localPath) && fs.statSync(spec.localPath).size > 100) {
-    return Promise.resolve(false);
+    return null;
   }
   console.info(`[${spec.name}] Local file missing — bootstrap from OneLake`);
   return refreshOne(spec);
 }
 
-export async function refreshAllMasters(
-  options: RefreshOptions = {}
-): Promise<{
+export interface RefreshAllResult {
   customer: boolean;
   salesman: boolean;
   stockCover: boolean;
   promotion: boolean;
   skuMaster: boolean;
   vdaAos: boolean;
-}> {
+  /** เดิมผลของ factsales_odoo ถูกทิ้งเงียบ ๆ ไม่ถึงไฟล์ status เลย */
+  soldHistory: boolean;
+  /** ผลละเอียดต่อชุดข้อมูล — ใช้เขียน status รายตารางและแสดงในหน้าแอดมิน */
+  datasets: DatasetRefreshResult[];
+}
+
+export async function refreshAllMasters(
+  options: RefreshOptions = {},
+  only?: ReadonlySet<string>
+): Promise<RefreshAllResult> {
   const {
     getCustomerCsvPath,
     getSalesmanCsvPath,
@@ -403,54 +517,64 @@ export async function refreshAllMasters(
     getSoldHistoryCsvPath,
   } = await import("./paths");
 
-  let customer = false;
-  let salesman = false;
-  let promotion = false;
-  let skuMaster = false;
-  const customerSpec = buildCustomerSpec(getCustomerCsvPath());
-  const salesmanSpec = buildSalesmanSpec(getSalesmanCsvPath());
-  const promotionSpec = buildPromotionCreditSpec(getPromotionCsvPath());
-  const skuSpec = buildSkuMasterSpec(getSkuMasterCsvPath());
-  if (customerSpec) {
-    customer = await refreshOne(customerSpec, options);
-  }
-  if (salesmanSpec) {
-    salesman = await refreshOne(salesmanSpec, options);
-  }
-  if (promotionSpec) {
-    promotion = await refreshOne(promotionSpec, options);
-  }
-  if (skuSpec) {
-    skuMaster = await refreshOne(skuSpec, options);
-  }
+  const datasets: DatasetRefreshResult[] = [];
+  /** only = undefined คือทำทุกชุด (ปุ่ม "ดึงใหม่ทั้งหมด" และ scheduler) */
+  const wanted = (name: string) => !only || only.has(name);
 
-  // ประวัติยอดขายรายวัน (ไม่บล็อก master อื่น ถ้า config/ไฟล์ไม่พร้อม)
-  const soldHistorySpec = buildSoldHistorySpec(getSoldHistoryCsvPath());
-  if (soldHistorySpec) {
+  async function run(spec: RefreshSpec | null): Promise<boolean> {
+    if (!spec || !wanted(spec.name)) return false;
     try {
-      await refreshOne(soldHistorySpec, options);
+      const res = await refreshOne(spec, options);
+      datasets.push(res);
+      return res.ok;
     } catch (err) {
-      console.warn("[factsales_odoo] refresh failed:", err);
+      // refreshOne จับ error เองเกือบทุกเส้น — กันเผื่อ token provider โยนแบบ sync
+      console.warn(`[${spec.name}] refresh threw:`, err);
+      datasets.push(
+        emptyResult(spec.name, spec.localPath, spec.minRows, {
+          error: errText(err),
+        })
+      );
+      return false;
     }
   }
 
+  const customer = await run(buildCustomerSpec(getCustomerCsvPath()));
+  const salesman = await run(buildSalesmanSpec(getSalesmanCsvPath()));
+  const promotion = await run(buildPromotionCreditSpec(getPromotionCsvPath()));
+  const skuMaster = await run(buildSkuMasterSpec(getSkuMasterCsvPath()));
+  // ประวัติยอดขายรายวัน (ไม่บล็อก master อื่น ถ้า config/ไฟล์ไม่พร้อม)
+  const soldHistory = await run(buildSoldHistorySpec(getSoldHistoryCsvPath()));
+
   let stockCover = false;
-  let vdaAos = false;
   if (fabricStockEnabled()) {
     const stockSpec = buildStockCoverSpec(getStockCoverCsvPath());
-    if (stockSpec) {
-      stockCover = await refreshOne(stockSpec, options);
-    } else {
+    if (!stockSpec) {
       console.warn(
         "[stock_cover_day] USE_FABRIC_STOCK enabled but STOCK_ONELAKE_WORKSPACE_ID / ONELAKE_WAREHOUSE_ID not set — skip"
       );
     }
+    stockCover = await run(stockSpec);
   }
 
-  const { syncVdaAosBills } = await import("./sync-vda-aos-bills");
-  vdaAos = await syncVdaAosBills(options);
+  let vdaAos = false;
+  if (!only || [...only].some((n) => n.endsWith("_aos_bill"))) {
+    const { syncVdaAosBills } = await import("./sync-vda-aos-bills");
+    const vda = await syncVdaAosBills(options, only);
+    vdaAos = vda.any;
+    datasets.push(...vda.results);
+  }
 
-  return { customer, salesman, stockCover, promotion, skuMaster, vdaAos };
+  return {
+    customer,
+    salesman,
+    stockCover,
+    promotion,
+    skuMaster,
+    vdaAos,
+    soldHistory,
+    datasets,
+  };
 }
 
 export function localFileStats(filePath: string) {

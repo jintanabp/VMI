@@ -536,15 +536,25 @@ body {
 }
 
 @media (max-width: 1023px) {
-  .vmi-stock-page,
+  /* หน้า stock ไม่มีแถบการ์ดสรุปแล้ว (ย้ายไปเป็นบรรทัดเดียวใน toolbar)
+     toolbar จึงเป็น sticky ตัวเดียว — เดิมตั้ง top เผื่อความสูง stats
+     ที่ประกาศไว้ 2.5rem แต่ของจริง ~190px และ z-index 24 ยังต่ำกว่า stats (25)
+     ทำให้ stats ทับ toolbar และ max-height ของตารางหักไม่พอไป ~150px */
+  .vmi-stock-page {
+    --vmi-customer-sticky-top: 2.75rem;
+    /* เผื่อกรณี toolbar 3 แถว (มีแถบข้อความสถานะ) */
+    --vmi-customer-toolbar-height: 6.75rem;
+    --vmi-customer-action-height: calc(3.5rem + env(safe-area-inset-bottom, 0px));
+  }
+
   .vmi-order-page {
     --vmi-customer-sticky-top: 2.75rem;
-    --vmi-customer-stats-height: 2.5rem;
+    /* ค่าจริงของกริดการ์ด 2 คอลัมน์ — เดิมประกาศ 2.5rem ซึ่งไม่ตรงความจริง */
+    --vmi-customer-stats-height: 12rem;
     --vmi-customer-toolbar-height: 3.75rem;
     --vmi-customer-action-height: calc(3.5rem + env(safe-area-inset-bottom, 0px));
   }
 
-  .vmi-stock-stats,
   .vmi-order-stats {
     position: sticky;
     top: var(--vmi-customer-sticky-top);
@@ -555,18 +565,30 @@ body {
     backdrop-filter: blur(8px);
   }
 
-  .dark .vmi-stock-stats,
   .dark .vmi-order-stats {
     background: rgb(15 23 42 / 0.95);
   }
 
   .vmi-stock-page .vmi-stock-toolbar {
     position: sticky;
-    top: calc(var(--vmi-customer-sticky-top) + var(--vmi-customer-stats-height));
-    z-index: 24;
+    top: var(--vmi-customer-sticky-top);
+    /* ต้องสูงกว่าทุกอย่างในสายเนื้อหา — .vmi-stock-toolbar มี background ทึบอยู่แล้ว */
+    z-index: 30;
   }
 
-  .vmi-stock-table-scroll,
+  .vmi-stock-table-scroll {
+    max-height: min(
+      74dvh,
+      calc(
+        100dvh - var(--vmi-customer-sticky-top) -
+          var(--vmi-customer-toolbar-height) - var(--vmi-customer-action-height) - 1rem
+      )
+    );
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
+
   .vmi-order-page .vmi-order-list-scroll,
   .vmi-sales-orders-page .vmi-sales-review-scroll {
     max-height: min(
@@ -657,8 +679,36 @@ body {
   }
 }
 
+/* ขนาดตัวอักษร/ระยะห่างของตารางข้อมูล คุมด้วย CSS variable จุดเดียว
+   เพื่อให้คอมโพเนนต์ลูก (badge, promo cell, mobile row) ที่เคยฮาร์ดโค้ด
+   text-[9px]/[10px] ไว้ ขยับตามได้พร้อมกันทั้งตาราง
+
+   ตั้งค่าเดียวที่อ่านสบายบนทุกจอ — ไม่มีปุ่มให้ผู้ใช้เลือก
+   (13.5px สำหรับเนื้อตาราง เทียบกับเดิมที่บังคับเหลือ 11px ต่ำกว่า 1280px) */
+:root {
+  --vmi-row-fs: 0.84375rem;
+  --vmi-row-fs-sm: 0.78125rem;
+  --vmi-row-fs-xs: 0.71875rem;
+  --vmi-head-fs: 0.78125rem;
+  --vmi-row-py: 0.375rem;
+  --vmi-row-h: 48px;
+}
+
+.vmi-t-sm {
+  font-size: var(--vmi-row-fs-sm);
+}
+
+.vmi-t-xs {
+  font-size: var(--vmi-row-fs-xs);
+}
+
 .vmi-data-table {
-  font-size: 0.8125rem;
+  font-size: var(--vmi-row-fs);
+}
+
+.vmi-data-table th,
+.vmi-data-table td {
+  padding-block: var(--vmi-row-py);
 }
 
 .vmi-stock-fit-table {
@@ -696,7 +746,7 @@ body {
 }
 
 .vmi-data-table thead {
-  font-size: 0.75rem;
+  font-size: var(--vmi-head-fs);
   font-weight: 500;
   letter-spacing: normal;
   text-transform: none;
@@ -712,7 +762,8 @@ body {
   .vmi-stock-page,
   .vmi-order-page,
   .vmi-sales-orders-page {
-    font-size: 0.8125rem;
+    /* เดิม 0.8125rem — ย่อทั้งหน้าจนอ่านยากบน iPad ซึ่งเป็นเครื่องที่ใช้งานจริง */
+    font-size: 0.875rem;
     line-height: 1.4;
   }
 
@@ -723,27 +774,23 @@ body {
     line-height: 1.2rem;
   }
 
-  .vmi-data-table {
-    font-size: 0.6875rem;
-  }
-
-  .vmi-data-table thead {
-    font-size: 0.625rem;
-    letter-spacing: 0.03em;
-  }
-
-  .vmi-data-table th,
-  .vmi-data-table td {
-    padding-top: 0.375rem;
-    padding-bottom: 0.375rem;
+  /* เดิมบล็อกนี้ฮาร์ดโค้ด .vmi-data-table เหลือ 0.6875rem (11px) และ thead 10px
+     ซึ่งชนะ :root variable เพราะมาทีหลัง — เป็นต้นเหตุจริงของ "ตัวอักษรเล็กมาก"
+     ตอนนี้เลื่อนแค่ token เล็กน้อย ไม่ย่อจนอ่านไม่ออก */
+  .vmi-stock-main {
+    --vmi-row-fs: 0.8125rem;
+    --vmi-row-fs-sm: 0.75rem;
+    --vmi-row-fs-xs: 0.6875rem;
+    --vmi-head-fs: 0.75rem;
+    --vmi-row-h: 46px;
   }
 
   .vmi-sales-orders-page table {
-    font-size: 0.6875rem;
+    font-size: 0.78125rem;
   }
 
   .vmi-sales-orders-page table thead {
-    font-size: 0.625rem;
+    font-size: 0.6875rem;
   }
 
   .vmi-stock-toolbar {

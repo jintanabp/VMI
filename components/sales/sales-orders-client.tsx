@@ -13,10 +13,17 @@ import { StatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SalesRepFilter } from "@/components/sales/sales-rep-filter";
 import {
+  PoSplitPanel,
+  poSplitCount,
+  poSplitIssues,
+} from "@/components/sales/po-split-panel";
+import { RejectOrderModal } from "@/components/sales/reject-order-modal";
+import {
   OrderReviewTable,
   type ReviewOrderItem,
 } from "@/components/sales/order-review-table";
 import { formatStoreLabel } from "@/lib/format-store-label";
+import { getCvdFlag } from "@/lib/calculations";
 
 // ใช้ type เดียวกับตารางรีวิว เพื่อไม่ให้ฟิลด์สองที่หลุดกัน
 type OrderItem = ReviewOrderItem;
@@ -55,6 +62,13 @@ export function SalesOrdersClient() {
   const [codeError, setCodeError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [allPersonVdas, setAllPersonVdas] = useState(false);
+  /** รายการที่ติ๊กไว้เพื่อย้ายกลุ่ม PO (ล้างเมื่อเปลี่ยนออเดอร์) */
+  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
+  const [rejectOpen, setRejectOpen] = useState(false);
+  /** เลข PO ที่ออกหลังอนุมัติ — เดิม route คืน poExportPath มาแล้วถูกทิ้ง */
+  const [issuedPos, setIssuedPos] = useState<
+    { poNumber: string; label: string; itemCount: number; totalQty: number }[]
+  >([]);
 
   const { data: vdaAccess } = useQuery<{
     hasVdaAccess: boolean;
@@ -153,8 +167,14 @@ export function SalesOrdersClient() {
     if (allPersonVdas) params.set("allPersonVdas", "true");
     else if (vdaFilter) params.set("vdaCode", vdaFilter);
     const qs = params.toString();
-    return `/api/orders${qs ? `?${qs}` : ""}`;
+    // ต้องผ่าน appPath() เพราะแอปเสิร์ฟใต้ basePath /vmi — ยิงตรงจะได้ 404
+    return `${appPath("/api/orders")}${qs ? `?${qs}` : ""}`;
   }, [statusFilter, salesRepFilter, vdaFilter, allPersonVdas, isAdmin]);
+
+  // isAdmin อยู่ใน queryKey และมาจาก session แบบ async — ถ้าไม่รอ session
+  // จะยิงสองครั้งทุกครั้งที่ mount (ครั้งแรก isAdmin=false แล้วยิงซ้ำเมื่อ session มา)
+  const ordersReady =
+    !!session && (session.role === "admin" || vdaAccess !== undefined);
 
   const {
     data: orders = [],
@@ -163,12 +183,20 @@ export function SalesOrdersClient() {
     refetch,
   } = useQuery<Order[]>({
     queryKey: ["orders", statusFilter, salesRepFilter, vdaFilter, allPersonVdas, isAdmin],
+    enabled: ordersReady,
     queryFn: async () => {
       const res = await fetch(ordersUrl);
       if (!res.ok) throw new Error(`โหลดออเดอร์ไม่สำเร็จ (${res.status})`);
-      return (await res.json()) as Order[];
+      // เส้น 401 คืน { error } ซึ่งเป็น object — ถ้าหลุดมาโดย res.ok
+      // จะระเบิดที่ sorted.map ทีหลัง กันไว้แบบเดียวกับ sales-nav.tsx
+      const raw: unknown = await res.json();
+      return Array.isArray(raw) ? (raw as Order[]) : [];
     },
   });
+
+  // query ที่ disabled จะรายงาน isLoading = false — ถ้าใช้ค่านั้นตรง ๆ
+  // จะโชว์ "ไม่มีออเดอร์" แวบหนึ่งก่อน session มาถึง
+  const showLoading = !ordersReady || isLoading;
 
   const sorted = useMemo(() => {
     const copy = [...orders];
@@ -185,11 +213,29 @@ export function SalesOrdersClient() {
 
   const selected = sorted.find((o) => o.id === selectedId) ?? sorted[0];
 
+  // สลับออเดอร์แล้วต้องล้างการติ๊ก ไม่งั้น id ของใบเก่าจะค้างไปย้ายกลุ่มในใบใหม่
+  useEffect(() => {
+    setSelectedItemIds(new Set());
+    setIssuedPos([]);
+  }, [selected?.id]);
+
+  function toggleItemSelect(itemId: string) {
+    setSelectedItemIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  }
+
   const actionMutation = useMutation({
     mutationFn: async (payload: {
       orderId: string;
       action: string;
       reason?: string;
+      itemId?: string;
+      unitPriceOverride?: number | null;
+      assignments?: { itemId: string; poGroup: string }[];
     }) => {
       const res = await fetch(appPath("/api/orders"), {
         method: "PATCH",
@@ -200,17 +246,25 @@ export function SalesOrdersClient() {
         const data = (await res.json().catch(() => null)) as {
           error?: unknown;
         } | null;
+        const issues = (data as { issues?: unknown } | null)?.issues;
+        const detail = Array.isArray(issues) ? ` — ${issues.join(" · ")}` : "";
         throw new Error(
-          typeof data?.error === "string"
+          (typeof data?.error === "string"
             ? data.error
-            : `ดำเนินการไม่สำเร็จ (${res.status})`
+            : `ดำเนินการไม่สำเร็จ (${res.status})`) + detail
         );
       }
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       setActionError(null);
+      // เลข PO ที่ออกจริง — โชว์ให้พนักงานเห็นแทนการทิ้งไป
+      const pos = (data as { purchaseOrders?: typeof issuedPos } | null)
+        ?.purchaseOrders;
+      if (Array.isArray(pos)) setIssuedPos(pos);
+      setSelectedItemIds(new Set());
       queryClient.invalidateQueries({ queryKey: ["orders"] });
+      queryClient.invalidateQueries({ queryKey: ["sales-pending-count"] });
     },
     onError: (err) => {
       setActionError(
@@ -367,7 +421,7 @@ export function SalesOrdersClient() {
           </div>
 
           <div className="vmi-sales-orders-sidebar-scroll mt-3 space-y-2">
-            {isLoading && (
+            {showLoading && (
               <p className="text-sm text-slate-500 dark:text-slate-400">กำลังโหลด...</p>
             )}
             {isError && (
@@ -382,7 +436,7 @@ export function SalesOrdersClient() {
                 </button>
               </div>
             )}
-            {!isLoading && !isError && sorted.length === 0 && (
+            {!showLoading && !isError && sorted.length === 0 && (
               <div className="rounded-xl border border-dashed border-slate-200 px-4 py-8 text-center dark:border-slate-700">
                 <p className="text-sm font-medium text-slate-600 dark:text-slate-400">
                   {noVdaAccess
@@ -477,9 +531,66 @@ export function SalesOrdersClient() {
                 </div>
               )}
 
+              {selected.status === "pending_approval" && (
+                <div className="mb-2 shrink-0">
+                  <PoSplitPanel
+                    items={selected.items}
+                    selectedIds={selectedItemIds}
+                    pending={actionMutation.isPending}
+                    onAssign={(groupKey, itemIds) =>
+                      actionMutation.mutate({
+                        orderId: selected.id,
+                        action: "assignPoGroup",
+                        assignments: itemIds.map((itemId) => ({
+                          itemId,
+                          poGroup: groupKey,
+                        })),
+                      })
+                    }
+                  />
+                </div>
+              )}
+
+              {issuedPos.length > 0 && (
+                <div className="mb-2 shrink-0 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-900/60 dark:bg-emerald-950/30">
+                  <p className="text-xs font-bold text-emerald-800 dark:text-emerald-300">
+                    ออก PO แล้ว {issuedPos.length} ใบ
+                  </p>
+                  <ul className="mt-1 space-y-0.5">
+                    {issuedPos.map((po) => (
+                      <li
+                        key={po.poNumber}
+                        className="text-[11px] tabular-nums text-emerald-800 dark:text-emerald-300"
+                      >
+                        <span className="font-mono font-bold">{po.poNumber}</span>{" "}
+                        · {po.label} · {po.itemCount} รายการ · {po.totalQty} หีบ
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               <OrderReviewTable
                 storeCode={selected.store.code}
                 items={selected.items}
+                showPoGroups={selected.status === "pending_approval"}
+                selectedIds={selectedItemIds}
+                onToggleSelect={
+                  selected.status === "pending_approval"
+                    ? toggleItemSelect
+                    : undefined
+                }
+                onPriceChange={
+                  selected.status === "pending_approval"
+                    ? (itemId, unitPriceOverride) =>
+                        actionMutation.mutate({
+                          orderId: selected.id,
+                          action: "updatePrice",
+                          itemId,
+                          unitPriceOverride,
+                        })
+                    : undefined
+                }
               />
 
               {selected.status === "pending_approval" && actionError && (
@@ -500,17 +611,7 @@ export function SalesOrdersClient() {
                       variant="destructive"
                       className="max-xl:flex-1"
                       disabled={actionMutation.isPending}
-                      onClick={() => {
-                        if (actionMutation.isPending) return;
-                        const reason = prompt("เหตุผลในการปฏิเสธ (ถ้ามี)");
-                        // กด Cancel = ไม่ปฏิเสธ (เดิมยิง PATCH ทันที)
-                        if (reason === null) return;
-                        actionMutation.mutate({
-                          orderId: selected.id,
-                          action: "reject",
-                          reason: reason || undefined,
-                        });
-                      }}
+                      onClick={() => setRejectOpen(true)}
                     >
                       ปฏิเสธ
                     </Button>
@@ -523,19 +624,54 @@ export function SalesOrdersClient() {
                           action: "approve",
                         })
                       }
-                      disabled={actionMutation.isPending}
+                      // กั้นจากฝั่ง client ด้วย — เซิร์ฟเวอร์ยังตรวจซ้ำเสมอ
+                      disabled={
+                        actionMutation.isPending ||
+                        poSplitIssues(selected.items).length > 0
+                      }
                     >
-                      อนุมัติ → ส่ง PO
+                      {poSplitCount(selected.items) > 1
+                        ? `อนุมัติ → ออก ${poSplitCount(selected.items)} PO`
+                        : "อนุมัติ → ออก PO"}
                     </Button>
                   </div>
                 </>
               )}
 
-              {selected.status === "approved" && (
+              {selected.status === "approved" && issuedPos.length === 0 && (
                 <p className="mt-4 text-sm text-green-700 dark:text-green-400">
-                  อนุมัติแล้ว — ส่งไป PO (stub) เรียบร้อย
+                  อนุมัติแล้ว — ออก PO เรียบร้อย
                 </p>
               )}
+
+              <RejectOrderModal
+                open={rejectOpen}
+                storeLabel={formatStoreLabel(
+                  selected.store.code,
+                  selected.store.name
+                )}
+                itemCount={selected.items.length}
+                redFlagCount={
+                  selected.items.filter(
+                    (i) =>
+                      getCvdFlag(
+                        i.cvdEstimate,
+                        i.minDays ?? undefined,
+                        i.maxDays ?? undefined
+                      ) === "red"
+                  ).length
+                }
+                pending={actionMutation.isPending}
+                onClose={() => setRejectOpen(false)}
+                onConfirm={(reason) => {
+                  setRejectOpen(false);
+                  actionMutation.mutate({
+                    orderId: selected.id,
+                    action: "reject",
+                    reason: reason || undefined,
+                  });
+                }}
+              />
 
               {selected.status === "rejected" && selected.rejectReason && (
                 <p className="mt-4 text-sm text-red-600 dark:text-red-400">

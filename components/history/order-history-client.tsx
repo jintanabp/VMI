@@ -275,6 +275,20 @@ export function OrderHistoryClient({
                       )}
                     </MobileRowStats>
 
+                    {order.poNumbers && order.poNumbers.length > 0 && (
+                      <p className="mt-1 flex flex-wrap items-center gap-1 pl-6 text-[11px] text-slate-500 dark:text-slate-400">
+                        เลข PO:
+                        {order.poNumbers.map((po) => (
+                          <span
+                            key={po}
+                            className="rounded bg-emerald-100 px-1.5 py-0.5 font-mono font-bold text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300"
+                          >
+                            {po}
+                          </span>
+                        ))}
+                      </p>
+                    )}
+
                     {order.rejectReason && (
                       <p className="mt-1 pl-6 text-[11px] text-red-600 dark:text-red-400">
                         เหตุผลที่ปฏิเสธ: {order.rejectReason}

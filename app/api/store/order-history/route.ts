@@ -33,6 +33,8 @@ export interface OrderHistoryEntry {
   itemCount: number;
   /** จำนวนหีบรวมของออเดอร์ (finalQty) */
   totalQty: number;
+  /** เลข PO ที่ออกให้ออเดอร์นี้ — ร้านใช้อ้างอิงเวลาตามของ (1 ออเดอร์อาจได้หลาย PO) */
+  poNumbers: string[];
   items: OrderHistoryItem[];
 }
 
@@ -72,7 +74,10 @@ export async function GET(request: Request) {
 
   const orders = await prisma.order.findMany({
     where,
-    include: { items: { include: { sku: true } } },
+    include: {
+      items: { include: { sku: true } },
+      purchaseOrders: { select: { poNumber: true } },
+    },
     orderBy: { createdAt: "desc" },
     take: summary ? undefined : MAX_ORDERS,
   });
@@ -113,6 +118,9 @@ export async function GET(request: Request) {
     rejectReason: order.rejectReason,
     itemCount: order.items.length,
     totalQty: order.items.reduce((s, i) => s + i.finalQty, 0),
+    poNumbers: (order.purchaseOrders ?? [])
+      .map((po) => po.poNumber)
+      .sort((a, b) => a.localeCompare(b)),
     items: order.items.map((i) => ({
       skuId: i.skuId,
       skuCode: i.sku.code,

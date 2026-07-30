@@ -121,26 +121,53 @@ export interface OrderItemInput {
   priceFlagReason?: string | null;
 }
 
+/** กลุ่ม PO ที่พร้อมบันทึกตอนอนุมัติ */
+export interface PurchaseOrderInput {
+  groupKey: string;
+  poNumber: string;
+  priceKind: string;
+  itemIds: string[];
+  totalQty: number;
+  totalAmount: number;
+  exportPath?: string | null;
+  issuedBy?: string;
+}
+
 export interface OrderRepository {
   createOrder(storeId: string, items: OrderItemInput[]): Promise<{ id: string }>;
   listOrders(filters?: {
     salesRepEmail?: string;
     salesRepEmails?: string[];
     salesRepId?: string;
-    salesmanCodes?: string[];
     vdaCodes?: string[];
     storeCode?: string;
     status?: string;
     storeId?: string;
   }): Promise<unknown[]>;
   getOrderById(id: string): Promise<unknown | null>;
-  approveOrder(id: string): Promise<unknown>;
-  rejectOrder(id: string, reason?: string): Promise<unknown>;
+  approveOrder(id: string, actorEmail?: string): Promise<unknown>;
+  rejectOrder(id: string, reason?: string, actorEmail?: string): Promise<unknown>;
   updateOrderItemQty(
     orderId: string,
     itemId: string,
     finalQty: number
   ): Promise<void>;
+  /** ราคาที่พนักงานตั้ง — flag คำนวณใหม่ฝั่งเซิร์ฟเวอร์ ไม่รับจาก client */
+  updateOrderItemPrice(
+    orderId: string,
+    itemId: string,
+    override: number | null,
+    actorEmail: string
+  ): Promise<void>;
+  assignPoGroups(
+    orderId: string,
+    assignments: { itemId: string; poGroup: string }[]
+  ): Promise<void>;
+  createPurchaseOrders(
+    orderId: string,
+    groups: PurchaseOrderInput[]
+  ): Promise<void>;
+  listPurchaseOrders(orderId: string): Promise<unknown[]>;
 }
 
 export interface DataProvider {

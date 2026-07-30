@@ -1,35 +1,24 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { prisma } from "@/lib/prisma";
 import { getStoreSession } from "@/lib/auth/store-session";
-import { bumpStoreDataVersion } from "@/lib/fabric/data-version";
 import { CUSTOMER_STORE_COOKIE } from "@/lib/auth/roles";
+import {
+  listBlocks,
+  removeBlocks,
+  upsertBlocks,
+} from "@/lib/stock/blocklist-service";
 
 async function resolveStore(): Promise<{
   storeId: string | null;
   email: string;
-  canManage: boolean;
 }> {
   const session = await getStoreSession();
   if (session) {
-    return {
-      storeId: session.storeId,
-      email: session.email,
-      canManage: session.canManageMinMax,
-    };
+    return { storeId: session.storeId, email: session.email };
   }
   const cookieStore = await cookies();
   const storeId = cookieStore.get(CUSTOMER_STORE_COOKIE)?.value ?? null;
-  return { storeId, email: "", canManage: false };
-}
-
-function parseSkuIds(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return [
-    ...new Set(
-      value.map((v) => String(v).trim()).filter((v) => v.length > 0)
-    ),
-  ];
+  return { storeId, email: "" };
 }
 
 export async function GET() {
@@ -37,25 +26,7 @@ export async function GET() {
   if (!storeId) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-
-  const blocks = await prisma.storeSkuBlock.findMany({
-    where: { storeId },
-    include: { sku: { select: { code: true, name: true } } },
-    orderBy: { createdAt: "desc" },
-  });
-
-  return NextResponse.json({
-    blocks: blocks.map((b) => ({
-      skuId: b.skuId,
-      skuCode: b.sku.code,
-      skuName: b.sku.name,
-      reason: b.reason,
-      effectiveFrom: b.effectiveFrom.toISOString(),
-      // null = หยุดถาวร
-      effectiveTo: b.effectiveTo?.toISOString() ?? null,
-      createdAt: b.createdAt.toISOString(),
-    })),
-  });
+  return NextResponse.json({ blocks: await listBlocks(storeId) });
 }
 
 export async function POST(request: Request) {
@@ -64,78 +35,9 @@ export async function POST(request: Request) {
   if (!storeId) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-
   const body = await request.json().catch(() => ({}));
-  const skuIds = parseSkuIds(body.skuIds);
-  const reason = String(body.reason ?? "").trim();
-
-  if (skuIds.length === 0) {
-    return NextResponse.json(
-      { error: "ต้องเลือกอย่างน้อย 1 สินค้า" },
-      { status: 400 }
-    );
-  }
-  if (!reason) {
-    return NextResponse.json({ error: "ต้องระบุเหตุผล" }, { status: 400 });
-  }
-
-  const parsed = body.effectiveFrom ? new Date(body.effectiveFrom) : new Date();
-  const effectiveFrom = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
-
-  // permanent = true หรือไม่ระบุวันสิ้นสุด → หยุดถาวร (effectiveTo = null)
-  let effectiveTo: Date | null = null;
-  if (body.permanent !== true && body.effectiveTo) {
-    const to = new Date(body.effectiveTo);
-    if (Number.isNaN(to.getTime())) {
-      return NextResponse.json(
-        { error: "วันที่สิ้นสุดไม่ถูกต้อง" },
-        { status: 400 }
-      );
-    }
-    if (to <= effectiveFrom) {
-      return NextResponse.json(
-        { error: "วันที่สิ้นสุดต้องอยู่หลังวันที่เริ่ม" },
-        { status: 400 }
-      );
-    }
-    effectiveTo = to;
-  }
-
-  // กัน skuId ที่ไม่มีจริง (FK) — เฉพาะที่มีในตาราง Sku
-  const existing = await prisma.sku.findMany({
-    where: { id: { in: skuIds } },
-    select: { id: true },
-  });
-  const validIds = existing.map((s) => s.id);
-  if (validIds.length === 0) {
-    return NextResponse.json({ error: "ไม่พบสินค้า" }, { status: 400 });
-  }
-
-  await prisma.$transaction(
-    validIds.map((skuId) =>
-      prisma.storeSkuBlock.upsert({
-        where: { storeId_skuId: { storeId, skuId } },
-        create: {
-          storeId,
-          skuId,
-          reason,
-          effectiveFrom,
-          effectiveTo,
-          createdBy: email,
-        },
-        update: {
-          reason,
-          effectiveFrom,
-          effectiveTo,
-          createdBy: email,
-          acknowledgedAt: null,
-        },
-      })
-    )
-  );
-  bumpStoreDataVersion(storeId);
-
-  return NextResponse.json({ success: true, count: validIds.length });
+  const { status, body: payload } = await upsertBlocks(storeId, email, body);
+  return NextResponse.json(payload, { status });
 }
 
 export async function DELETE(request: Request) {
@@ -143,20 +45,7 @@ export async function DELETE(request: Request) {
   if (!storeId) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-
   const body = await request.json().catch(() => ({}));
-  const skuIds = parseSkuIds(body.skuIds);
-  if (skuIds.length === 0) {
-    return NextResponse.json(
-      { error: "ต้องเลือกอย่างน้อย 1 สินค้า" },
-      { status: 400 }
-    );
-  }
-
-  const result = await prisma.storeSkuBlock.deleteMany({
-    where: { storeId, skuId: { in: skuIds } },
-  });
-  bumpStoreDataVersion(storeId);
-
-  return NextResponse.json({ success: true, count: result.count });
+  const { status, body: payload } = await removeBlocks(storeId, body);
+  return NextResponse.json(payload, { status });
 }

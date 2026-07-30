@@ -141,21 +141,36 @@ Cache อยู่ที่ `data/cache/` (Docker: volume `vmi_data`)
 
 ### ตั้งเวลารายวัน (03:30 น. Bangkok)
 
-ใน `.env`:
+ทุกฝั่งของระบบใช้ **ชุดข้อมูลเดียวกัน** ที่ดึงมาโดยฟังก์ชันเดียว (`runMasterRefresh`)
+ไม่ว่าจะมาจาก scheduler, boot, ปุ่มแอดมิน, ปุ่มร้านค้า หรือ CLI
 
 ```env
-MASTER_REFRESH_ENABLED=true
+# เปิดอยู่โดย default ทุก environment — ตั้ง =false เพื่อปิด
+# MASTER_REFRESH_ENABLED=false
 MASTER_REFRESH_HOUR=3
 MASTER_REFRESH_MINUTE=30
+MASTER_REFRESH_MAX_AGE_HOURS=20
 ALERT_EMAIL=you@company.com
 ```
 
-- Production (`npm run start` / Docker): scheduler เปิดอัตโนมัติ — retry 3 ครั้ง, แจ้ง `ALERT_EMAIL` เมื่อล้มหมด
-- `npm run dev`: ไม่เปิด scheduler (กัน sync ซ้ำตอนพัฒนา)
+- **scheduler**: ทุกวัน 03:30 น. (Asia/Bangkok) — retry 3 ครั้ง (5/15/30 นาที),
+  แจ้ง `ALERT_EMAIL` เมื่อล้มหมด, สำรอง DB ให้อัตโนมัติเมื่อสำเร็จ
+- **boot catch-up**: ตอนสตาร์ท ถ้าไฟล์ไหนยังไม่มีจะโหลดให้ทันที และถ้ารอบสำเร็จล่าสุด
+  เก่ากว่า `MASTER_REFRESH_MAX_AGE_HOURS` จะไล่ตามให้ในอีก 30 วินาที
+  (เดิม restart หลัง 03:30 = ไม่มีข้อมูลใหม่จนวันรุ่งขึ้น)
+- **ปุ่มร้านค้า** (`ตรวจข้อมูลใหม่`): อ่านชุดข้อมูลกลางซ้ำ + ล้าง cache ฝั่ง client
+  และจะสั่งดึงจาก Fabric จริงเฉพาะเมื่อชุดกลางเก่าเกินกำหนด
+- **แท็บที่เปิดค้าง**: poll `/api/data-version` ทุก 5 นาที (และเมื่อกลับมาที่แท็บ)
+  พบ version ใหม่แล้ว invalidate cache ให้เอง — ไม่ต้องกดปุ่ม
+- ทุกทริกเกอร์ใช้ credential แบบไม่ต้องมีคนกด (service principal) เท่านั้น
+  การล็อกอินแบบเปิดเบราว์เซอร์เหลือใช้ได้แค่ CLI: `npm run sync:masters -- --interactive`
 
-**ทางเลือก Windows:** Task Scheduler รัน `scripts\sync-masters-daily.bat` ทุกวัน 03:30
+**ทางเลือก Windows:** Task Scheduler รัน `scripts\sync-masters-daily.bat`
+⚠️ **ห้ามตั้งคู่กับ scheduler ในโปรเซส** — จะโหลดไฟล์ SKU 68 MB ซ้ำสองรอบ
+ถ้าจะใช้ Task Scheduler ให้ตั้ง `MASTER_REFRESH_ENABLED=false`
 
-**จาก Admin UI:** `/admin` → ตั้งค่าระบบ → ดึงข้อมูล master ตอนนี้
+**จาก Admin UI:** `/admin/sync` — มีสถานะรายตาราง (จำนวนแถว / ขนาด / อายุ / error)
+และปุ่มดึงใหม่รายชุดข้อมูล
 
 ## Production Deploy (Docker + Linux)
 

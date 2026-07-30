@@ -80,6 +80,39 @@ export function resolveEffectivePrice(args: {
   };
 }
 
+export type OrderLinePriceSource = "sales" | "store" | "c4" | "none";
+
+/**
+ * ราคาที่มีผลของบรรทัด + ใครเป็นคนตั้ง
+ *
+ * ลำดับความสำคัญ: พนักงาน → ร้าน → ราคาระบบ (C4)
+ * แยกช่องของพนักงานออกจากของร้าน เพื่อไม่ให้ทับหลักฐานว่าร้าน "ขอ" ราคาเท่าไร
+ * ใช้ทั้งหน้าตรวจออเดอร์, การแบ่ง PO และเอกสาร PO เพื่อให้ทั้งสามที่ตรงกัน
+ */
+export function resolveOrderLinePrice(item: {
+  salesPriceOverride?: number | null;
+  unitPriceOverride?: number | null;
+  c4UnitPrice?: number | null;
+}): { unitPrice: number | null; source: OrderLinePriceSource } {
+  if (item.salesPriceOverride != null) {
+    return { unitPrice: item.salesPriceOverride, source: "sales" };
+  }
+  if (item.unitPriceOverride != null) {
+    return { unitPrice: item.unitPriceOverride, source: "store" };
+  }
+  if (item.c4UnitPrice != null) {
+    return { unitPrice: item.c4UnitPrice, source: "c4" };
+  }
+  return { unitPrice: null, source: "none" };
+}
+
+export function priceSourceLabel(source: OrderLinePriceSource): string {
+  if (source === "sales") return "พนักงานตั้ง";
+  if (source === "store") return "ร้านขอ";
+  if (source === "c4") return "ราคาระบบ (C4)";
+  return "ไม่มีราคา";
+}
+
 export function priceFlagLabel(reason: PriceFlagReason): string {
   if (reason === "no_baseline") return "ไม่มีราคาระบบ";
   if (reason === "unverified") return "ยืนยันราคาไม่ได้";

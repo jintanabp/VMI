@@ -69,6 +69,9 @@ export function verifySalesSessionToken(
 
     if (payload.exp < Date.now()) return null;
 
+    // ประกอบกลับทีละฟิลด์ (ไม่ spread) เพื่อไม่ให้ `exp` หรือฟิลด์แปลกปลอมใน token
+    // หลุดเข้ามาใน session — แต่ต้องครบทุกฟิลด์ของ SalesSession ไม่งั้นสิทธิ์หาย
+    // เดิมตก superCode/managerCode/scope* ทำให้ manager/supervisor เห็นแต่ออเดอร์ตัวเอง
     return {
       email: payload.email,
       name: payload.name,
@@ -77,6 +80,10 @@ export function verifySalesSessionToken(
       salesmanName: payload.salesmanName,
       employeeNo: payload.employeeNo,
       divisionCode: payload.divisionCode,
+      superCode: payload.superCode,
+      managerCode: payload.managerCode,
+      scopeSalesmanCodes: payload.scopeSalesmanCodes,
+      scopeEmails: payload.scopeEmails,
     };
   } catch {
     return null;

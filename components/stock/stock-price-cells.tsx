@@ -95,7 +95,7 @@ export function StockAvgSalesCell({
         <span
           className={cn(
             "font-normal text-slate-400 dark:text-slate-500",
-            inline ? "text-[10px]" : "text-[9px]"
+            "vmi-t-xs"
           )}
         >
           {inline ? `(${piecesText} ชิ้น)` : `${piecesText} ชิ้น`}

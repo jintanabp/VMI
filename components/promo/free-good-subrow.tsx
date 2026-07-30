@@ -42,7 +42,7 @@ export function FreeGoodStockTableRow({
         <FreeGoodQty freeGood={freeGood} />
       </td>
       <td
-        className="px-1 py-1.5 text-center text-[10px] text-slate-500 dark:text-slate-400"
+        className="px-1 py-1.5 text-center vmi-t-xs text-slate-500 dark:text-slate-400"
         colSpan={5}
       >
         <FreeGoodRuleInline rule={rule} />
@@ -75,7 +75,7 @@ export function FreeGoodOrderTableRow({
       <td className="px-2 py-2 text-center text-slate-400" colSpan={6}>
         —
       </td>
-      <td className="px-3 py-2 text-[10px] text-slate-500 dark:text-slate-400">
+      <td className="px-3 py-2 vmi-t-xs text-slate-500 dark:text-slate-400">
         <FreeGoodRuleInline rule={rule} />
       </td>
     </tr>
@@ -107,17 +107,17 @@ export function FreeGoodMobileCard({
               className="h-3.5 w-3.5 shrink-0 text-violet-500 dark:text-violet-400"
               aria-hidden
             />
-            <span className="inline-flex shrink-0 items-center rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-bold text-violet-800 ring-1 ring-violet-200 dark:bg-violet-500/20 dark:text-violet-200 dark:ring-violet-500/30">
+            <span className="inline-flex shrink-0 items-center rounded bg-violet-100 px-1.5 py-0.5 vmi-t-xs font-bold text-violet-800 ring-1 ring-violet-200 dark:bg-violet-500/20 dark:text-violet-200 dark:ring-violet-500/30">
               แถม
             </span>
             <span className="truncate text-xs font-semibold text-violet-900 dark:text-violet-100">
               {freeGood.premiumProduct}
             </span>
           </div>
-          <p className="mt-0.5 truncate text-[11px] text-slate-600 dark:text-slate-400">
+          <p className="mt-0.5 truncate vmi-t-sm text-slate-600 dark:text-slate-400">
             {freeGood.premiumName}
           </p>
-          <p className="mt-0.5 text-[10px] font-medium text-violet-700 dark:text-violet-300">
+          <p className="mt-0.5 vmi-t-xs font-medium text-violet-700 dark:text-violet-300">
             โปร: {rule}
             <span className="font-normal text-slate-400">
               {" "}
@@ -161,17 +161,17 @@ function FreeGoodIdentity({
         className="mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-500 dark:text-violet-400"
         aria-hidden
       />
-      <span className="mt-0.5 inline-flex shrink-0 items-center rounded bg-violet-100 px-1 py-0.5 text-[9px] font-bold text-violet-800 ring-1 ring-violet-200 dark:bg-violet-500/20 dark:text-violet-200 dark:ring-violet-500/30">
+      <span className="mt-0.5 inline-flex shrink-0 items-center rounded bg-violet-100 px-1 py-0.5 vmi-t-xs font-bold text-violet-800 ring-1 ring-violet-200 dark:bg-violet-500/20 dark:text-violet-200 dark:ring-violet-500/30">
         แถม
       </span>
       <div className="min-w-0">
         <div className="truncate text-xs font-semibold text-violet-900 dark:text-violet-100">
           {freeGood.premiumProduct}
         </div>
-        <div className="truncate text-[11px] text-slate-600 dark:text-slate-400">
+        <div className="truncate vmi-t-sm text-slate-600 dark:text-slate-400">
           {freeGood.premiumName}
         </div>
-        <div className="mt-0.5 text-[10px] font-medium text-violet-700 dark:text-violet-300">
+        <div className="mt-0.5 vmi-t-xs font-medium text-violet-700 dark:text-violet-300">
           โปร: {rule}
         </div>
       </div>
@@ -194,7 +194,7 @@ function FreeGoodQty({
       )}
     >
       ×{freeGood.qty}
-      <span className="ml-0.5 text-[10px] font-semibold">
+      <span className="ml-0.5 vmi-t-xs font-semibold">
         {freeGood.unitLabel}
       </span>
     </span>

@@ -51,7 +51,7 @@ export function FlagBadge({
     <span
       className={cn(
         "inline-flex items-center rounded-full font-semibold",
-        compact ? "px-1.5 py-0.5 text-[10px] leading-tight" : "px-2.5 py-1 text-xs",
+        compact ? "px-1.5 py-0.5 vmi-t-xs leading-tight" : "px-2.5 py-1 text-xs",
         flagStyles[flag],
         className
       )}
@@ -84,7 +84,7 @@ export function PriceFlagBadge({
       className={cn(
         "inline-flex items-center gap-0.5 rounded-full font-semibold",
         compact
-          ? "px-1.5 py-0.5 text-[10px] leading-tight"
+          ? "px-1.5 py-0.5 vmi-t-xs leading-tight"
           : "px-2.5 py-1 text-xs",
         flagStyles.yellow,
         className

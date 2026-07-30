@@ -833,7 +833,7 @@ function MoreMenu({
   selectedCount,
   adjustedCount,
 }: {
-  onExport: () => void;
+  onExport: (scope: "all" | "selected") => void;
   onResetQty: () => void;
   onClearSelection: () => void;
   selectedCount: number;
@@ -870,8 +870,15 @@ function MoreMenu({
           <MenuItem
             icon={<Download className="h-4 w-4" />}
             label="ส่งออกฟอร์มสั่ง"
-            hint="Excel หน้าตาฟอร์มสั่งสินค้า + ชีตรายละเอียด ตามตัวกรองบนจอ"
-            onClick={() => run(onExport)}
+            hint="Excel ฟอร์มสั่งสินค้า + ชีตรายละเอียด — ตามตัวกรองและจำนวนที่ตั้งไว้บนจอ"
+            onClick={() => run(() => onExport("all"))}
+          />
+          <MenuItem
+            icon={<Download className="h-4 w-4" />}
+            label={`ส่งออกเฉพาะที่เลือก (${selectedCount})`}
+            hint="เฉพาะแถวที่ติ๊กไว้ พร้อมจำนวนที่ตั้งบนจอ"
+            disabled={selectedCount === 0}
+            onClick={() => run(() => onExport("selected"))}
           />
           <MenuItem
             icon={<RotateCcw className="h-4 w-4" />}
@@ -961,7 +968,7 @@ export function StockToolbar({
   sections: string[];
   sort: StockSortState;
   onSortChange: (next: StockSortState) => void;
-  onExport: () => void;
+  onExport: (scope: "all" | "selected") => void;
   onResetQty: () => void;
   onClearSelection: () => void;
   selectedCount: number;
@@ -1072,6 +1079,7 @@ export function StockToolbar({
           )}
         </p>
       </div>
+
     </div>
   );
 }

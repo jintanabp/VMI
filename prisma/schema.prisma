@@ -66,8 +66,41 @@ model Order {
   rejectReason String?
   createdAt    DateTime    @default(now())
   approvedAt   DateTime?
+  /// อีเมลพนักงานที่อนุมัติ/ปฏิเสธ — ก่อนหน้านี้ไม่มีการบันทึกว่าใครทำอะไรเลย
+  decidedBy    String      @default("")
   store        Store       @relation(fields: [storeId], references: [id])
   items        OrderItem[]
+  purchaseOrders PurchaseOrder[]
+}
+
+/// PO ที่ออกจริง — สร้างตอนอนุมัติเท่านั้น
+/// (ก่อนอนุมัติ การแบ่งกลุ่มเก็บไว้ที่ OrderItem.poGroup เพื่อไม่ให้มีแถว draft ค้าง
+///  เมื่อพนักงานเปลี่ยนใจ — แนวเดียวกับ confirmed_groups ของ ocr-po-matching)
+model PurchaseOrder {
+  id          String   @id @default(cuid())
+  orderId     String
+  poNumber    String   @unique
+  /// slot ในออเดอร์นั้น — "A", "B", ... ตรงกับ OrderItem.poGroup
+  groupKey    String
+  /// c4 = ทุกบรรทัดราคาตรง C4, override = ราคาที่แก้เอง, mixed = ผสม
+  priceKind   String
+  itemCount   Int
+  totalQty    Int
+  totalAmount Float
+  exportPath  String?
+  issuedBy    String      @default("")
+  issuedAt    DateTime    @default(now())
+  order       Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  items       OrderItem[]
+
+  @@unique([orderId, groupKey])
+  @@index([orderId])
+}
+
+/// running number ของเลข PO ต่อ (คลัง, วัน) — ยืมแพทเทิร์น confirm_seq ของ ocr-po-matching
+model PoSequence {
+  bucket String @id
+  lastN  Int    @default(0)
 }
 
 model OrderItem {
@@ -99,8 +132,22 @@ model OrderItem {
   /// mismatch | no_baseline | unverified
   priceFlagReason   String?
 
-  order        Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  sku          Sku    @relation(fields: [skuId], references: [id])
+  // --- ราคาที่พนักงานแก้ + การแบ่ง PO ---
+  // แยกช่องจาก unitPriceOverride ของร้าน เพื่อไม่ให้ทับหลักฐานว่าร้าน "ขอ" ราคาเท่าไร
+  /// ราคา/หีบ ที่พนักงานตั้ง (null = ใช้ของร้าน หรือราคาระบบ)
+  salesPriceOverride Float?
+  salesPriceBy       String    @default("")
+  salesPriceAt       DateTime?
+  /// กลุ่ม PO ที่พนักงานจัดไว้ ("A".."Z") — null = ยังไม่จัด
+  poGroup            String?
+  purchaseOrderId    String?
+
+  order         Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sku           Sku            @relation(fields: [skuId], references: [id])
+  purchaseOrder PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+
+  @@index([orderId])
+  @@index([purchaseOrderId])
 }
 
 model AllowedSalesCode {

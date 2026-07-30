@@ -157,10 +157,14 @@ export const prismaOrderRepository: OrderRepository = {
     });
   },
 
-  async approveOrder(id) {
+  async approveOrder(id, actorEmail = "") {
     return prisma.order.update({
       where: { id },
-      data: { status: "approved", approvedAt: new Date() },
+      data: {
+        status: "approved",
+        approvedAt: new Date(),
+        decidedBy: actorEmail,
+      },
       include: {
         store: true,
         items: { include: { sku: true } },
@@ -168,22 +172,104 @@ export const prismaOrderRepository: OrderRepository = {
     });
   },
 
-  async rejectOrder(id, reason) {
+  async rejectOrder(id, reason, actorEmail = "") {
     return prisma.order.update({
       where: { id },
-      data: { status: "rejected", rejectReason: reason ?? null },
+      data: {
+        status: "rejected",
+        rejectReason: reason ?? null,
+        decidedBy: actorEmail,
+      },
       include: {
         store: true,
         items: { include: { sku: true } },
       },
+    });
+  },
+
+  /**
+   * พนักงานตั้งราคาเอง — เขียนช่องแยกจากของร้าน และคำนวณ flag ใหม่ฝั่งเซิร์ฟเวอร์
+   * ห้ามรับ priceFlagged จาก client (แนวเดียวกับตอน POST สร้างออเดอร์)
+   */
+  async updateOrderItemPrice(orderId, itemId, override, actorEmail) {
+    const item = await prisma.orderItem.findFirst({
+      where: { id: itemId, orderId },
+      select: { c4UnitPrice: true },
+    });
+    if (!item) throw new Error("ORDER_ITEM_NOT_FOUND");
+
+    const { evaluatePriceOverride } = await import("@/lib/calculations");
+    // เทียบราคาที่มีผลกับ C4 ที่แช่ไว้ตอนร้านส่ง — ไม่ใช่ราคามาสเตอร์วันนี้
+    const verdict = evaluatePriceOverride({
+      override,
+      c4UnitPrice: item.c4UnitPrice,
+      promoLoaded: true,
+    });
+
+    await prisma.orderItem.updateMany({
+      where: { id: itemId, orderId },
+      data: {
+        salesPriceOverride: verdict.override,
+        salesPriceBy: verdict.override == null ? "" : actorEmail,
+        salesPriceAt: verdict.override == null ? null : new Date(),
+        priceFlagged: verdict.flagged,
+        priceFlagReason: verdict.reason,
+      },
+    });
+  },
+
+  async assignPoGroups(orderId, assignments) {
+    if (assignments.length === 0) return;
+    await prisma.$transaction(
+      assignments.map((a) =>
+        prisma.orderItem.updateMany({
+          where: { id: a.itemId, orderId },
+          data: { poGroup: a.poGroup },
+        })
+      )
+    );
+  },
+
+  async createPurchaseOrders(orderId, groups) {
+    await prisma.$transaction(async (tx) => {
+      for (const g of groups) {
+        const po = await tx.purchaseOrder.create({
+          data: {
+            orderId,
+            poNumber: g.poNumber,
+            groupKey: g.groupKey,
+            priceKind: g.priceKind,
+            itemCount: g.itemIds.length,
+            totalQty: g.totalQty,
+            totalAmount: g.totalAmount,
+            exportPath: g.exportPath ?? null,
+            issuedBy: g.issuedBy ?? "",
+          },
+        });
+        await tx.orderItem.updateMany({
+          where: { orderId, id: { in: g.itemIds } },
+          data: { purchaseOrderId: po.id, poGroup: g.groupKey },
+        });
+      }
+    });
+  },
+
+  async listPurchaseOrders(orderId) {
+    return prisma.purchaseOrder.findMany({
+      where: { orderId },
+      orderBy: { groupKey: "asc" },
     });
   },
 
   async updateOrderItemQty(orderId, itemId, finalQty) {
-    await prisma.orderItem.update({
-      where: { id: itemId },
+    // ต้องมี orderId ใน where ด้วย — ไม่งั้นผ่าน assertOrderAccess ออเดอร์ตัวเอง
+    // แล้วส่ง itemId ของออเดอร์ร้านอื่นเข้ามาแก้ได้
+    // updateMany เพราะ (id, orderId) ไม่ใช่ unique key ใน Prisma
+    const res = await prisma.orderItem.updateMany({
+      where: { id: itemId, orderId },
       data: { finalQty },
     });
+    if (res.count === 0) throw new Error("ORDER_ITEM_NOT_FOUND");
   },
 };
 

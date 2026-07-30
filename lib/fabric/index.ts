@@ -1,5 +1,7 @@
 import fs from "fs";
+import { createHash } from "crypto";
 import { CustomerDirectory } from "./customer-directory";
+import { globalDataVersion } from "./data-version";
 import { reloadStockCover } from "./stock-cover";
 import {
   getCustomerCsvPath,
@@ -48,6 +50,16 @@ export function fabricMastersMtimeSignature(): string {
   return trackedFabricPaths()
     .map((p) => csvMtime(p) ?? 0)
     .join("|");
+}
+
+/**
+ * ลายเซ็นสั้นสำหรับส่งให้ client ตรวจว่ามีข้อมูลใหม่หรือยัง
+ * ต้นทุน = fs.statSync 6 ครั้ง ไม่แตะ DB ไม่ parse CSV จึง poll ได้ถี่
+ * รวม globalDataVersion เข้าไปด้วย เพื่อครอบเคสที่ mtime เท่าเดิมแต่ reload แล้ว
+ */
+export function datasetVersion(): string {
+  const raw = `${fabricMastersMtimeSignature()}#${globalDataVersion()}`;
+  return createHash("sha1").update(raw).digest("hex").slice(0, 12);
 }
 
 function primeMtimes(paths: string[]): void {

@@ -34,6 +34,15 @@ export function getOnelakeCredential(
   }
 
   if (allowInteractive) {
+    // InteractiveBrowserCredential เปิดเบราว์เซอร์ฝั่งเซิร์ฟเวอร์ — ใน Docker/บริการ
+    // ที่ไม่มี TTY จะค้างจน reverse proxy timeout แทนที่จะแจ้งว่าตั้ง env ไม่ครบ
+    // ให้ล้มเร็วพร้อมข้อความที่แก้ต่อได้ (CLI ที่มี TTY ยังใช้ได้ตามปกติ)
+    if (!process.stdout.isTTY) {
+      throw new Error(
+        `OneLake (${label}): เข้าสู่ระบบแบบเปิดเบราว์เซอร์ใช้บนเซิร์ฟเวอร์ไม่ได้ — ` +
+          "ต้องตั้ง client secret ของ service principal ใน env"
+      );
+    }
     console.info("[OneLake] auth (%s): InteractiveBrowserCredential", label);
     return new InteractiveBrowserCredential({
       tenantId: tenantId || undefined,

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { z } from "zod";
 import { getRepositories } from "@/lib/repositories";
-import { exportToPoStub } from "@/lib/po/export-stub";
+import { approveWithPoSplit } from "@/lib/po/approve-with-split";
 import {
   CUSTOMER_STORE_CODE_COOKIE,
   CUSTOMER_STORE_COOKIE,
@@ -45,6 +45,53 @@ const orderItemSchema = z.object({
 const createOrderSchema = z.object({
   items: z.array(orderItemSchema).min(1),
 });
+
+// PATCH เดิมเป็น destructure ดิบ ๆ จาก request.json() — ไม่ validate อะไรเลย
+// และ `&& finalQty` ทำให้ finalQty:0 ตกไปที่ "Invalid action" แทนที่จะถูกปฏิเสธชัด ๆ
+const patchOrderSchema = z.discriminatedUnion("action", [
+  z.object({
+    orderId: z.string().min(1),
+    action: z.literal("approve"),
+    /** เลข PO ที่พนักงานพิมพ์ทับต่อกลุ่ม (ไม่ส่ง = ให้ระบบ mint เอง) */
+    poNumbers: z.record(z.string(), z.string().trim().max(12)).optional(),
+  }),
+  z.object({
+    orderId: z.string().min(1),
+    action: z.literal("reject"),
+    reason: z.string().trim().max(500).optional(),
+  }),
+  z.object({
+    orderId: z.string().min(1),
+    action: z.literal("updateQty"),
+    itemId: z.string().min(1),
+    finalQty: z.number().int().min(0).max(100_000),
+  }),
+  z.object({
+    orderId: z.string().min(1),
+    action: z.literal("updatePrice"),
+    itemId: z.string().min(1),
+    // .finite() จำเป็น: JSON.parse('{"x":1e999}') ได้ Infinity ซึ่ง z.number() ปล่อยผ่าน
+    unitPriceOverride: z
+      .number()
+      .finite()
+      .min(0)
+      .max(1_000_000)
+      .nullable(),
+  }),
+  z.object({
+    orderId: z.string().min(1),
+    action: z.literal("assignPoGroup"),
+    assignments: z
+      .array(
+        z.object({
+          itemId: z.string().min(1),
+          poGroup: z.string().trim().regex(/^[A-Z]$/, "กลุ่ม PO ต้องเป็น A-Z"),
+        })
+      )
+      .min(1)
+      .max(500),
+  }),
+]);
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -200,8 +247,12 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const body = await request.json();
-  const { orderId, action, reason, itemId, finalQty } = body;
+  const parsed = patchOrderSchema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) {
+    return NextResponse.json({ error: "คำสั่งไม่ถูกต้อง" }, { status: 400 });
+  }
+  const body = parsed.data;
+  const { orderId, action } = body;
   const { orders } = getRepositories();
 
   try {
@@ -214,36 +265,97 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "ไม่มีสิทธิ์จัดการออเดอร์นี้" }, { status: 403 });
   }
 
+  // approve/reject ไม่เคยเช็คสถานะเดิม — ยิง PATCH ซ้ำได้เรื่อย ๆ ทับ approvedAt
+  // และเขียนไฟล์ PO ใหม่ทุกครั้ง หรือพลิก approved → rejected ย้อนหลังได้
+  // การแก้ราคา/จัดกลุ่ม PO ก็ต้องทำได้เฉพาะตอนยังรออนุมัติเช่นกัน
+  const current = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: { status: true },
+  });
+  if (!current) {
+    return NextResponse.json({ error: "ไม่พบออเดอร์" }, { status: 404 });
+  }
+  if (current.status !== "pending_approval") {
+    return NextResponse.json(
+      {
+        error:
+          current.status === "approved"
+            ? "ออเดอร์นี้อนุมัติแล้ว"
+            : "ออเดอร์นี้ถูกปฏิเสธแล้ว",
+        status: current.status,
+      },
+      { status: 409 }
+    );
+  }
+
   if (action === "approve") {
-    const order = (await orders.approveOrder(orderId)) as {
-      id: string;
-      approvedAt: Date | null;
-      store: { code: string };
-      items: { finalQty: number; sku: { code: string } }[];
-    };
-
-    const payload = {
-      orderId: order.id,
-      storeCode: order.store.code,
-      approvedAt: (order.approvedAt ?? new Date()).toISOString(),
-      items: order.items.map((item) => ({
-        skuCode: item.sku.code,
-        qty: item.finalQty,
-        unit: "case",
-      })),
-    };
-
-    const filePath = await exportToPoStub(payload);
-    return NextResponse.json({ order, poExportPath: filePath });
+    try {
+      const result = await approveWithPoSplit(
+        orderId,
+        salesSession.email,
+        body.poNumbers ?? {}
+      );
+      return NextResponse.json(result);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "อนุมัติไม่สำเร็จ";
+      if (msg.startsWith("SPLIT_INVALID:")) {
+        return NextResponse.json(
+          { error: "แบ่ง PO ไม่ถูกต้อง", issues: msg.slice(14).split("\n") },
+          { status: 422 }
+        );
+      }
+      return NextResponse.json({ error: msg }, { status: 400 });
+    }
   }
 
   if (action === "reject") {
-    const order = await orders.rejectOrder(orderId, reason);
+    const order = await orders.rejectOrder(
+      orderId,
+      body.reason,
+      salesSession.email
+    );
     return NextResponse.json(order);
   }
 
-  if (action === "updateQty" && itemId && finalQty) {
-    await orders.updateOrderItemQty(orderId, itemId, finalQty);
+  if (action === "updatePrice") {
+    try {
+      await orders.updateOrderItemPrice(
+        orderId,
+        body.itemId,
+        body.unitPriceOverride,
+        salesSession.email
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      if (msg === "ORDER_ITEM_NOT_FOUND") {
+        return NextResponse.json(
+          { error: "ไม่พบรายการนี้ในออเดอร์" },
+          { status: 404 }
+        );
+      }
+      throw err;
+    }
+    return NextResponse.json(await orders.getOrderById(orderId));
+  }
+
+  if (action === "assignPoGroup") {
+    await orders.assignPoGroups(orderId, body.assignments);
+    return NextResponse.json(await orders.getOrderById(orderId));
+  }
+
+  if (action === "updateQty") {
+    try {
+      await orders.updateOrderItemQty(orderId, body.itemId, body.finalQty);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      if (msg === "ORDER_ITEM_NOT_FOUND") {
+        return NextResponse.json(
+          { error: "ไม่พบรายการนี้ในออเดอร์" },
+          { status: 404 }
+        );
+      }
+      throw err;
+    }
     const order = await orders.getOrderById(orderId);
     return NextResponse.json(order);
   }

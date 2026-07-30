@@ -1,62 +1,64 @@
 /**
- * Sync dim_customer + cross_salesman_reference_email from Fabric OneLake.
- * Ported from ocr-po-matching/backend/master_refresh.py
+ * ดึง master ทั้งหมดจาก Fabric OneLake (พอร์ตมาจาก ocr-po-matching/backend/master_refresh.py)
  *
- * Usage: npm run sync:masters
- */import {
-  bootstrapIfMissing,
-  buildCustomerSpec,
-  buildSalesmanSpec,
-  localFileStats,
-  refreshAllMasters,
-  reloadFabricMasters,
-} from "../lib/fabric";
-import { getCustomerCsvPath, getSalesmanCsvPath } from "../lib/fabric/paths";
+ * Usage: npm run sync:masters [-- --interactive]
+ *
+ * --interactive = ยอมให้เปิดเบราว์เซอร์ล็อกอินเมื่อไม่มี client secret
+ *   ใช้ได้เฉพาะที่นี่ (CLI มี TTY) — ฝั่งเซิร์ฟเวอร์ห้ามใช้ เพราะจะค้างจน timeout
+ */
+import { localFileStats, reloadFabricMasters } from "../lib/fabric";
+import {
+  bootstrapMissingMasters,
+  getDatasetInventory,
+} from "../lib/fabric/datasets";
+import { refreshAllMasters } from "../lib/fabric/onelake-refresh";
+import { writeDatasetStatus } from "../lib/fabric/refresh-status";
+
+function fmtBytes(n: number | null): string {
+  if (n == null) return "-";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
 
 async function main() {
-  const customerPath = getCustomerCsvPath();
-  const salesmanPath = getSalesmanCsvPath();
+  const allowInteractive = process.argv.includes("--interactive");
 
   console.log("VMI Fabric master sync");
-  console.log("  customer →", customerPath);
-  console.log("  salesman →", salesmanPath);
-
-  await bootstrapIfMissing(buildCustomerSpec(customerPath));
-  await bootstrapIfMissing(buildSalesmanSpec(salesmanPath));
-
-  const { buildStockCoverSpec, buildPromotionCreditSpec, buildSkuMasterSpec } = await import("../lib/fabric/onelake-refresh");
-  const { fabricStockEnabled } = await import("../lib/fabric/env");
-  const { getStockCoverCsvPath, getPromotionCsvPath, getSkuMasterCsvPath } = await import("../lib/fabric/paths");
-
-  if (fabricStockEnabled()) {
-    const stockPath = getStockCoverCsvPath();
-    console.log("  stock_cover →", stockPath);
-    await bootstrapIfMissing(buildStockCoverSpec(stockPath));
+  for (const row of getDatasetInventory()) {
+    console.log(
+      `  ${row.id.padEnd(18)} → ${row.fileName}` +
+        (row.configured ? "" : "  (ยังไม่ได้ตั้งค่า env)")
+    );
   }
 
-  const promoPath = getPromotionCsvPath();
-  const skuPath = getSkuMasterCsvPath();
-  console.log("  promotion →", promoPath);
-  console.log("  sku_master →", skuPath);
-  await bootstrapIfMissing(buildPromotionCreditSpec(promoPath));
-  await bootstrapIfMissing(buildSkuMasterSpec(skuPath));
+  const bootstrapped = await bootstrapMissingMasters();
+  if (bootstrapped.length > 0) {
+    console.log(`\nโหลดไฟล์ที่ขาด ${bootstrapped.length} ไฟล์`);
+    writeDatasetStatus(bootstrapped, "cli");
+  }
 
-  const result = await refreshAllMasters();
-  console.log("Refresh result:", result);
+  const result = await refreshAllMasters({ allowInteractive });
+  writeDatasetStatus(result.datasets, "cli");
 
-  const cust = localFileStats(customerPath);
-  const sales = localFileStats(salesmanPath);
-  const stock = fabricStockEnabled() ? localFileStats(getStockCoverCsvPath()) : null;
-  const promo = localFileStats(getPromotionCsvPath());
-  const sku = localFileStats(getSkuMasterCsvPath());
-  console.log("Customer file:", cust);
-  console.log("Salesman file:", sales);
-  if (stock) console.log("Stock cover file:", stock);
-  console.log("Promotion file:", promo);
-  console.log("SKU master file:", sku);
+  console.log("\nผลการดึงข้อมูล:");
+  for (const d of result.datasets) {
+    const state = d.ok ? "OK  " : d.skipped ? "SKIP" : "FAIL";
+    console.log(
+      `  ${state} ${d.name.padEnd(18)} ${String(d.rows ?? "-").padStart(8)} แถว  ` +
+        `${fmtBytes(d.bytes).padStart(9)}  ${d.durationMs}ms` +
+        (d.error ? `  ← ${d.error}` : "")
+    );
+  }
+
+  console.log("\nไฟล์ในเครื่อง:");
+  for (const row of getDatasetInventory()) {
+    const stats = localFileStats(row.localPath);
+    console.log(`  ${row.fileName.padEnd(38)}`, stats ?? "(ไม่มีไฟล์)");
+  }
 
   reloadFabricMasters();
-  console.log("Done.");
+  console.log("\nDone.");
 }
 
 main().catch((err) => {

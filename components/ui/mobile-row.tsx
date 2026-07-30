@@ -71,7 +71,7 @@ export function MobileRowStats({
   return (
     <div
       className={cn(
-        "mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] sm:text-xs",
+        "mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 vmi-t-sm",
         className
       )}
     >

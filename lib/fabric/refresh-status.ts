@@ -1,18 +1,36 @@
 import fs from "fs";
 import path from "path";
-import {
-  getCustomerCsvPath,
-  getPromotionCsvPath,
-  getSalesmanCsvPath,
-  getSkuMasterCsvPath,
-  getStockCoverCsvPath,
-} from "./paths";
+import type { DatasetId } from "./datasets";
+import type { DatasetRefreshResult } from "./onelake-refresh";
+
+export type RefreshTrigger =
+  | "scheduler"
+  | "boot"
+  | "admin"
+  | "store"
+  | "cli";
+
+/** สถานะรอบล่าสุดของชุดข้อมูลหนึ่ง — ค่าทั้งหมดมาจาก DatasetRefreshResult */
+export interface DatasetStatusEntry {
+  ok: boolean;
+  skipped: boolean;
+  rows: number | null;
+  bytes: number | null;
+  mtime: string | null;
+  durationMs: number;
+  error: string | null;
+  minRows: number;
+  /** เวลาที่บันทึกผลนี้ */
+  at: string;
+  trigger: RefreshTrigger;
+}
 
 export interface MasterRefreshStatus {
   lastSuccessAt?: string;
   lastFailureAt?: string;
   lastAttemptAt?: string;
   lastError?: string;
+  /** boolean 6 ตัวแบบเดิม — เก็บไว้ให้ของเก่าที่อ่านอยู่ไม่พัง */
   lastResult?: {
     customer: boolean;
     salesman: boolean;
@@ -20,8 +38,15 @@ export interface MasterRefreshStatus {
     promotion: boolean;
     skuMaster: boolean;
     vdaAos: boolean;
+    soldHistory?: boolean;
   };
+  lastTrigger?: RefreshTrigger;
+  lastDurationMs?: number;
   schedulerEnabled?: boolean;
+  scheduleHour?: number;
+  scheduleMinute?: number;
+  /** สถานะรายชุดข้อมูล */
+  datasets?: Record<string, DatasetStatusEntry>;
 }
 
 function statusPath() {
@@ -45,33 +70,47 @@ export function writeMasterRefreshStatus(
 ): MasterRefreshStatus {
   const file = statusPath();
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const next = { ...readMasterRefreshStatus(), ...patch };
+  const prev = readMasterRefreshStatus();
+  const next: MasterRefreshStatus = { ...prev, ...patch };
+  // datasets ต้อง merge ไม่ใช่ทับ — ไม่งั้น patch ที่ไม่มี datasets จะลบทิ้งทั้งก้อน
+  if (patch.datasets) {
+    next.datasets = { ...prev.datasets, ...patch.datasets };
+  }
   fs.writeFileSync(file, JSON.stringify(next, null, 2), "utf-8");
   return next;
 }
 
-export function getCacheFileAges(): Record<string, string | null> {
-  const cacheDir =
-    process.env.FABRIC_CACHE_DIR?.trim() ||
-    path.join(process.cwd(), "data", "cache");
-  // ดึงชื่อจาก paths.ts จุดเดียว — เดิม hard-code ไว้แล้ว drift เมื่อเปลี่ยนไฟล์ต้นทาง
-  // (แผงอายุ cache จะรายงานไฟล์ที่ไม่มีอยู่จริงตลอดไปโดยไม่มีใครสังเกต)
-  const files = [
-    getCustomerCsvPath(),
-    getSalesmanCsvPath(),
-    getStockCoverCsvPath(),
-    getPromotionCsvPath(),
-    getSkuMasterCsvPath(),
-  ].map((p) => path.basename(p));
-  const ages: Record<string, string | null> = {};
-  for (const name of files) {
-    const p = path.join(cacheDir, name);
-    try {
-      const mtime = fs.statSync(p).mtime;
-      ages[name] = mtime.toISOString();
-    } catch {
-      ages[name] = null;
-    }
+/**
+ * บันทึกผลรายชุดข้อมูล — **merge รายคีย์** เพราะการกด "ดึงใหม่" รายตาราง
+ * ส่งผลมาแค่ชุดเดียว ถ้าทับทั้งก้อนสถานะของอีก 10 ชุดจะหายไป
+ */
+export function writeDatasetStatus(
+  results: DatasetRefreshResult[],
+  trigger: RefreshTrigger
+): MasterRefreshStatus {
+  if (results.length === 0) return readMasterRefreshStatus();
+  const at = new Date().toISOString();
+  const datasets: Record<string, DatasetStatusEntry> = {};
+  for (const r of results) {
+    datasets[r.name] = {
+      ok: r.ok,
+      skipped: r.skipped,
+      rows: r.rows,
+      bytes: r.bytes,
+      mtime: r.mtime,
+      durationMs: r.durationMs,
+      error: r.error,
+      minRows: r.minRows,
+      at,
+      trigger,
+    };
   }
-  return ages;
+  return writeMasterRefreshStatus({ datasets });
+}
+
+export function datasetStatusFor(
+  status: MasterRefreshStatus,
+  id: DatasetId
+): DatasetStatusEntry | null {
+  return status.datasets?.[id] ?? null;
 }

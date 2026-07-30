@@ -11,3 +11,16 @@ export function bumpStoreDataVersion(storeId: string): void {
 export function storeDataVersion(storeId: string): number {
   return versions.get(storeId) ?? 0;
 }
+
+// version ระดับ process — bump ทุกครั้งที่ดึง master ใหม่จาก OneLake
+// ต้องมีแยกจาก mtime signature เพราะบางรอบไฟล์ mtime ไม่เปลี่ยน (โหลดได้ไฟล์เดิม)
+// แต่ระบบ reload ตารางในหน่วยความจำแล้ว แท็บที่เปิดอยู่ควรได้รู้
+let globalVersion = 0;
+
+export function bumpDataVersion(): void {
+  globalVersion += 1;
+}
+
+export function globalDataVersion(): number {
+  return globalVersion;
+}

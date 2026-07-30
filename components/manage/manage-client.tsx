@@ -25,6 +25,7 @@ import { AppHeader } from "@/components/layout/app-header";
 import { PageShell } from "@/components/layout/page-shell";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { useDataVersion } from "@/hooks/use-data-version";
 import { cn, matchesProductSearch } from "@/lib/utils";
 import type { StockRowComputed } from "@/lib/repositories/types";
 
@@ -51,6 +52,9 @@ const NO_SECTION = "(ไม่มี Section)";
 const DEFAULT_MIN_DAYS = 7;
 const DEFAULT_MAX_DAYS = 15;
 
+/** ประกาศนอกคอมโพเนนต์ให้ reference คงที่ (useDataVersion ไม่ใส่ไว้ใน deps) */
+const MANAGE_INVALIDATE_KEYS = [["stock"], ["thresholds"], ["store-blocklist"]];
+
 export function ManageClient({
   storeCode,
   storeName,
@@ -65,6 +69,9 @@ export function ManageClient({
   const [resetting, setResetting] = useState(false);
   const [brandSearch, setBrandSearch] = useState("");
   const queryClient = useQueryClient();
+
+  // ข้อมูลกลาง sync ทุกเช้า — ล้าง cache เองเมื่อชุดข้อมูลเปลี่ยน
+  useDataVersion(MANAGE_INVALIDATE_KEYS);
 
   const stockQuery = useQuery<StockApiResponse>({
     queryKey: ["stock"],
