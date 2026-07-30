@@ -4,6 +4,7 @@ import ExcelJS from "exceljs";
 import { fabricStockReady } from "@/lib/fabric";
 import { bangkokDateStr } from "@/lib/fabric/bkk-date";
 import { buildFabricStockPayload } from "@/lib/fabric/stock-rows";
+import { resolveVdaStoreName } from "@/lib/fabric/vda-store-name";
 import { buildPromoInspector } from "@/lib/promo/promo-inspector";
 import { isPooledPromoGroup } from "@/lib/promo/promo-group-display";
 import { formatPremiumUnit } from "@/lib/calculations";
@@ -13,6 +14,7 @@ import {
   type StockSortDir,
 } from "@/lib/stock/sort";
 import { filterStockRows, isStockView } from "@/lib/stock/filters";
+import { buildOrderFormSheet } from "@/lib/stock/export-order-form";
 import { matchesProductSearch } from "@/lib/utils";
 import {
   CUSTOMER_STORE_COOKIE,
@@ -124,7 +126,18 @@ export async function GET(request: Request) {
   wb.creator = "VMI";
   wb.created = new Date();
 
-  // ---- ชีต 1: สต็อก ----
+  // ---- ชีต 1: ฟอร์มสั่ง (หน้าตาตามตัวอย่างฟอร์มสั่งสินค้า) ----
+  const storeName =
+    resolveVdaStoreName(fromDb) ||
+    resolveVdaStoreName(storeCode) ||
+    storeCode.toUpperCase();
+  buildOrderFormSheet(wb, {
+    storeName,
+    rows,
+    asOf: new Date(),
+  });
+
+  // ---- ชีต 2: สต็อก (รายละเอียดเต็ม สำหรับวิเคราะห์) ----
   const stockSheet = wb.addWorksheet("สต็อก");
   applySheet(stockSheet, [
     { header: "รหัสสินค้า", key: "code", width: 12 },
@@ -186,7 +199,7 @@ export async function GET(request: Request) {
     });
   }
 
-  // ---- ชีต 2: โปรโมชั่น (1 แถว = 1 ขั้นบันได) ----
+  // ---- ชีต 3: โปรโมชั่น (1 แถว = 1 ขั้นบันได) ----
   const promoSheet = wb.addWorksheet("โปรโมชั่น");
   applySheet(promoSheet, [
     { header: "รหัสสินค้า", key: "code", width: 12 },
@@ -218,7 +231,7 @@ export async function GET(request: Request) {
     }
   }
 
-  // ---- ชีต 3: โปรกลุ่ม (1 แถว = 1 ASSORTEDPRODUCTGROUP) ----
+  // ---- ชีต 4: โปรกลุ่ม (1 แถว = 1 ASSORTEDPRODUCTGROUP) ----
   const groupSheet = wb.addWorksheet("โปรกลุ่ม");
   applySheet(groupSheet, [
     { header: "กลุ่มโปร", key: "group", width: 14 },
@@ -283,7 +296,7 @@ export async function GET(request: Request) {
   }
 
   const buffer = await wb.xlsx.writeBuffer();
-  const filename = `stock-${storeCode.toLowerCase()}-${bangkokDateStr(new Date())}.xlsx`;
+  const filename = `form-order-${storeCode.toLowerCase()}-${bangkokDateStr(new Date())}.xlsx`;
 
   return new NextResponse(buffer as ArrayBuffer, {
     headers: {

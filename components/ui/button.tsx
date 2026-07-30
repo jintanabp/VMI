@@ -1,6 +1,7 @@
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
+import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
@@ -39,17 +40,42 @@ export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonVariants> {
   asChild?: boolean;
+  /** กำลังทำงานอยู่ — disable ตัวเองและขึ้นสปินเนอร์นำหน้า */
+  pending?: boolean;
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, ...props }, ref) => {
-    const Comp = asChild ? Slot : "button";
+  (
+    { className, variant, size, asChild = false, pending, children, ...props },
+    ref
+  ) => {
+    // asChild ต้องส่ง children ต่อไปดิบ ๆ — Slot รับลูกได้ตัวเดียว
+    // และ child อาจเป็น <a> ซึ่งไม่มี type/disabled
+    if (asChild) {
+      return (
+        <Slot
+          className={cn(buttonVariants({ variant, size, className }))}
+          ref={ref}
+          {...props}
+        >
+          {children}
+        </Slot>
+      );
+    }
+
     return (
-      <Comp
+      <button
         className={cn(buttonVariants({ variant, size, className }))}
         ref={ref}
         {...props}
-      />
+        // ต้องอยู่หลัง spread ไม่งั้นค่าจาก props จะทับ
+        // default type="button" — กัน <Button onClick> ใน <form> ยิง submit โดยไม่ตั้งใจ
+        type={props.type ?? "button"}
+        disabled={props.disabled || pending}
+      >
+        {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+        {children}
+      </button>
     );
   }
 );

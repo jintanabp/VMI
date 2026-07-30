@@ -5,6 +5,7 @@ import {
   readMasterRefreshStatus,
 } from "@/lib/fabric/refresh-status";
 import { isSchedulerEnabled } from "@/lib/fabric/scheduler";
+import { fabricPromoReady, promoLoadError } from "@/lib/fabric";
 
 export async function GET() {
   const session = await getRawSalesSession();
@@ -16,5 +17,7 @@ export async function GET() {
     schedulerEnabled: isSchedulerEnabled(),
     status: readMasterRefreshStatus(),
     cacheFiles: getCacheFileAges(),
+    promoReady: fabricPromoReady(),
+    promoError: promoLoadError(),
   });
 }

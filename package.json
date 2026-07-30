@@ -18,6 +18,9 @@
     "sync:masters:daily": "scripts\\sync-masters-daily.bat",
     "backup:db": "node scripts/backup-db.mjs",
     "probe:stock-onelake": "tsx --env-file=.env scripts/probe-stock-onelake.ts",
+    "probe:promo-cash": "tsx --env-file=.env scripts/probe-promo-cash.ts",
+    "snapshot:promo": "tsx --env-file=.env scripts/snapshot-promo-baseline.ts",
+    "verify:promo-context": "tsx --env-file=.env scripts/verify-promo-context.ts",
     "verify:sales-cover": "tsx --env-file=.env scripts/verify-sales-cover.ts",
     "postinstall": "prisma generate"
   },

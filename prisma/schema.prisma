@@ -81,6 +81,24 @@ model OrderItem {
   // (null = ออเดอร์เก่าก่อนมีฟีเจอร์นี้ → getCvdFlag ใช้ค่า default เดิม)
   minDays      Int?
   maxDays      Int?
+
+  // --- ราคาที่ร้านแก้เอง + สแนปช็อตราคา C4 ณ เวลาส่ง ---
+  // ราคามาจาก CSV master ซึ่งเปลี่ยนรายวัน ถ้าไม่แช่ค่าไว้ อีกสัปดาห์จะพิสูจน์ไม่ได้ว่า
+  // ตอนร้านกดส่ง ราคาต่างกันจริงหรือไม่ (เหตุผลเดียวกับที่แช่ minDays/maxDays ไว้)
+  /// ราคา/หีบ ที่ร้านพิมพ์เอง (null = ไม่ได้แก้ ใช้ราคาระบบ)
+  unitPriceOverride Float?
+  /// ราคา/หีบ จาก SKU master (CreditPrice) ณ เวลาส่ง
+  c4UnitPrice       Float?
+  c4DiscountBaht    Float?
+  c4DiscountPct     Float?
+  c4NetUnitPrice    Float?
+  /// ราคาในมาสเตอร์หมดอายุแล้ว ณ เวลาส่ง (null = ออเดอร์เก่าก่อนมีฟีเจอร์นี้)
+  c4PriceExpired    Boolean?
+  /// ร้านแก้ราคาแล้วไม่ตรง C4 — ตัดสินฝั่งเซิร์ฟเวอร์ตอนส่ง ไม่คำนวณใหม่ตอนอ่าน
+  priceFlagged      Boolean  @default(false)
+  /// mismatch | no_baseline | unverified
+  priceFlagReason   String?
+
   order        Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
   sku          Sku    @relation(fields: [skuId], references: [id])
 }

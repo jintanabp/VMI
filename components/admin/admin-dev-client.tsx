@@ -22,6 +22,7 @@ import {
 } from "@/hooks/use-vda-sales-directory";
 import { useAdminPreview } from "@/hooks/use-admin-preview";
 import { useSalesPreview } from "@/hooks/use-sales-preview";
+import { useAsyncAction } from "@/hooks/use-async-action";
 import { AppHeader } from "@/components/layout/app-header";
 import { PageShell } from "@/components/layout/page-shell";
 import { CustomerLoginForm } from "@/components/auth/customer-login-form";
@@ -76,6 +77,8 @@ function FabricSyncPanel() {
       lastError?: string;
     };
     cacheFiles?: Record<string, string | null>;
+    promoReady?: boolean;
+    promoError?: string | null;
   } | null>(null);
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState("");
@@ -135,6 +138,17 @@ function FabricSyncPanel() {
             {statusData.status.lastError ? ` — ${statusData.status.lastError}` : ""}
           </p>
         )}
+        {statusData && statusData.promoReady === false && (
+          <p className="font-medium text-red-700 dark:text-red-400">
+            ⚠ ตาราง C4 ไม่พร้อมใช้งาน — โปรโมชั่นจะไม่ขึ้นทั้งระบบ
+            {statusData.promoError ? `: ${statusData.promoError}` : ""}
+          </p>
+        )}
+        {statusData?.promoReady === true && statusData.promoError && (
+          <p className="text-amber-700 dark:text-amber-400">
+            C4: {statusData.promoError}
+          </p>
+        )}
       </div>
       <div className="space-y-2">
         <Button className="w-full sm:w-auto" onClick={refresh} disabled={loading}>
@@ -165,6 +179,44 @@ function AdminEmailsSection() {
     setAdmins(Array.isArray(data) ? data : []);
   }
 
+  const addAdmin = useAsyncAction(
+    async () => {
+      setMsg("");
+      const email = newEmail.trim();
+      if (!email) return;
+      const res = await fetch(appPath("/api/admin/admins"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const data = (await res.json().catch(() => null)) as {
+        error?: string;
+      } | null;
+      if (!res.ok) {
+        setMsg(data?.error ?? `เพิ่มไม่สำเร็จ (${res.status})`);
+        return;
+      }
+      setNewEmail("");
+      setMsg(`เพิ่ม ${email} แล้ว`);
+      await reload();
+    },
+    { onError: (m) => setMsg(m) }
+  );
+
+  const removeAdmin = useAsyncAction(
+    async (email: string) => {
+      setMsg("");
+      const res = await fetch(
+        appPath(`/api/admin/admins?email=${encodeURIComponent(email)}`),
+        { method: "DELETE" }
+      );
+      if (!res.ok) throw new Error(`ลบไม่สำเร็จ (${res.status})`);
+      setMsg(`ลบ ${email} แล้ว`);
+      await reload();
+    },
+    { onError: (m) => setMsg(m) }
+  );
+
   return (
     <Card>
       <CardHeader>
@@ -184,26 +236,7 @@ function AdminEmailsSection() {
             onChange={(e) => setNewEmail(e.target.value)}
             placeholder="เพิ่มอีเมล admin เช่น name@sahapat.co.th"
           />
-          <Button
-            onClick={async () => {
-              setMsg("");
-              const email = newEmail.trim();
-              if (!email) return;
-              const res = await fetch(appPath("/api/admin/admins"), {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ email }),
-              });
-              const data = await res.json();
-              if (!res.ok) {
-                setMsg(data.error ?? "เพิ่มไม่สำเร็จ");
-                return;
-              }
-              setNewEmail("");
-              setMsg(`เพิ่ม ${email} แล้ว`);
-              await reload();
-            }}
-          >
+          <Button pending={addAdmin.pending} onClick={() => addAdmin.run()}>
             เพิ่ม
           </Button>
         </div>
@@ -230,14 +263,12 @@ function AdminEmailsSection() {
               {!a.fromEnv && (
                 <button
                   type="button"
-                  className="shrink-0 text-xs text-slate-500 hover:text-red-600"
-                  onClick={async () => {
+                  disabled={removeAdmin.pending}
+                  className="shrink-0 text-xs text-slate-500 hover:text-red-600 disabled:opacity-50"
+                  onClick={() => {
+                    if (removeAdmin.pending) return;
                     if (!window.confirm(`ลบ ${a.email} ออกจาก admin?`)) return;
-                    await fetch(
-                      `/api/admin/admins?email=${encodeURIComponent(a.email)}`,
-                      { method: "DELETE" }
-                    );
-                    await reload();
+                    removeAdmin.run(a.email);
                   }}
                 >
                   ลบ
@@ -297,23 +328,44 @@ export function AdminDevClient() {
     return filtered;
   }, [salesDirectory, repSearch, repScope, peopleWithVda]);
 
-  async function startSalesPreview(email: string, code?: string) {
-    const codeOnly =
-      email.startsWith("__unmapped__:") || email.startsWith("__code_preview__:");
-    const res = await fetch(appPath("/api/auth/admin/preview-sales"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
-        codeOnly && code ? { code } : { email, code }
-      ),
-    });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      alert(data.error ?? "ไม่สามารถเปิดมุมมองทดสอบได้");
-      return;
-    }
-    router.push("/sales/orders");
+  const [previewError, setPreviewError] = useState("");
+
+  const salesPreviewAction = useAsyncAction(
+    async (email: string, code?: string) => {
+      setPreviewError("");
+      const codeOnly =
+        email.startsWith("__unmapped__:") ||
+        email.startsWith("__code_preview__:");
+      const res = await fetch(appPath("/api/auth/admin/preview-sales"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(codeOnly && code ? { code } : { email, code }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        // ไม่ใช้ alert() — บล็อก main thread และดูเหมือนแอปค้างบน webview
+        setPreviewError(data?.error ?? "ไม่สามารถเปิดมุมมองทดสอบได้");
+        return;
+      }
+      router.push("/sales/orders");
+    },
+    { onError: (m) => setPreviewError(m) }
+  );
+
+  function startSalesPreview(email: string, code?: string) {
+    salesPreviewAction.run(email, code);
   }
+
+  /** ออกจากโหมดทดสอบ — ล้าง cookie เป็น best-effort แล้ว reload เสมอ */
+  const exitPreviewAction = useAsyncAction(async (path: string) => {
+    try {
+      await fetch(appPath(path), { method: "POST" });
+    } finally {
+      window.location.reload();
+    }
+  });
 
   if (sessionLoading) {
     return (
@@ -388,10 +440,10 @@ export function AdminDevClient() {
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={async () => {
-                    await fetch(appPath("/api/auth/admin/exit-preview"), { method: "POST" });
-                    window.location.reload();
-                  }}
+                  pending={exitPreviewAction.pending}
+                  onClick={() =>
+                    exitPreviewAction.run("/api/auth/admin/exit-preview")
+                  }
                 >
                   ออกจากมุมมอง VDA
                 </Button>
@@ -400,10 +452,10 @@ export function AdminDevClient() {
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={async () => {
-                    await fetch(appPath("/api/auth/admin/exit-sales-preview"), { method: "POST" });
-                    window.location.reload();
-                  }}
+                  pending={exitPreviewAction.pending}
+                  onClick={() =>
+                    exitPreviewAction.run("/api/auth/admin/exit-sales-preview")
+                  }
                 >
                   ออกจากมุมมองเซลล์
                 </Button>
@@ -633,6 +685,11 @@ export function AdminDevClient() {
               {repScope === "all" && !repSearch.trim() && salesDirectory && (
                 <p className="text-center text-xs text-slate-400">
                   แสดง 50 คนแรก — ใช้ช่องค้นหาเพื่อหาเซลล์ที่ต้องการ
+                </p>
+              )}
+              {previewError && (
+                <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">
+                  {previewError}
                 </p>
               )}
               <Button

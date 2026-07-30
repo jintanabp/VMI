@@ -124,6 +124,29 @@ export function getSoldHistoryOnelakeConfig(): MastersOnelakeTarget | null {
   };
 }
 
+/** ตาราง C4 (cft_promotion_*) — อยู่คนละ workspace กับ masters
+ *  ใช้ CFT_* ก่อน ไม่งั้น fallback ไป masters config */
+export function getPromotionOnelakeConfig(): MastersOnelakeTarget | null {
+  const workspaceId =
+    trimEnv("CFT_WORKSPACE_ID") || trimEnv("ONELAKE_WORKSPACE_ID");
+  const lakehouseId =
+    trimEnv("CFT_LAKEHOUSE_ID") || trimEnv("ONELAKE_LAKEHOUSE_ID");
+  const scanDir =
+    process.env.CFT_SCAN_DIR ??
+    process.env.ONELAKE_SCAN_DIR ??
+    "Files/exports/";
+
+  if (!workspaceId || !lakehouseId) {
+    return null;
+  }
+
+  return {
+    workspaceId,
+    lakehouseId,
+    scanDir: normalizeScanDir(scanDir),
+  };
+}
+
 /** @deprecated use getMastersOnelakeConfig — kept for callers expecting auth+master */
 export function getOnelakeConfig() {
   const masters = getMastersOnelakeConfig();

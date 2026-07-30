@@ -61,6 +61,41 @@ export function FlagBadge({
   );
 }
 
+/** ร้านแก้ราคา/หีบ เอง แล้วไม่ตรงกับที่ C4 คำนวณ — เซลล์ต้องเห็นก่อนอนุมัติ */
+export function PriceFlagBadge({
+  reason,
+  title,
+  compact = false,
+  className,
+}: {
+  reason?: string | null;
+  title?: string;
+  compact?: boolean;
+  className?: string;
+}) {
+  const label =
+    reason === "no_baseline"
+      ? "ไม่มีราคาระบบ"
+      : reason === "unverified"
+        ? "ยืนยันราคาไม่ได้"
+        : "ราคาแก้เอง";
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-0.5 rounded-full font-semibold",
+        compact
+          ? "px-1.5 py-0.5 text-[10px] leading-tight"
+          : "px-2.5 py-1 text-xs",
+        flagStyles.yellow,
+        className
+      )}
+      title={title ?? label}
+    >
+      ⚠ {label}
+    </span>
+  );
+}
+
 export function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
     pending_approval:

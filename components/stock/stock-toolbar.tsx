@@ -22,12 +22,14 @@ import {
   Eye,
   EyeOff,
   LayoutGrid,
+  LayoutList,
   MoreHorizontal,
   RotateCcw,
   Search,
   Sparkles,
   ShoppingCart,
   SlidersHorizontal,
+  Tag,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -44,6 +46,7 @@ import {
   STOCK_SORT_OPTIONS,
   type StockSortState,
 } from "@/lib/stock/sort";
+import type { StockBrowseMode } from "@/lib/stock/browse-mode";
 
 export interface StockViewCounts {
   all: number;
@@ -274,17 +277,81 @@ function PanelHeader({
 /* View tabs                                                           */
 /* ------------------------------------------------------------------ */
 
+/**
+ * สลับมุมมอง รายการ ↔ โปรโมชั่น
+ *
+ * ไม่ทำเป็นแท็บที่ 6 ใน VIEW_TABS เพราะ VIEW_TABS map 1:1 กับ StockView ซึ่งเป็น
+ * query param ของ /api/stock/export — เพิ่มค่าปลอมเข้าไปจะทำให้จอกับไฟล์ไม่ตรงกัน
+ */
+function BrowseModeToggle({
+  mode,
+  onChange,
+}: {
+  mode: StockBrowseMode;
+  onChange: (mode: StockBrowseMode) => void;
+}) {
+  const opts: { value: StockBrowseMode; label: string; icon: ReactNode; hint: string }[] =
+    [
+      {
+        value: "list",
+        label: "รายการ",
+        icon: <LayoutList className="h-3.5 w-3.5" />,
+        hint: "ตารางสินค้าแบบเต็ม พร้อม CVD และ MIN/MAX",
+      },
+      {
+        value: "promo",
+        label: "โปรโมชั่น",
+        icon: <Tag className="h-3.5 w-3.5" />,
+        hint: "จัดกลุ่มตามโปรโมชั่น เน้นรายละเอียดโปร ไม่แสดง CVD",
+      },
+    ];
+
+  return (
+    <div
+      role="group"
+      aria-label="รูปแบบการดู"
+      className="inline-flex shrink-0 items-center gap-0.5 rounded-xl bg-slate-100 p-0.5 dark:bg-slate-800/70"
+    >
+      {opts.map((o) => {
+        const active = mode === o.value;
+        return (
+          <button
+            key={o.value}
+            type="button"
+            aria-pressed={active}
+            title={o.hint}
+            onClick={() => onChange(o.value)}
+            className={cn(
+              "inline-flex items-center gap-1 whitespace-nowrap rounded-lg px-2 py-1 text-[11px] font-semibold transition-colors lg:text-xs",
+              active
+                ? TAB_ACTIVE.slate
+                : "text-slate-500 hover:bg-white hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-700/60 dark:hover:text-slate-100"
+            )}
+          >
+            {o.icon}
+            <span className="hidden sm:inline">{o.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function ViewTabs({
   view,
   counts,
   onChange,
+  hiddenViews,
 }: {
   view: StockView;
   counts: StockViewCounts;
   onChange: (view: StockView) => void;
+  hiddenViews?: StockView[];
 }) {
   const tabs = VIEW_TABS.filter(
-    (t) => !t.hideWhenEmpty || counts[t.view] > 0 || view === t.view
+    (t) =>
+      !hiddenViews?.includes(t.view) &&
+      (!t.hideWhenEmpty || counts[t.view] > 0 || view === t.view)
   );
 
   return (
@@ -802,8 +869,8 @@ function MoreMenu({
         <div className="p-1.5">
           <MenuItem
             icon={<Download className="h-4 w-4" />}
-            label="ส่งออก Excel"
-            hint="ตามตัวกรอง/การเรียงที่เห็นบนจอ"
+            label="ส่งออกฟอร์มสั่ง"
+            hint="Excel หน้าตาฟอร์มสั่งสินค้า + ชีตรายละเอียด ตามตัวกรองบนจอ"
             onClick={() => run(onExport)}
           />
           <MenuItem
@@ -880,6 +947,9 @@ export function StockToolbar({
   onClearSelection,
   selectedCount,
   adjustedCount,
+  mode,
+  onModeChange,
+  hiddenViews,
 }: {
   search: string;
   onSearchChange: (value: string) => void;
@@ -896,6 +966,10 @@ export function StockToolbar({
   onClearSelection: () => void;
   selectedCount: number;
   adjustedCount: number;
+  mode: StockBrowseMode;
+  onModeChange: (mode: StockBrowseMode) => void;
+  /** แท็บที่ซ่อนในโหมดนี้ — เช่น "สต็อกวิกฤต" ซึ่งนิยามด้วย CVD ล้วน */
+  hiddenViews?: StockView[];
 }) {
   const filtering =
     countActiveFilters(filters) > 0 ||
@@ -928,6 +1002,7 @@ export function StockToolbar({
           ) : null}
         </div>
 
+        <BrowseModeToggle mode={mode} onChange={onModeChange} />
         <FilterMenu
           filters={filters}
           brands={brands}
@@ -958,6 +1033,7 @@ export function StockToolbar({
           <ViewTabs
             view={filters.view}
             counts={counts}
+            hiddenViews={hiddenViews}
             onChange={(view) => onFiltersChange({ ...filters, view })}
           />
           <HideNoSalesToggle

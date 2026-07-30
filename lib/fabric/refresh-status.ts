@@ -1,5 +1,12 @@
 import fs from "fs";
 import path from "path";
+import {
+  getCustomerCsvPath,
+  getPromotionCsvPath,
+  getSalesmanCsvPath,
+  getSkuMasterCsvPath,
+  getStockCoverCsvPath,
+} from "./paths";
 
 export interface MasterRefreshStatus {
   lastSuccessAt?: string;
@@ -47,13 +54,15 @@ export function getCacheFileAges(): Record<string, string | null> {
   const cacheDir =
     process.env.FABRIC_CACHE_DIR?.trim() ||
     path.join(process.cwd(), "data", "cache");
+  // ดึงชื่อจาก paths.ts จุดเดียว — เดิม hard-code ไว้แล้ว drift เมื่อเปลี่ยนไฟล์ต้นทาง
+  // (แผงอายุ cache จะรายงานไฟล์ที่ไม่มีอยู่จริงตลอดไปโดยไม่มีใครสังเกต)
   const files = [
-    "dim_customer.csv",
-    "cross_salesman_reference_email.csv",
-    "stock_cover_day.csv",
-    "cft_promotion_credit.csv",
-    "item_barcode_map_v2.csv",
-  ];
+    getCustomerCsvPath(),
+    getSalesmanCsvPath(),
+    getStockCoverCsvPath(),
+    getPromotionCsvPath(),
+    getSkuMasterCsvPath(),
+  ].map((p) => path.basename(p));
   const ages: Record<string, string | null> = {};
   for (const name of files) {
     const p = path.join(cacheDir, name);

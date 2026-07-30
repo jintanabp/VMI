@@ -15,6 +15,17 @@ import {
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { useAsyncAction } from "@/hooks/use-async-action";
+import { StockQtyStepper } from "@/components/stock/stock-qty-stepper";
+import { cvdFlagHint } from "@/lib/stock/cvd-hint";
+import { StockPromoView } from "@/components/stock/stock-promo-view";
+import { buildPromoBuckets } from "@/lib/promo/promo-browse";
+import {
+  BROWSE_MODE_STORAGE_KEY,
+  DEFAULT_STOCK_BROWSE_MODE,
+  isStockBrowseMode,
+  type StockBrowseMode,
+} from "@/lib/stock/browse-mode";
 import {
   ShoppingCart,
   BarChart3,
@@ -39,7 +50,10 @@ import {
 } from "lucide-react";
 import { AppHeader } from "@/components/layout/app-header";
 import { PageShell } from "@/components/layout/page-shell";
-import { PromoDetailCell } from "@/components/promo/promo-detail-cell";
+import {
+  buildPromoInspectorProps,
+  PromoDetailCell,
+} from "@/components/promo/promo-detail-cell";
 import {
   buildGroupMemberSkusMap,
   PromoGroupHeader,
@@ -162,6 +176,7 @@ export function StockPageClient({
   const [refreshMsg, setRefreshMsg] = useState("");
   const [stopOpen, setStopOpen] = useState(false);
   const [sort, setSort] = useState<StockSortState>(DEFAULT_STOCK_SORT);
+  const [mode, setMode] = useState<StockBrowseMode>(DEFAULT_STOCK_BROWSE_MODE);
   const [sessionReady, setSessionReady] = useState(false);
   const [pendingFocusSku, setPendingFocusSku] = useState<string | null>(null);
 
@@ -246,22 +261,72 @@ export function StockPageClient({
           hideNoSales: saved?.hideNoSales === true,
         });
       }
+      const rawMode = sessionStorage.getItem(BROWSE_MODE_STORAGE_KEY);
+      if (isStockBrowseMode(rawMode)) setMode(rawMode);
     } catch {
       // ignore corrupt session
     }
   }, []);
 
-  /** ส่งออก Excel ตามตัวกรอง/การเรียงที่เห็นบนจอ (สร้างไฟล์ฝั่ง server) */
-  const exportExcel = useCallback(() => {
-    const params = new URLSearchParams({ sort: sort.key, dir: sort.dir });
+  /**
+   * ส่งออก Excel ตามตัวกรอง/การเรียงที่เห็นบนจอ (สร้างไฟล์ฝั่ง server)
+   *
+   * โหลดเป็น blob แทน window.location.href — ได้สถานะ "กำลังสร้างไฟล์" จริง,
+   * error ขึ้นเป็นข้อความแทนการพาไปหน้า JSON เปล่า และกดซ้ำระหว่างสร้างไม่ได้
+   */
+  const exportAction = useAsyncAction(async () => {
+    setRefreshMsg("");
+    // โหมดโปรบังคับเรียงแบบกลุ่มโปร ให้ไฟล์ออกมาจัดกลุ่มเหมือนที่เห็นบนจอ
+    const params = new URLSearchParams({
+      sort: mode === "promo" ? "promoGroup" : sort.key,
+      dir: sort.dir,
+    });
     if (filters.brand) params.set("brand", filters.brand);
     if (filters.section) params.set("section", filters.section);
     if (filters.view !== "all") params.set("view", filters.view);
     if (filters.hideNoSales) params.set("hideNoSales", "1");
     const q = search.trim();
     if (q) params.set("search", q);
-    window.location.href = `${appPath("/api/stock/export")}?${params.toString()}`;
-  }, [sort, filters, search]);
+
+    const res = await fetch(
+      `${appPath("/api/stock/export")}?${params.toString()}`
+    );
+    if (!res.ok) {
+      throw new Error(`ส่งออกไฟล์ไม่สำเร็จ (${res.status})`);
+    }
+    const blob = await res.blob();
+    const disposition = res.headers.get("content-disposition") ?? "";
+    const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition);
+    const filename = match
+      ? decodeURIComponent(match[1])
+      : `vmi-stock-${storeCode}.xlsx`;
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, { onError: (msg) => setRefreshMsg(msg) });
+
+  const exportExcel = exportAction.run;
+
+  /** ยกเลิกหยุดสั่ง — เดิมไม่มี pending และเงียบสนิทเมื่อ server ปฏิเสธ */
+  const unblockAction = useAsyncAction(
+    async (skuId: string) => {
+      const res = await fetch(appPath("/api/store/blocklist"), {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ skuIds: [skuId] }),
+      });
+      if (!res.ok) throw new Error(`ยกเลิกการหยุดสั่งไม่สำเร็จ (${res.status})`);
+      await queryClient.invalidateQueries({ queryKey: ["stock"] });
+      setRefreshMsg("ยกเลิกการหยุดสั่งแล้ว");
+    },
+    { onError: (msg) => setRefreshMsg(msg) }
+  );
 
   const applySort = useCallback((next: StockSortState) => {
     setSort(next);
@@ -269,6 +334,22 @@ export function StockPageClient({
       sessionStorage.setItem(SORT_STORAGE_KEY, JSON.stringify(next));
     } catch {
       // sessionStorage เต็ม/ถูกปิด — เรียงได้ต่อ แค่ไม่จำ
+    }
+  }, []);
+
+  const applyMode = useCallback((next: StockBrowseMode) => {
+    setMode(next);
+    // "สต็อกวิกฤต" นิยามด้วย CVD ล้วน — ในโหมดโปรที่ไม่แสดง CVD มันจะซ่อนสินค้า
+    // ไปเงียบ ๆ โดยผู้ใช้ไม่มีทางรู้ว่าทำไม จึงรีเซ็ตกลับเป็น "ทั้งหมด"
+    if (next === "promo") {
+      setFilters((prev) =>
+        prev.view === "critical" ? { ...prev, view: "all" } : prev
+      );
+    }
+    try {
+      sessionStorage.setItem(BROWSE_MODE_STORAGE_KEY, next);
+    } catch {
+      // ไม่จำโหมด — ใช้งานได้ปกติ
     }
   }, []);
 
@@ -447,10 +528,19 @@ export function StockPageClient({
     return set;
   }, [enrichedRows]);
 
+  /** ถังโปรสำหรับโหมด "โปรโมชั่น" — สมาชิก/ยอดรวมจาก enrichedRows, แถวที่โชว์จาก displayRows */
+  const promoBuckets = useMemo(() => {
+    if (mode !== "promo") return [];
+    return buildPromoBuckets(enrichedRows, displayRows);
+  }, [mode, enrichedRows, displayRows]);
+
   const tableScrollRef = useRef<HTMLDivElement>(null);
   // ความสูงจริงของแผงที่กางออก ต่อ skuId — วัดด้วย ResizeObserver แล้ว feed เข้า estimateSize
   const expandedHeights = useRef<Map<string, number>>(new Map());
-  const shouldVirtualize = isDesktop && !isLoading && displayRows.length >= 40;
+  // โหมดโปรเป็นการ์ดซ้อนกัน ไม่ใช่ลิสต์ <tr> แบน — virtualizer ที่ประเมินความสูง
+  // จากตารางเดียวใช้ไม่ได้ ต้องปิดไว้ ไม่งั้น estimateSize จะ index แถวที่ไม่มีใน DOM
+  const shouldVirtualize =
+    mode === "list" && isDesktop && !isLoading && displayRows.length >= 40;
   const rowVirtualizer = useVirtualizer({
     count: shouldVirtualize ? displayRows.length : 0,
     getScrollElement: () => tableScrollRef.current,
@@ -560,16 +650,10 @@ export function StockPageClient({
     };
   }, [enrichedRows]);
 
-  async function unblock(skuId: string) {
+  function unblock(skuId: string) {
+    if (unblockAction.pending) return;
     if (!confirm("ยกเลิกการหยุดสั่งสินค้านี้?")) return;
-    const res = await fetch(appPath("/api/store/blocklist"), {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ skuIds: [skuId] }),
-    });
-    if (res.ok) {
-      await queryClient.invalidateQueries({ queryKey: ["stock"] });
-    }
+    unblockAction.run(skuId);
   }
 
   const [promoApplyVersion, setPromoApplyVersion] = useState(0);
@@ -790,6 +874,32 @@ export function StockPageClient({
     [rows, selected]
   );
 
+  const selectedSkuCodes = useMemo(
+    () => new Set(selectedItems.map((r) => r.skuCode)),
+    [selectedItems]
+  );
+
+  /**
+   * คำเตือนเมื่อจำนวนที่สั่งไม่เหมาะสม — ใช้ในโหมดโปรที่ไม่มีคอลัมน์ CVD
+   *
+   * footer ยังกั้นการส่งด้วยกฎเดิม แต่ถ้าไม่มีอะไรบอกว่าแถวไหนผิด ผู้ใช้จะหาไม่เจอ
+   * ข้อความที่คืนเป็นประโยคสั่งการล้วน ไม่มีตัวเลข CVD ให้ต้องตีความ
+   */
+  const blockedQtyHint = useCallback(
+    (row: StockRowComputed): string | null => {
+      const { flag, reason, blocking } = getOrderCvdFlag(
+        row.stock,
+        resolveLineQty(row),
+        row.avgSales,
+        row.minDays,
+        row.maxDays
+      );
+      if (!blocking || flag == null) return null;
+      return cvdFlagHint(flag, reason, row);
+    },
+    [resolveLineQty]
+  );
+
   /** รายการที่จำนวนไม่เหมาะสมจนต้องกั้นก่อนส่งออเดอร์
    *  — ไม่นับเคส minPack (สั่ง 1 หีบซึ่งเป็นขั้นต่ำ แล้ว CVD สูงเพราะของขายช้า) */
   const selectedRedCount = useMemo(() => {
@@ -818,6 +928,8 @@ export function StockPageClient({
       if (selectedItems.length === 0) {
         sessionStorage.removeItem("vmi_order_draft");
         sessionStorage.removeItem("vmi_order_qty");
+        // ราคาที่ร้านแก้ไว้ผูกกับ draft นี้ — เคลียร์พร้อมกันไม่งั้นไปเกาะออเดอร์ถัดไป
+        sessionStorage.removeItem("vmi_order_price");
         return;
       }
       // เก็บเฉพาะฟิลด์ที่หน้า order ต้องใช้ — ลด JSON ใหญ่ทุกครั้งที่เลือก/เปลี่ยนจำนวน
@@ -861,7 +973,12 @@ export function StockPageClient({
 
       <main className="vmi-stock-main mx-auto w-full min-w-0 max-w-none px-3 sm:px-4 lg:px-6">
         <div className="vmi-stock-stats shrink-0 py-2 lg:py-3">
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+          <div
+            className={cn(
+              "grid grid-cols-2 gap-2 sm:grid-cols-3",
+              mode === "promo" ? "lg:grid-cols-5" : "lg:grid-cols-6"
+            )}
+          >
             <StockStatCard
               icon={<Package className="h-4 w-4" />}
               label="จำนวน SKU"
@@ -879,12 +996,24 @@ export function StockPageClient({
               title="คงเหลือ (หีบ) × ราคา/หีบ"
               value={formatBaht(stats.totalValue)}
             />
-            <StockStatCard
-              icon={<CalendarClock className="h-4 w-4" />}
-              label="วันที่สินค้าเพียงพอ (CVD)"
-              title="จำนวนวันรวมที่สินค้าเพียงพอ (Cover Day - CVD)"
-              value={formatDays(stats.cvdAll)}
-            />
+            {mode === "promo" ? (
+              <StockStatCard
+                icon={<Sparkles className="h-4 w-4" />}
+                label="กลุ่มโปร"
+                title="จำนวนกลุ่มโปรโมชั่นที่รวมยอดข้ามสินค้าได้"
+                value={formatNumber(
+                  promoBuckets.filter((b) => b.kind === "group").length,
+                  0
+                )}
+              />
+            ) : (
+              <StockStatCard
+                icon={<CalendarClock className="h-4 w-4" />}
+                label="วันที่สินค้าเพียงพอ (CVD)"
+                title="จำนวนวันรวมที่สินค้าเพียงพอ (Cover Day - CVD)"
+                value={formatDays(stats.cvdAll)}
+              />
+            )}
             <StockStatCard
               icon={<ShoppingCart className="h-4 w-4" />}
               label="ควรสั่ง"
@@ -899,23 +1028,26 @@ export function StockPageClient({
                 })
               }
             />
-            <StockStatCard
-              icon={<AlertTriangle className="h-4 w-4" />}
-              label="สต็อกวิกฤต"
-              value={formatNumber(viewCounts.critical, 0)}
-              tone="red"
-              title="จะหมดก่อนถึงจำนวนวันขั้นต่ำ (กดเพื่อดูเฉพาะรายการนี้)"
-              active={filters.view === "critical"}
-              onClick={
-                viewCounts.critical > 0
-                  ? () =>
-                      applyFilters({
-                        ...filters,
-                        view: filters.view === "critical" ? "all" : "critical",
-                      })
-                  : undefined
-              }
-            />
+            {/* สต็อกวิกฤตนิยามด้วย CVD ล้วน — ไม่แสดงในโหมดที่ไม่พูดถึง CVD */}
+            {mode === "list" && (
+              <StockStatCard
+                icon={<AlertTriangle className="h-4 w-4" />}
+                label="สต็อกวิกฤต"
+                value={formatNumber(viewCounts.critical, 0)}
+                tone="red"
+                title="จะหมดก่อนถึงจำนวนวันขั้นต่ำ (กดเพื่อดูเฉพาะรายการนี้)"
+                active={filters.view === "critical"}
+                onClick={
+                  viewCounts.critical > 0
+                    ? () =>
+                        applyFilters({
+                          ...filters,
+                          view: filters.view === "critical" ? "all" : "critical",
+                        })
+                    : undefined
+                }
+              />
+            )}
           </div>
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
             <div className="min-w-0">
@@ -925,7 +1057,12 @@ export function StockPageClient({
                   ข้อมูล ณ {formatDataDate(dataDate)}
                 </p>
               ) : null}
-              {refreshMsg && (
+              {exportAction.pending && (
+                <p className="mt-0.5 text-[11px] text-teal-700 dark:text-teal-400">
+                  กำลังสร้างไฟล์ Excel…
+                </p>
+              )}
+              {!exportAction.pending && refreshMsg && (
                 <p
                   className={cn(
                     "mt-0.5 text-[11px]",
@@ -968,6 +1105,9 @@ export function StockPageClient({
           onClearSelection={clearSelection}
           selectedCount={selected.size}
           adjustedCount={adjustedCount}
+          mode={mode}
+          onModeChange={applyMode}
+          hiddenViews={mode === "promo" ? ["critical"] : undefined}
         />
 
         {isError && (
@@ -988,7 +1128,30 @@ export function StockPageClient({
             ref={tableScrollRef}
             className="vmi-table-scroll vmi-stock-table-scroll overflow-x-hidden"
           >
-            {!isDesktop ? (
+            {mode === "promo" ? (
+              isLoading ? (
+                <p className="px-3 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                  กำลังโหลด...
+                </p>
+              ) : (
+                <StockPromoView
+                  buckets={promoBuckets}
+                  storeCode={activeVda}
+                  stagedQty={promoStagedQty}
+                  suggestByProduct={suggestByProduct}
+                  selectedSkuIds={selected}
+                  selectedSkuCodes={selectedSkuCodes}
+                  qtyOf={lineQty}
+                  blockedQtyHint={blockedQtyHint}
+                  promoApplyVersion={promoApplyVersion}
+                  onToggleRow={toggleRow}
+                  onSetQty={setLineQty}
+                  onAdjustQty={adjustLineQty}
+                  onResetQty={resetLineQty}
+                  onConfirmStaged={applyGroupStaged}
+                />
+              )
+            ) : !isDesktop ? (
             <div>
               {isLoading ? (
                 <p className="px-3 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
@@ -1885,56 +2048,6 @@ const StockMobileRow = memo(function StockMobileRow({
 
 /** props ของตัวเปิดดูขั้นบันไดโปร — เปิดให้ทุกแถวที่มีโปร ไม่ว่าจะเรียงแบบไหน
  *  แถวในกลุ่มโปร (pooled) จะเปิด modal แบบกลุ่มพร้อมรายชื่อ SKU ที่ร้านนี้มีของ */
-function buildPromoInspectorProps(
-  row: StockRowComputed,
-  ctx: {
-    storeCode: string;
-    stagedQty: Record<string, number>;
-    memberSkus?: string[];
-    onConfirmStaged: (
-      staged: Record<string, number>,
-      memberSkus?: string[]
-    ) => void;
-    suggestByProduct: Record<string, number>;
-  }
-) {
-  // มี tier ไม่พอ — C4 มี record ที่ kind = "none" / ส่วนลด 0 ซึ่งกดเข้าไปก็ไม่มีอะไร
-  // รวมถึง "กลุ่มโปร" ที่จับสินค้าไว้ด้วยกันแต่ไม่ให้สิทธิประโยชน์ใด ๆ (ladder = 1 ขั้น ลด 0)
-  // ต้องมีส่วนลด/ของแถมจริงเท่านั้นถึงจะบอกว่ามีโปร — ไม่งั้นเป็นการหลอกให้กดเปล่า ๆ
-  if (!(row.promoTiers ?? []).some(isBenefitTier)) return undefined;
-  return {
-    skuCode: row.skuCode,
-    storeCode: ctx.storeCode,
-    stagedQty: ctx.stagedQty,
-    promoGroup: row.promoGroup,
-    promoGroupMembers: row.promoGroupMembers,
-    stockMemberSkus: ctx.memberSkus,
-    onConfirmStaged: ctx.onConfirmStaged,
-    suggestByProduct: ctx.suggestByProduct,
-  };
-}
-
-/** คำอธิบายธง CVD หลังสั่ง — บอกให้ชัดว่าทำไมเป็นสีนี้ และต้องทำอะไรต่อ */
-function cvdFlagHint(
-  flag: CvdFlag,
-  reason: CvdFlagReason,
-  row: { minDays: number; maxDays: number }
-): string {
-  if (reason === "minPack") {
-    return `สินค้าขายช้า — 1 หีบคือจำนวนขั้นต่ำที่สั่งได้ จึงพอขายได้นานกว่าเป้าหมาย ${row.minDays}–${row.maxDays} วัน สั่งได้ตามปกติ`;
-  }
-  if (reason === "under") {
-    return `สั่งเท่านี้ยังไม่ถึงเป้าหมายขั้นต่ำ ${row.minDays} วัน — เพิ่มจำนวนก่อนส่งคำสั่ง`;
-  }
-  if (reason === "over") {
-    return `สั่งเท่านี้จะมีของค้างเกินเป้าหมาย ${row.maxDays} วันมาก — ลดจำนวนก่อนส่งคำสั่ง`;
-  }
-  if (flag === "yellow") {
-    return `เกินเป้าหมาย ${row.maxDays} วันเล็กน้อย — ยังสั่งได้`;
-  }
-  return `อยู่ในเป้าหมาย ${row.minDays}–${row.maxDays} วัน`;
-}
-
 /** หัวคอลัมน์ที่กดเรียงได้ — ลูกศรโผล่เมื่อ active, จาง ๆ ตอน hover เพื่อบอกว่ากดได้ */
 function SortableTh({
   label,
@@ -2143,132 +2256,4 @@ function formatBlockTitle(row: {
     );
   }
   return parts.join(" · ");
-}
-
-function StockQtyStepper({
-  qty,
-  suggestOrder,
-  onMinus,
-  onPlus,
-  onSetQty,
-  onApplySuggest,
-  compact = false,
-}: {
-  qty: number;
-  suggestOrder: number;
-  onMinus: () => void;
-  onPlus: () => void;
-  onSetQty?: (qty: number) => void;
-  onApplySuggest?: () => void;
-  compact?: boolean;
-}) {
-  const btn = compact ? "h-6 w-6 rounded-md" : "h-8 w-8";
-  const defaultQty = suggestOrder > 0 ? suggestOrder : 0;
-  const showReset = qty !== defaultQty;
-  const [draft, setDraft] = useState(String(qty));
-
-  useEffect(() => {
-    setDraft(String(qty));
-  }, [qty]);
-
-  function commitDraft() {
-    if (!onSetQty) return;
-    const n = Math.floor(Number(draft));
-    if (!Number.isFinite(n) || n < 0) {
-      setDraft(String(qty));
-      return;
-    }
-    onSetQty(n);
-  }
-
-  return (
-    <div
-      className="inline-flex items-center justify-center gap-0.5"
-      onClick={(e) => e.stopPropagation()}
-    >
-      {showReset && onApplySuggest && (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onApplySuggest();
-          }}
-          title={
-            suggestOrder > 0
-              ? `กลับเป็นจำนวนแนะนำ ${suggestOrder}`
-              : "ล้างจำนวนที่ปรับ"
-          }
-          className="rounded p-0.5 text-teal-700 hover:bg-teal-50 dark:text-teal-400 dark:hover:bg-teal-950/50"
-        >
-          <RotateCcw className={compact ? "h-3 w-3" : "h-3.5 w-3.5"} />
-        </button>
-      )}
-      <Button
-        size="icon"
-        variant="outline"
-        className={btn}
-        onClick={(e) => {
-          e.stopPropagation();
-          onMinus();
-        }}
-        disabled={qty <= 0}
-        aria-label="ลดจำนวน"
-      >
-        <Minus className={compact ? "h-3 w-3" : "h-3.5 w-3.5"} />
-      </Button>
-      {onSetQty ? (
-        <input
-          type="number"
-          min={0}
-          inputMode="numeric"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={commitDraft}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.currentTarget.blur();
-            }
-          }}
-          onClick={(e) => e.stopPropagation()}
-          className={cn(
-            "rounded-md border border-slate-200 bg-white px-0.5 text-center font-bold tabular-nums text-slate-900 outline-none ring-teal-500/30 focus:ring-2 dark:border-slate-600 dark:bg-slate-900 dark:text-white",
-            "[appearance:textfield] [&::-webkit-inner-spin-button]:m-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none",
-            compact ? "h-6 w-14 text-xs" : "h-8 w-[4.5rem] text-sm"
-          )}
-          title={
-            suggestOrder > 0 && qty !== suggestOrder
-              ? `แนะนำ ${suggestOrder} หีบ`
-              : "พิมพ์จำนวนหีบ"
-          }
-          aria-label="จำนวนสั่ง"
-        />
-      ) : (
-        <span
-          className={cn(
-            "text-center font-bold tabular-nums text-slate-900 dark:text-white",
-            compact ? "min-w-[1.5rem] text-xs" : "w-8 text-sm"
-          )}
-          title={
-            suggestOrder > 0 && qty !== suggestOrder
-              ? `แนะนำ ${suggestOrder} หีบ`
-              : undefined
-          }
-        >
-          {qty}
-        </span>
-      )}
-      <Button
-        size="icon"
-        variant="outline"
-        className={btn}
-        onClick={(e) => {
-          e.stopPropagation();
-          onPlus();
-        }}
-        aria-label="เพิ่มจำนวน"
-      >
-        <Plus className={compact ? "h-3 w-3" : "h-3.5 w-3.5"} />
-      </Button>
-    </div>
-  );
 }

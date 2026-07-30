@@ -121,9 +121,20 @@ export class PromotionCredit {
   // (division|cusgroup|ASSORTEDPRODUCTGROUP) → rows, สร้างตอน load เพื่อให้ rowsForGroup เป็น O(1)
   private byGroup = new Map<string, PromoRow[]>();
   private csvPath: string | null = null;
+  private lastError: string | null = null;
 
   get isLoaded() {
     return this.byKey.size > 0;
+  }
+
+  /**
+   * ข้อความอธิบายว่าโหลดล้มเพราะอะไร (null = ปกติ)
+   *
+   * โหมดล้มของไฟล์นี้เงียบมาก — คอลัมน์ผิดหรือทุกแถวถูกตีตกจะได้ directory ว่าง
+   * ซึ่งปลายทางเห็นเป็นแค่ "ไม่มีโปรสักตัว" โดยไม่มี error ที่ไหนเลย
+   */
+  get loadError(): string | null {
+    return this.lastError;
   }
 
   rowsFor(division: string, cusgroup: string, product: string): PromoRow[] {
@@ -157,26 +168,40 @@ export class PromotionCredit {
     );
   }
 
+  private fail(message: string): void {
+    this.lastError = message;
+    this.byKey = new Map();
+    this.byGroup = new Map();
+    console.error(`[PromotionCredit] ${message}`);
+  }
+
   load(csvPath: string): void {
+    this.lastError = null;
+    // ตั้ง csvPath ตั้งแต่ต้น — เดิม return ก่อนถึงบรรทัดนี้เมื่อคอลัมน์ขาด
+    // ทำให้ reload() ครั้งถัดไปโหลด path ว่าง
+    this.csvPath = csvPath;
+
     if (!fs.existsSync(csvPath)) {
-      console.warn(`[PromotionCredit] CSV not found: ${csvPath}`);
-      this.byKey = new Map();
-      this.byGroup = new Map();
-      this.csvPath = csvPath;
+      this.fail(`ไม่พบไฟล์โปรโมชั่น: ${csvPath}`);
       return;
     }
 
     const { headers, rows } = readCsvFile(csvPath);
-    const headerSet = new Set(headers.map((h) => h.trim()));
+    // เทียบแบบไม่สนตัวพิมพ์ ให้ตรงกับ normalize ของ row ด้านล่าง
+    // (เดิมเทียบตัวพิมพ์เป๊ะ ไฟล์ที่ส่ง header คนละเคสจะดาวน์โหลดผ่านแต่โหลดไม่ขึ้น)
+    const headerSet = new Set(headers.map((h) => h.trim().toUpperCase()));
     const missing = REQUIRED.filter((c) => !headerSet.has(c));
     if (missing.length > 0) {
-      console.warn(
-        `[PromotionCredit] Missing columns ${missing.join(", ")} in ${csvPath}`
+      this.fail(
+        `คอลัมน์ที่จำเป็นหายไป [${missing.join(", ")}] ใน ${csvPath} — ` +
+          `header ที่พบ: ${headers.map((h) => h.trim()).join(", ")}`
       );
       return;
     }
 
     const byKey = new Map<string, PromoRow[]>();
+    let rowsWithRegion = 0;
+    let rowsWithDate = 0;
     for (const row of rows) {
       const norm: Record<string, string> = {};
       for (const [k, v] of Object.entries(row)) {
@@ -184,10 +209,35 @@ export class PromotionCredit {
       }
       const parsed = parsePromoRow(norm);
       if (!parsed) continue;
+      if (parsed.regions.size > 0) rowsWithRegion++;
+      if (parsed.fromDate) rowsWithDate++;
       const key = `${parsed.division}|${parsed.cusgroup}|${parsed.product}`;
       const bucket = byKey.get(key) ?? [];
       bucket.push(parsed);
       byKey.set(key, bucket);
+    }
+
+    // มีแถวในไฟล์แต่ไม่ผ่าน parse สักแถว = ลายนิ้วมือของคอลัมน์คีย์ (division/product/cusgroup) ว่าง
+    if (rows.length > 0 && byKey.size === 0) {
+      this.fail(
+        `อ่านไฟล์ได้ ${rows.length} แถว แต่ parse ไม่ผ่านสักแถวจาก ${csvPath} — ` +
+          `ตรวจว่า DIVISIONSALE / PRODUCTCODE / CUSTOMERGROUP มีค่าจริงหรือไม่`
+      );
+      return;
+    }
+
+    // isLoaded ยังเป็น true ในสองเคสนี้ ปลายทางจึงไม่มีอะไรเตือน ต้อง log ให้เห็นเอง
+    if (byKey.size > 0 && rowsWithRegion === 0) {
+      console.error(
+        `[PromotionCredit] ทุกแถวไม่มีภูมิภาคที่ให้บริการ (COUNTRY/BANGKOK/... ไม่มีค่า "Y") ` +
+          `จาก ${csvPath} — promoServesRegion จะ false ทุกแถว = ไม่มีโปรที่ไหนเลย`
+      );
+    }
+    if (byKey.size > 0 && rowsWithDate === 0) {
+      console.warn(
+        `[PromotionCredit] ไม่มีแถวไหน parse FROMDATE ได้จาก ${csvPath} — ` +
+          `โปรทุกตัวจะถือว่ายังไม่หมดอายุตลอดไป`
+      );
     }
 
     for (const bucket of byKey.values()) {
@@ -212,27 +262,12 @@ export class PromotionCredit {
     this.byGroup = byGroup;
 
     this.byKey = byKey;
-    this.csvPath = csvPath;
     console.info(
-      `[PromotionCredit] Loaded ${rows.length} rows / ${byKey.size} keys from ${csvPath}`
+      `[PromotionCredit] Loaded ${rows.length} rows / ${byKey.size} keys / ${byGroup.size} groups from ${csvPath}`
     );
   }
 
   reload(csvPath?: string): void {
     this.load(csvPath ?? this.csvPath ?? "");
   }
-}
-
-let promotionCredit: PromotionCredit | null = null;
-
-export function getPromotionCredit(): PromotionCredit {
-  if (!promotionCredit) {
-    promotionCredit = new PromotionCredit();
-  }
-  return promotionCredit;
-}
-
-export function reloadPromotionCredit(csvPath: string): void {
-  promotionCredit = new PromotionCredit();
-  promotionCredit.load(csvPath);
 }

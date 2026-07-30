@@ -25,10 +25,11 @@ export function getStockCoverCsvPath() {
   );
 }
 
+/** ตาราง C4 — ตั้ง PROMOTION_CSV เพื่อชี้กลับไฟล์เดิมได้ทันทีถ้าต้อง rollback */
 export function getPromotionCsvPath() {
   return (
     process.env.PROMOTION_CSV ??
-    path.join(getFabricCacheDir(), "cft_promotion_credit.csv")
+    path.join(getFabricCacheDir(), "cft_promotion_cash.csv")
   );
 }
 

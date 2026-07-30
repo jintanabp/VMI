@@ -17,6 +17,13 @@ export async function register() {
       const t0 = Date.now();
       warmFabricMasters();
       console.info(`[VMI] Fabric masters preloaded in ${Date.now() - t0}ms`);
+
+      // ตาราง C4 อาจโหลดสำเร็จแต่ค้นไม่เจอสักแถวถ้า division/cusgroup ไม่ตรง
+      // — เช็คตอน boot ไม่งั้นจะรู้ตัวก็ตอนร้านโทรมาบอกว่าโปรหาย
+      const { checkPromoContextCoverage } = await import(
+        "./lib/fabric/promo-context-check"
+      );
+      checkPromoContextCoverage();
     } catch (err) {
       console.warn("[VMI] Master preload skipped:", err);
     }

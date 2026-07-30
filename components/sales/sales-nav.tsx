@@ -18,7 +18,10 @@ export function SalesNav() {
   const unseen = data?.unseenCount ?? 0;
 
   // จำนวนออเดอร์รอตรวจ (badge บนแท็บคำสั่งซื้อ) — poll เหมือนการแจ้งเตือน
-  const { data: pending } = useQuery<{ id: string }[]>({
+  // response มี items อยู่แล้ว จึงนับ "ร้านแก้ราคา" ได้โดยไม่ต้องยิง request เพิ่ม
+  const { data: pending } = useQuery<
+    { id: string; items?: { priceFlagged?: boolean }[] }[]
+  >({
     queryKey: ["orders", "pending_approval", "nav-count"],
     queryFn: async () => {
       const r = await fetch(appPath("/api/orders?status=pending_approval"));
@@ -29,10 +32,26 @@ export function SalesNav() {
     refetchInterval: 60_000,
   });
   const pendingCount = pending?.length ?? 0;
+  const priceFlaggedCount =
+    pending?.filter((o) => o.items?.some((i) => i.priceFlagged)).length ?? 0;
 
   const tabs = [
-    { href: "/sales/orders", label: "คำสั่งซื้อ", icon: ClipboardList, badge: pendingCount },
-    { href: "/sales/notifications", label: "การแจ้งเตือน", icon: Bell, badge: unseen },
+    {
+      href: "/sales/orders",
+      label: "คำสั่งซื้อ",
+      icon: ClipboardList,
+      badge: pendingCount,
+      warnBadge: priceFlaggedCount,
+      warnTitle: `${priceFlaggedCount} ออเดอร์มีราคาที่ร้านแก้เอง`,
+    },
+    {
+      href: "/sales/notifications",
+      label: "การแจ้งเตือน",
+      icon: Bell,
+      badge: unseen,
+      warnBadge: 0,
+      warnTitle: "",
+    },
   ];
 
   return (
@@ -63,6 +82,17 @@ export function SalesNav() {
                 )}
               >
                 {t.badge}
+              </span>
+            )}
+            {t.warnBadge > 0 && (
+              <span
+                title={t.warnTitle}
+                className={cn(
+                  "inline-flex min-w-[1.1rem] items-center justify-center rounded-full px-1 text-[10px] font-bold leading-4",
+                  active ? "bg-white text-amber-700" : "bg-amber-500 text-white"
+                )}
+              >
+                ⚠{t.warnBadge}
               </span>
             )}
           </Link>

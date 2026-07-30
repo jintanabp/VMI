@@ -32,7 +32,11 @@ export function StockCaseCell({
       title={title}
     >
       <span className="min-w-[3ch] text-right">{formatNumber(cases, 0)}</span>
-      <span className="mx-px text-slate-300 dark:text-slate-600">/</span>
+      {/* ตัวคั่นต้องอ่านออกว่าเป็น "/" ไม่งั้น "12 0" ดูเหมือนเลข 120
+          — เดิม slate-300/mx-px จางจนแทบมองไม่เห็น */}
+      <span className="mx-1 font-semibold text-slate-500 dark:text-slate-400">
+        /
+      </span>
       <span className="min-w-[3ch] text-left">{formatNumber(remainder, 0)}</span>
     </span>
   );

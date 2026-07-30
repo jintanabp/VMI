@@ -67,6 +67,48 @@ interface PromoDetailCellProps {
   };
 }
 
+export type PromoInspectorProps = NonNullable<
+  PromoDetailCellProps["inspector"]
+>;
+
+/**
+ * แปลงแถวสต็อกเป็น props ของตัวเปิดดูขั้นบันไดโปร
+ *
+ * มี tier ไม่พอ — C4 มี record ที่ kind = "none" / ส่วนลด 0 ซึ่งกดเข้าไปก็ไม่มีอะไร
+ * รวมถึง "กลุ่มโปร" ที่จับสินค้าไว้ด้วยกันแต่ไม่ให้สิทธิประโยชน์ใด ๆ (ladder = 1 ขั้น ลด 0)
+ * ต้องมีส่วนลด/ของแถมจริงเท่านั้นถึงจะบอกว่ามีโปร — ไม่งั้นเป็นการหลอกให้กดเปล่า ๆ
+ */
+export function buildPromoInspectorProps(
+  row: {
+    skuCode: string;
+    promoGroup?: string | null;
+    promoGroupMembers?: number;
+    promoTiers?: PromoTierInput[];
+  },
+  ctx: {
+    storeCode: string;
+    stagedQty: Record<string, number>;
+    memberSkus?: string[];
+    onConfirmStaged: (
+      staged: Record<string, number>,
+      memberSkus?: string[]
+    ) => void;
+    suggestByProduct: Record<string, number>;
+  }
+): PromoInspectorProps | undefined {
+  if (!(row.promoTiers ?? []).some(isBenefitTier)) return undefined;
+  return {
+    skuCode: row.skuCode,
+    storeCode: ctx.storeCode,
+    stagedQty: ctx.stagedQty,
+    promoGroup: row.promoGroup,
+    promoGroupMembers: row.promoGroupMembers,
+    stockMemberSkus: ctx.memberSkus,
+    onConfirmStaged: ctx.onConfirmStaged,
+    suggestByProduct: ctx.suggestByProduct,
+  };
+}
+
 export function PromoDetailCell({
   currentPromo,
   currentKind,

@@ -3,7 +3,16 @@ import { cookies } from "next/headers";
 import { z } from "zod";
 import { getRepositories } from "@/lib/repositories";
 import { exportToPoStub } from "@/lib/po/export-stub";
-import { CUSTOMER_STORE_COOKIE } from "@/lib/auth/roles";
+import {
+  CUSTOMER_STORE_CODE_COOKIE,
+  CUSTOMER_STORE_COOKIE,
+} from "@/lib/auth/roles";
+import { evaluatePriceOverride } from "@/lib/calculations";
+import {
+  lookupOrderPromoLines,
+  type OrderPromoLineResult,
+} from "@/lib/promo/lookup-order-lines";
+import type { OrderItemInput } from "@/lib/repositories/types";
 import { getSalesSession } from "@/lib/auth/sales-session";
 import { prisma } from "@/lib/prisma";
 import { ensureVdaStoreSalesRep } from "@/lib/fabric/ensure-vda-sales-rep";
@@ -22,6 +31,15 @@ const orderItemSchema = z.object({
   cvdEstimate: z.number().nullable(),
   minDays: z.number().int().nullable().optional(),
   maxDays: z.number().int().nullable().optional(),
+  // ราคาที่ร้านแก้เอง — รับแค่ตัวนี้ ที่เหลือเซิร์ฟเวอร์คำนวณเอง (client ประกาศ "ไม่ flagged" ไม่ได้)
+  // .finite() จำเป็น: JSON.parse('{"x":1e999}') ได้ Infinity ซึ่ง z.number() ปล่อยผ่าน
+  unitPriceOverride: z
+    .number()
+    .finite()
+    .min(0)
+    .max(1_000_000)
+    .nullable()
+    .optional(),
 });
 
 const createOrderSchema = z.object({
@@ -122,8 +140,56 @@ export async function POST(request: Request) {
     await ensureVdaStoreSalesRep(store.id, store.code);
   }
 
+  const items = parsed.data.items;
+
+  // ตัดสินธง "ราคาไม่ตรง C4" ฝั่งเซิร์ฟเวอร์ตอนส่ง แล้วแช่ค่าที่ใช้เทียบไว้
+  // — ราคา master เปลี่ยนรายวัน ถ้าคำนวณใหม่ตอนอ่าน ธงจะกระพริบและพิสูจน์ย้อนหลังไม่ได้
+  const skus = await prisma.sku.findMany({
+    where: { id: { in: items.map((i) => i.skuId) } },
+    select: { id: true, code: true },
+  });
+  const codeById = new Map(skus.map((s) => [s.id, s.code]));
+
+  const storeCode =
+    store?.code ?? cookieStore.get(CUSTOMER_STORE_CODE_COOKIE)?.value ?? "";
+
+  let c4BySku: Map<string, OrderPromoLineResult> | null = null;
+  try {
+    const lookup = lookupOrderPromoLines(
+      storeCode,
+      items.map((i) => ({
+        skuCode: codeById.get(i.skuId) ?? "",
+        qty: i.finalQty,
+      }))
+    );
+    c4BySku = new Map(lookup.lines.map((l) => [l.skuCode, l]));
+  } catch {
+    // PROMO_NOT_LOADED — ยืนยันราคาไม่ได้ ให้ธงเป็น "unverified" แทนที่จะเงียบ
+    c4BySku = null;
+  }
+
+  const enrichedItems: OrderItemInput[] = items.map((i) => {
+    const c4 = c4BySku?.get(codeById.get(i.skuId) ?? "") ?? null;
+    const verdict = evaluatePriceOverride({
+      override: i.unitPriceOverride ?? null,
+      c4UnitPrice: c4?.unitPrice ?? null,
+      promoLoaded: c4BySku != null,
+    });
+    return {
+      ...i,
+      unitPriceOverride: verdict.override,
+      c4UnitPrice: c4?.unitPrice ?? null,
+      c4DiscountBaht: c4?.discountBaht ?? null,
+      c4DiscountPct: c4?.discountPct ?? null,
+      c4NetUnitPrice: c4?.netUnitPrice ?? null,
+      c4PriceExpired: c4?.priceExpired ?? null,
+      priceFlagged: verdict.flagged,
+      priceFlagReason: verdict.reason,
+    };
+  });
+
   const { orders } = getRepositories();
-  const order = await orders.createOrder(storeId, parsed.data.items);
+  const order = await orders.createOrder(storeId, enrichedItems);
   const full = await orders.getOrderById(order.id);
   return NextResponse.json(full, { status: 201 });
 }

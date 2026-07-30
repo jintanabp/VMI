@@ -49,8 +49,12 @@ import {
   formatNumber,
   getCvdFlag,
   getPromoForQty,
+  evaluatePriceOverride,
+  resolveEffectivePrice,
+  roundBaht,
   type PromoResult,
 } from "@/lib/calculations";
+import { StorePriceInput } from "@/components/order/store-price-input";
 import { cn } from "@/lib/utils";
 import {
   annotatePromoGroupStripes,
@@ -99,6 +103,9 @@ interface PromoApiLine extends PromoResult {
   promoGroupMembers?: number;
 }
 
+/** ราคาที่ร้านแก้เอง ต้องรอดข้ามการเด้งไป /stock แล้วกลับมา */
+const PRICE_STORAGE_KEY = "vmi_order_price";
+
 interface EnrichedLine {
   row: StockRowComputed;
   qty: number;
@@ -106,6 +113,11 @@ interface EnrichedLine {
   flag: ReturnType<typeof getCvdFlag> | null;
   promo: PromoResult;
   unitPrice: number | null;
+  /** ราคาระบบก่อนร้านแก้ */
+  c4UnitPrice: number | null;
+  unitPriceOverride: number | null;
+  priceMismatch: boolean;
+  priceDiff: number | null;
   netUnitPrice: number | null;
   lineTotal: number | null;
   priceExpired: boolean;
@@ -128,7 +140,14 @@ export function OrderPageClient({
 }: OrderPageClientProps) {
   const router = useRouter();
   const [lines, setLines] = useState<OrderLine[]>([]);
+  /** อ่าน draft จาก sessionStorage เสร็จแล้วหรือยัง — แยก "ยังโหลด" ออกจาก "โหลดแล้วว่าง" */
+  const [ready, setReady] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  /** skuCode → ราคา/หีบ ที่ร้านพิมพ์เอง */
+  const [priceOverrides, setPriceOverrides] = useState<Record<string, number>>(
+    {}
+  );
   const [promoApi, setPromoApi] = useState<{
     lines: Record<string, PromoApiLine>;
     orderTotal: number | null;
@@ -153,6 +172,26 @@ export function OrderPageClient({
       } catch {
         qtyBySku = {};
       }
+      // ตัดราคาที่ค้างของ SKU ที่ไม่อยู่ใน draft นี้แล้วทิ้ง
+      // ไม่งั้นราคาเก่าจะไปเกาะ SKU ที่ถูกลบแล้วเพิ่มกลับมาใหม่
+      let priceBySku: Record<string, number> = {};
+      try {
+        const rawPrice = sessionStorage.getItem(PRICE_STORAGE_KEY);
+        if (rawPrice) {
+          const parsed = JSON.parse(rawPrice) as Record<string, number>;
+          const codes = new Set(items.map((r) => r.skuCode));
+          priceBySku = Object.fromEntries(
+            Object.entries(parsed).filter(
+              ([code, v]) =>
+                codes.has(code) && Number.isFinite(v) && (v as number) >= 0
+            )
+          );
+        }
+      } catch {
+        priceBySku = {};
+      }
+      setPriceOverrides(priceBySku);
+
       setLines(
         items.map((row) => ({
           row,
@@ -161,6 +200,7 @@ export function OrderPageClient({
             (row.suggestOrder > 0 ? row.suggestOrder : 0),
         }))
       );
+      setReady(true);
     } catch {
       router.replace("/stock");
     }
@@ -201,6 +241,31 @@ export function OrderPageClient({
     };
   }, [lines]);
 
+  function setPriceOverride(skuCode: string, price: number | null) {
+    setPriceOverrides((prev) => {
+      const next = { ...prev };
+      if (price == null) delete next[skuCode];
+      else next[skuCode] = roundBaht(price);
+      return next;
+    });
+  }
+
+  useEffect(() => {
+    if (!ready) return;
+    try {
+      if (Object.keys(priceOverrides).length === 0) {
+        sessionStorage.removeItem(PRICE_STORAGE_KEY);
+      } else {
+        sessionStorage.setItem(
+          PRICE_STORAGE_KEY,
+          JSON.stringify(priceOverrides)
+        );
+      }
+    } catch {
+      // sessionStorage ปิดอยู่ — ราคายังใช้ได้ในหน้านี้ แค่ไม่รอดข้ามหน้า
+    }
+  }, [priceOverrides, ready]);
+
   const enriched = useMemo(() => {
     return lines.map((line) => {
       const cvdEst =
@@ -225,19 +290,39 @@ export function OrderPageClient({
           }
         : fallbackPromo;
 
-      const unitPrice = api?.unitPrice ?? line.row.unitPrice ?? null;
+      const c4UnitPrice = api?.unitPrice ?? line.row.unitPrice ?? null;
       const discountBaht =
         api?.discountBaht ?? line.row.discountBahtPerCase ?? null;
       const discountPct =
         api?.discountPct ?? line.row.discountPctPerCase ?? null;
+
+      const override = priceOverrides[line.row.skuCode] ?? null;
+      const verdict = evaluatePriceOverride({
+        override,
+        c4UnitPrice,
+        promoLoaded: true,
+      });
+      const eff = resolveEffectivePrice({
+        override,
+        unitPrice: c4UnitPrice,
+        discountBaht,
+        discountPct,
+      });
+
+      const unitPrice = eff.unitPrice;
+      // ไม่มี override → ใช้ค่าจาก API เหมือนเดิมทุกประการ (ออเดอร์ที่ไม่แก้ราคาต้องไม่เปลี่ยนพฤติกรรม)
       const netUnitPrice =
-        api?.netUnitPrice ??
-        calcNetUnitPrice(unitPrice, discountBaht, discountPct) ??
-        line.row.netUnitPrice ??
-        unitPrice;
+        override != null
+          ? eff.netUnitPrice
+          : (api?.netUnitPrice ??
+            calcNetUnitPrice(c4UnitPrice, discountBaht, discountPct) ??
+            line.row.netUnitPrice ??
+            c4UnitPrice);
       const lineTotal =
-        api?.lineTotal ??
-        calcLineAmount(line.qty, unitPrice, netUnitPrice);
+        override != null
+          ? calcLineAmount(line.qty, unitPrice, netUnitPrice)
+          : (api?.lineTotal ??
+            calcLineAmount(line.qty, c4UnitPrice, netUnitPrice));
 
       return {
         row: line.row,
@@ -246,6 +331,10 @@ export function OrderPageClient({
         flag,
         promo,
         unitPrice,
+        c4UnitPrice,
+        unitPriceOverride: verdict.override,
+        priceMismatch: verdict.flagged,
+        priceDiff: verdict.diff,
         netUnitPrice,
         lineTotal,
         priceExpired: api?.priceExpired ?? line.row.priceExpired ?? false,
@@ -258,19 +347,28 @@ export function OrderPageClient({
         pooledQty: api?.pooledQty ?? line.qty,
       };
     });
-  }, [lines, promoApi]);
+  }, [lines, promoApi, priceOverrides]);
 
   const stats = useMemo(() => {
     const totalQty = enriched.reduce((s, l) => s + l.qty, 0);
     const redCount = enriched.filter((l) => l.flag === "red").length;
     const withPromo = enriched.filter((l) => l.promo.currentPromo).length;
+    const overriddenCount = enriched.filter(
+      (l) => l.unitPriceOverride != null
+    ).length;
+    const mismatchCount = enriched.filter((l) => l.priceMismatch).length;
+    // orderTotal จาก API คิดจากราคา master ไม่รู้จัก override — มี override เมื่อไหร่ต้องรวมเอง
     const orderTotal =
-      promoApi?.orderTotal ??
-      enriched.reduce((s, l) => s + (l.lineTotal ?? 0), 0);
+      overriddenCount > 0
+        ? enriched.reduce((s, l) => s + (l.lineTotal ?? 0), 0)
+        : (promoApi?.orderTotal ??
+          enriched.reduce((s, l) => s + (l.lineTotal ?? 0), 0));
     return {
       totalQty,
       redCount,
       withPromo,
+      overriddenCount,
+      mismatchCount,
       skuCount: enriched.length,
       orderTotal: orderTotal > 0 ? orderTotal : null,
     };
@@ -303,13 +401,20 @@ export function OrderPageClient({
   const hasRedFlag = stats.redCount > 0;
 
   function resetAllToSuggested() {
-    const next = lines
-      .map((line) => ({
-        ...line,
-        qty: line.row.suggestOrder > 0 ? line.row.suggestOrder : 0,
-      }))
-      .filter((line) => line.qty > 0);
+    // ไม่กรองแถวที่ได้ 0 ทิ้ง — ปุ่มนี้ "รีเซ็ตจำนวน" ไม่ใช่ "ลบรายการ"
+    // (เดิมกรองทิ้ง ทำให้ทุกแถวหายพร้อมกันเมื่อ suggestOrder เป็น 0 หมด แล้วหน้าค้างที่ spinner)
+    const next = lines.map((line) => ({
+      ...line,
+      qty: line.row.suggestOrder > 0 ? line.row.suggestOrder : 0,
+    }));
     setLines(next);
+    // รีเซ็ตจำนวน = รีเซ็ตราคาที่แก้ไว้ด้วย ไม่งั้นราคาเก่าจะค้างกับจำนวนใหม่
+    setPriceOverrides({});
+    try {
+      sessionStorage.removeItem(PRICE_STORAGE_KEY);
+    } catch {
+      // ไม่มีอะไรต้องทำ
+    }
     const qtyMap: Record<string, number> = {};
     for (const line of next) {
       qtyMap[line.row.skuCode] = line.qty;
@@ -357,32 +462,57 @@ export function OrderPageClient({
       );
   }, [lines, recentOrders]);
 
+  /** บรรทัดที่ส่งจริง — จำนวน 0 ส่งไม่ได้ (API บังคับ finalQty >= 1) */
+  const submittableLines = useMemo(
+    () => enriched.filter((l) => l.qty > 0),
+    [enriched]
+  );
+
   const submitMutation = useMutation({
     mutationFn: async () => {
       const res = await fetch(appPath("/api/orders"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          items: enriched.map((l) => ({
+          items: submittableLines.map((l) => ({
             skuId: l.row.skuId,
             suggestedQty: l.row.suggestOrder,
             finalQty: l.qty,
             cvdEstimate: l.cvdEst,
             minDays: l.row.minDays,
             maxDays: l.row.maxDays,
+            unitPriceOverride: l.unitPriceOverride,
           })),
         }),
       });
-      if (!res.ok) throw new Error("submit failed");
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as
+          | { error?: unknown }
+          | null;
+        throw new Error(
+          typeof data?.error === "string"
+            ? data.error
+            : `ส่งคำสั่งซื้อไม่สำเร็จ (${res.status})`
+        );
+      }
       return res.json();
     },
     onSuccess: () => {
       sessionStorage.removeItem("vmi_order_draft");
+      // เดิมลืมล้าง ทำให้จำนวนเก่ารั่วไปออเดอร์ถัดไป (stock-page-client อ่านคีย์นี้ตอน rehydrate)
+      sessionStorage.removeItem("vmi_order_qty");
+      sessionStorage.removeItem(PRICE_STORAGE_KEY);
       setSuccess(true);
+    },
+    onError: (err) => {
+      setSubmitError(
+        err instanceof Error ? err.message : "ส่งคำสั่งซื้อไม่สำเร็จ"
+      );
     },
   });
 
   function submitOrder() {
+    setSubmitError(null);
     submitMutation.mutate();
   }
 
@@ -410,6 +540,27 @@ export function OrderPageClient({
   }
 
   if (lines.length === 0) {
+    // โหลดเสร็จแล้วแต่ไม่มีรายการ = ทางตัน ต้องมีทางออกเสมอ ไม่ใช่ spinner หมุนค้าง
+    if (ready) {
+      return (
+        <PageShell>
+          <div className="flex min-h-screen items-center justify-center px-4">
+            <div className="vmi-card-elevated max-w-md p-10 text-center">
+              <h2 className="text-lg font-bold">ไม่มีรายการที่จะสั่ง</h2>
+              <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+                กลับไปเลือกสินค้าและใส่จำนวนที่หน้าสต็อกก่อน
+              </p>
+              <div className="mt-6 flex justify-center">
+                <Button onClick={() => router.push("/stock")}>
+                  <ArrowLeft className="h-4 w-4" />
+                  กลับหน้าสต็อก
+                </Button>
+              </div>
+            </div>
+          </div>
+        </PageShell>
+      );
+    }
     return (
       <PageShell>
         <div className="flex min-h-screen items-center justify-center text-slate-500 dark:text-slate-400">
@@ -463,8 +614,18 @@ export function OrderPageClient({
         </div>
 
         <p className="mb-2 shrink-0 text-xs text-slate-500 dark:text-slate-400">
-          ตรวจสอบรายการก่อนส่ง — หากต้องการแก้ไข กลับไปหน้าสต็อก
+          ตรวจสอบรายการก่อนส่ง — แก้ราคา/หีบ ได้ที่หน้านี้ · แก้จำนวน กลับไปหน้าสต็อก
         </p>
+
+        {stats.mismatchCount > 0 && (
+          <div className="mb-2 flex shrink-0 items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              ราคา {stats.mismatchCount} รายการต่างจากราคาในระบบ —
+              ส่งได้ตามปกติ แต่เซลล์จะเห็นการแจ้งเตือนให้ตรวจสอบก่อนอนุมัติ
+            </span>
+          </div>
+        )}
 
         {hasRedFlag && (
           <div className="mb-2 shrink-0 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
@@ -503,11 +664,28 @@ export function OrderPageClient({
           </div>
         )}
 
+        {submitError && (
+          <div className="mb-2 flex shrink-0 flex-wrap items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            <span className="min-w-0 flex-1">{submitError}</span>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={submitOrder}
+              disabled={submitMutation.isPending}
+            >
+              ลองใหม่
+            </Button>
+          </div>
+        )}
+
         <OrderSummaryList
           lines={displayLines}
           promoStagedQty={promoStagedQty}
           groupMemberSkusMap={groupMemberSkusMap}
           onFocusStock={focusSkuOnStock}
+          onPriceChange={setPriceOverride}
         />
       </main>
 
@@ -542,7 +720,16 @@ export function OrderPageClient({
           <Button
             size="sm"
             className="shrink-0"
-            disabled={hasRedFlag || submitMutation.isPending}
+            disabled={
+              hasRedFlag ||
+              submittableLines.length === 0 ||
+              submitMutation.isPending
+            }
+            title={
+              submittableLines.length === 0
+                ? "ยังไม่มีรายการที่จำนวนมากกว่า 0"
+                : undefined
+            }
             onClick={submitOrder}
           >
             <Send className="h-4 w-4" />
@@ -585,11 +772,13 @@ function OrderSummaryList({
   promoStagedQty,
   groupMemberSkusMap,
   onFocusStock,
+  onPriceChange,
 }: {
   lines: EnrichedLine[];
   promoStagedQty: Record<string, number>;
   groupMemberSkusMap: Map<string, string[]>;
   onFocusStock: (skuCode: string) => void;
+  onPriceChange: (skuCode: string, price: number | null) => void;
 }) {
   return (
     <div className="vmi-table-wrap vmi-order-list-wrap min-h-0 flex-1">
@@ -653,9 +842,13 @@ function OrderSummaryList({
                     value={`${line.row.minDays} / ${line.row.maxDays} วัน`}
                   />
                   <MobileStat label="ราคา/หีบ">
-                    <StockListPriceCell
-                      unitPrice={line.unitPrice}
+                    <StorePriceInput
+                      value={line.unitPriceOverride}
+                      c4UnitPrice={line.c4UnitPrice}
                       expired={line.priceExpired}
+                      mismatch={line.priceMismatch}
+                      diff={line.priceDiff}
+                      onChange={(p) => onPriceChange(line.row.skuCode, p)}
                       compact
                     />
                   </MobileStat>
@@ -776,9 +969,13 @@ function OrderSummaryList({
                   {line.row.minDays} / {line.row.maxDays} วัน
                 </td>
                 <td className="px-2 py-2.5 text-right">
-                  <StockListPriceCell
-                    unitPrice={line.unitPrice}
+                  <StorePriceInput
+                    value={line.unitPriceOverride}
+                    c4UnitPrice={line.c4UnitPrice}
                     expired={line.priceExpired}
+                    mismatch={line.priceMismatch}
+                    diff={line.priceDiff}
+                    onChange={(p) => onPriceChange(line.row.skuCode, p)}
                     compact
                   />
                 </td>

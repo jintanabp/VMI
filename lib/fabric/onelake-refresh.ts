@@ -5,6 +5,7 @@ import {
   fabricStockEnabled,
   getMastersOnelakeConfig,
   getMinRows,
+  getPromotionOnelakeConfig,
   getSoldHistoryOnelakeConfig,
   getStockOnelakeConfig,
   getVdaAosOnelakeConfig,
@@ -285,12 +286,14 @@ export function buildSalesmanSpec(localPath: string): RefreshSpec | null {
 }
 
 export function buildPromotionCreditSpec(localPath: string): RefreshSpec | null {
-  const cfg = getMastersOnelakeConfig();
+  // ตาราง C4 อยู่ workspace Bronze_OrderAgent ซึ่งไม่ใช่ workspace เดียวกับ masters
+  // และ SP ของ masters อ่านไม่ได้ (403) — ต้องใช้ profile ของ stock
+  const cfg = getPromotionOnelakeConfig();
   if (!cfg) return null;
 
   const min = getMinRows();
   return {
-    name: "promotion_credit",
+    name: "promotion_c4",
     localPath,
     workspaceId: cfg.workspaceId,
     onelakeItemId: cfg.lakehouseId,
@@ -305,6 +308,8 @@ export function buildPromotionCreditSpec(localPath: string): RefreshSpec | null 
       "PURCHASEQUANTITYTO",
     ],
     minRows: min.promotion,
+    authProfile:
+      (process.env.CFT_AUTH_PROFILE as OnelakeAuthProfile) ?? "masters",
   };
 }
 

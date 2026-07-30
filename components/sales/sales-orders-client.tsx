@@ -3,6 +3,7 @@
 import { appPath } from "@/lib/paths";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle } from "lucide-react";
 import { useSalesSession } from "@/hooks/use-sales-session";
 import { useSalesPreview } from "@/hooks/use-sales-preview";
 import { AppHeader } from "@/components/layout/app-header";
@@ -11,18 +12,14 @@ import { SalesNav } from "./sales-nav";
 import { StatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SalesRepFilter } from "@/components/sales/sales-rep-filter";
-import { OrderReviewTable } from "@/components/sales/order-review-table";
+import {
+  OrderReviewTable,
+  type ReviewOrderItem,
+} from "@/components/sales/order-review-table";
 import { formatStoreLabel } from "@/lib/format-store-label";
 
-interface OrderItem {
-  id: string;
-  finalQty: number;
-  suggestedQty: number;
-  cvdEstimate: number | null;
-  minDays?: number | null;
-  maxDays?: number | null;
-  sku: { code: string; name: string };
-}
+// ใช้ type เดียวกับตารางรีวิว เพื่อไม่ให้ฟิลด์สองที่หลุดกัน
+type OrderItem = ReviewOrderItem;
 
 interface SalesRep {
   id: string;
@@ -55,6 +52,8 @@ export function SalesOrdersClient() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<"date" | "store">("date");
   const [switchingCode, setSwitchingCode] = useState(false);
+  const [codeError, setCodeError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [allPersonVdas, setAllPersonVdas] = useState(false);
 
   const { data: vdaAccess } = useQuery<{
@@ -121,6 +120,7 @@ export function SalesOrdersClient() {
   async function handleSalesCodeChange(code: string) {
     if (!code || code === vdaAccess?.salesmanCode || switchingCode) return;
     setSwitchingCode(true);
+    setCodeError(null);
     try {
       const res = await fetch(appPath("/api/sales/active-code"), {
         method: "POST",
@@ -136,7 +136,12 @@ export function SalesOrdersClient() {
       queryClient.invalidateQueries({ queryKey: ["sales-vda-access"] });
       queryClient.invalidateQueries({ queryKey: ["orders"] });
       window.location.reload();
-    } catch {
+    } catch (err) {
+      setCodeError(
+        err instanceof Error ? err.message : "เปลี่ยนรหัสไม่สำเร็จ"
+      );
+    } finally {
+      // ต้องอยู่ใน finally — ถ้า reload ถูกบล็อก/ช้า select จะ disabled ค้างถาวร
       setSwitchingCode(false);
     }
   }
@@ -191,11 +196,26 @@ export function SalesOrdersClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      if (!res.ok) throw new Error("action failed");
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as {
+          error?: unknown;
+        } | null;
+        throw new Error(
+          typeof data?.error === "string"
+            ? data.error
+            : `ดำเนินการไม่สำเร็จ (${res.status})`
+        );
+      }
       return res.json();
     },
     onSuccess: () => {
+      setActionError(null);
       queryClient.invalidateQueries({ queryKey: ["orders"] });
+    },
+    onError: (err) => {
+      setActionError(
+        err instanceof Error ? err.message : "ดำเนินการไม่สำเร็จ"
+      );
     },
   });
 
@@ -272,6 +292,11 @@ export function SalesOrdersClient() {
                   </option>
                 ))}
               </select>
+              {codeError && (
+                <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                  {codeError}
+                </p>
+              )}
               <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
                 1 อีเมลมีหลายรหัส — เลือกรหัสเพื่อดู VDA ที่รหัสนั้นดูแล
               </p>
@@ -371,6 +396,8 @@ export function SalesOrdersClient() {
             {sorted.map((order) => {
               const label = formatStoreLabel(order.store.code, order.store.name);
               const skuCount = order.items?.length ?? 0;
+              const priceFlagged =
+                order.items?.filter((i) => i.priceFlagged).length ?? 0;
               return (
               <button
                 key={order.id}
@@ -394,6 +421,12 @@ export function SalesOrdersClient() {
                     timeStyle: "short",
                   })}
                 </p>
+                {priceFlagged > 0 && (
+                  <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:ring-amber-800">
+                    <AlertTriangle className="h-3 w-3" /> ร้านแก้ราคา{" "}
+                    {priceFlagged}
+                  </span>
+                )}
                 {isAdmin && order.store.salesRep && (
                   <p className="mt-0.5 truncate text-[11px] text-slate-400">
                     {order.store.salesRep.name}
@@ -433,10 +466,27 @@ export function SalesOrdersClient() {
                 <StatusBadge status={selected.status} />
               </div>
 
+              {selected.items.some((i) => i.priceFlagged) && (
+                <div className="mb-2 flex shrink-0 items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    ร้านแก้ราคา/หีบ{" "}
+                    {selected.items.filter((i) => i.priceFlagged).length}{" "}
+                    รายการ ไม่ตรงกับราคาในระบบ — ตรวจสอบก่อนอนุมัติ
+                  </span>
+                </div>
+              )}
+
               <OrderReviewTable
                 storeCode={selected.store.code}
                 items={selected.items}
               />
+
+              {selected.status === "pending_approval" && actionError && (
+                <p className="mt-2 shrink-0 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">
+                  {actionError}
+                </p>
+              )}
 
               {selected.status === "pending_approval" && (
                 <>
@@ -449,12 +499,16 @@ export function SalesOrdersClient() {
                     <Button
                       variant="destructive"
                       className="max-xl:flex-1"
+                      disabled={actionMutation.isPending}
                       onClick={() => {
+                        if (actionMutation.isPending) return;
                         const reason = prompt("เหตุผลในการปฏิเสธ (ถ้ามี)");
+                        // กด Cancel = ไม่ปฏิเสธ (เดิมยิง PATCH ทันที)
+                        if (reason === null) return;
                         actionMutation.mutate({
                           orderId: selected.id,
                           action: "reject",
-                          reason: reason ?? undefined,
+                          reason: reason || undefined,
                         });
                       }}
                     >

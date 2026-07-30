@@ -154,6 +154,17 @@ export {
   isBenefitTier,
 } from "./promo";
 
+export type { PriceFlagReason, PriceOverrideVerdict } from "./price-override";
+
+export {
+  PRICE_MATCH_EPSILON,
+  evaluatePriceOverride,
+  isPriceMismatch,
+  priceFlagLabel,
+  resolveEffectivePrice,
+  roundBaht,
+} from "./price-override";
+
 export function formatNumber(value: number, decimals = 1): string {
   return value.toLocaleString("th-TH", {
     minimumFractionDigits: decimals,

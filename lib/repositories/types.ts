@@ -109,6 +109,16 @@ export interface OrderItemInput {
   /** threshold ที่ร้านใช้ตอนสั่ง — เก็บไว้ให้ฝั่งเซลส์คำนวณสีธงตรงกัน */
   minDays?: number | null;
   maxDays?: number | null;
+  /** ราคา/หีบ ที่ร้านแก้เอง (null = ไม่ได้แก้) — อย่างเดียวที่รับจาก client */
+  unitPriceOverride?: number | null;
+  /** สแนปช็อตราคา C4 ณ เวลาส่ง — เซิร์ฟเวอร์เติมเอง ไม่รับจาก client */
+  c4UnitPrice?: number | null;
+  c4DiscountBaht?: number | null;
+  c4DiscountPct?: number | null;
+  c4NetUnitPrice?: number | null;
+  c4PriceExpired?: boolean | null;
+  priceFlagged?: boolean;
+  priceFlagReason?: string | null;
 }
 
 export interface OrderRepository {

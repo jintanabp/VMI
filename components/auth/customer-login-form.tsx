@@ -46,23 +46,32 @@ export function CustomerLoginForm({
     setLoading(true);
     setError("");
 
-    const res = await fetch(appPath("/api/auth/customer/login"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ vda }),
-    });
+    try {
+      const res = await fetch(appPath("/api/auth/customer/login"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vda }),
+      });
 
-    if (!res.ok) {
-      const data = await res.json();
-      setError(data.error ?? "เข้าสู่ระบบไม่สำเร็จ");
+      if (!res.ok) {
+        // body อาจไม่ใช่ JSON (เช่น proxy คืน HTML 502) — อย่าให้ throw จนปุ่มค้าง
+        const data = (await res.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        setError(data?.error ?? `เข้าสู่ระบบไม่สำเร็จ (${res.status})`);
+        setLoading(false);
+        return;
+      }
+
+      // สำเร็จ — ปล่อย loading ค้างไว้ระหว่างเปลี่ยนหน้า (เหมือน store-login-form)
+      if (onSuccess) onSuccess();
+      else {
+        router.push("/stock");
+        router.refresh();
+      }
+    } catch {
+      setError("เชื่อมต่อไม่สำเร็จ — ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่");
       setLoading(false);
-      return;
-    }
-
-    if (onSuccess) onSuccess();
-    else {
-      router.push("/stock");
-      router.refresh();
     }
   }
 

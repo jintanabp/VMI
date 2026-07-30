@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { useSalesSession } from "@/hooks/use-sales-session";
 import { useAdminPreview } from "@/hooks/use-admin-preview";
 import { useSalesPreview } from "@/hooks/use-sales-preview";
+import { useAsyncAction } from "@/hooks/use-async-action";
 
 interface AppHeaderProps {
   title: string;
@@ -64,13 +65,33 @@ export function AppHeader({
   const showPreviewBanner = adminPreview || salesPreview;
 
   async function exitToAdminHub() {
-    if (salesPreview) {
-      await fetch(appPath("/api/auth/admin/exit-sales-preview"), { method: "POST" });
-    } else if (adminPreview) {
-      await fetch(appPath("/api/auth/admin/exit-preview"), { method: "POST" });
+    // ล้าง cookie เป็น best-effort — ถ้าล้มก็ยังต้องพาผู้ใช้ออกจากโหมดทดสอบให้ได้
+    try {
+      if (salesPreview) {
+        await fetch(appPath("/api/auth/admin/exit-sales-preview"), {
+          method: "POST",
+        });
+      } else if (adminPreview) {
+        await fetch(appPath("/api/auth/admin/exit-preview"), { method: "POST" });
+      }
+    } catch {
+      // ไม่ต้องทำอะไร — ไปหน้า admin ต่อ
     }
     window.location.href = appPath("/admin");
   }
+
+  /** ออกจากระบบ — fetch ล้มก็ต้องพาออกจากหน้าเสมอ ไม่งั้นปุ่มจะเหมือนกดแล้วไม่มีอะไรเกิดขึ้น */
+  const signOut = useAsyncAction(async () => {
+    const url =
+      role === "customer"
+        ? { path: "/api/auth/customer/logout", method: "POST" }
+        : { path: "/api/auth/msal/session", method: "DELETE" };
+    try {
+      await fetch(appPath(url.path), { method: url.method });
+    } finally {
+      window.location.href = appPath("/");
+    }
+  });
 
   type BackNav =
     | { kind: "link"; href: string; label: string }
@@ -171,27 +192,16 @@ export function AppHeader({
           variant="ghost"
           size="sm"
           className="ml-auto shrink-0 text-slate-500 md:ml-0 dark:text-slate-400"
+          pending={signOut.pending}
           onClick={() => {
             if (role === "customer" && session?.role === "admin") {
               void exitToAdminHub();
               return;
             }
-            if (role === "customer") {
-              fetch(appPath("/api/auth/customer/logout"), { method: "POST" }).then(
-                () => {
-                  window.location.href = appPath("/");
-                }
-              );
-            } else {
-              fetch(appPath("/api/auth/msal/session"), { method: "DELETE" }).then(
-                () => {
-                  window.location.href = appPath("/");
-                }
-              );
-            }
+            signOut.run();
           }}
         >
-          <LogOut className="h-4 w-4" />
+          {!signOut.pending && <LogOut className="h-4 w-4" />}
           <span className="hidden sm:inline">
             {role === "customer" && session?.role === "admin"
               ? "ออกจาก VDA"

@@ -3,9 +3,9 @@
 import { appPath } from "@/lib/paths";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Filter, Sparkles } from "lucide-react";
+import { AlertTriangle, Filter, Sparkles } from "lucide-react";
 import { PromoDetailCell } from "@/components/promo/promo-detail-cell";
-import { FlagBadge } from "@/components/ui/badge";
+import { FlagBadge, PriceFlagBadge } from "@/components/ui/badge";
 import {
   MobileRow,
   MobileRowExtra,
@@ -14,7 +14,12 @@ import {
   MobileRowTop,
   MobileStat,
 } from "@/components/ui/mobile-row";
-import { formatBaht, getCvdFlag } from "@/lib/calculations";
+import {
+  calcNetUnitPrice,
+  formatBaht,
+  formatNumber,
+  getCvdFlag,
+} from "@/lib/calculations";
 import type { PromoTierKind } from "@/lib/calculations";
 import {
   formatQtyPair,
@@ -26,7 +31,7 @@ import {
   sortRowsByPromoGroup,
 } from "@/lib/promo/promo-group-display";
 
-interface ReviewOrderItem {
+export interface ReviewOrderItem {
   id: string;
   finalQty: number;
   suggestedQty: number;
@@ -34,6 +39,35 @@ interface ReviewOrderItem {
   minDays?: number | null;
   maxDays?: number | null;
   sku: { code: string; name: string };
+  // ราคาที่ร้านแก้เอง + สแนปช็อต C4 ณ เวลาส่ง (null = ออเดอร์ก่อนมีฟีเจอร์นี้)
+  unitPriceOverride?: number | null;
+  c4UnitPrice?: number | null;
+  c4DiscountBaht?: number | null;
+  c4DiscountPct?: number | null;
+  c4NetUnitPrice?: number | null;
+  c4PriceExpired?: boolean | null;
+  priceFlagged?: boolean;
+  priceFlagReason?: string | null;
+}
+
+/** ข้อความอธิบายธงราคา — สร้างจากค่าที่แช่ไว้ตอนส่ง ไม่ใช่ราคาสดวันนี้ */
+function priceFlagTitle(item: ReviewOrderItem): string {
+  const parts: string[] = [];
+  if (item.c4UnitPrice != null) {
+    parts.push(`ราคาระบบ (C4) ${formatNumber(item.c4UnitPrice, 2)}`);
+  } else {
+    parts.push("ระบบไม่มีราคาอ้างอิง");
+  }
+  if (item.unitPriceOverride != null) {
+    parts.push(`ร้านกรอก ${formatNumber(item.unitPriceOverride, 2)}`);
+  }
+  if (item.c4UnitPrice != null && item.unitPriceOverride != null) {
+    const diff = item.unitPriceOverride - item.c4UnitPrice;
+    parts.push(`ต่าง ${diff > 0 ? "+" : ""}${formatNumber(diff, 2)} บาท/หีบ`);
+  }
+  parts.push("ณ เวลาที่ร้านส่ง");
+  if (item.c4PriceExpired) parts.push("ราคาระบบหมดอายุ");
+  return parts.join(" · ");
 }
 
 interface OrderReviewTableProps {
@@ -79,12 +113,56 @@ function PriceBlock({
   netUnitPrice,
   lineTotal,
   expired,
+  item,
+  qty,
 }: {
   unitPrice: number | null;
   netUnitPrice: number | null;
   lineTotal: number | null;
   expired?: boolean;
+  /** มีเมื่อร้านแก้ราคา — แสดงตัวเลขของร้านแทนราคาสดจาก API */
+  item?: ReviewOrderItem;
+  qty?: number;
 }) {
+  const override = item?.unitPriceOverride ?? null;
+
+  // ร้านแก้ราคา → โชว์ตัวเลขที่ร้านตั้งใจ คำนวณจากสแนปช็อต C4 ณ เวลาส่ง
+  // (ไม่ใช้ lineTotal จาก API ซึ่งคิดจากราคา master วันนี้)
+  if (override != null) {
+    const effNet =
+      calcNetUnitPrice(override, item?.c4DiscountBaht, item?.c4DiscountPct) ??
+      override;
+    const effTotal = qty != null ? effNet * qty : null;
+    const hasDiscount = effNet < override - 0.001;
+    return (
+      <div className="text-right tabular-nums">
+        <p className="whitespace-nowrap text-[11px] leading-tight text-slate-500 dark:text-slate-400">
+          {item?.c4UnitPrice != null && (
+            <>
+              <span className="line-through">
+                ระบบ {formatBaht(item.c4UnitPrice)}
+              </span>
+              <span className="mx-0.5 text-slate-400">→</span>
+            </>
+          )}
+          <span className="font-bold text-amber-700 dark:text-amber-400">
+            ร้าน {formatBaht(override)}
+          </span>
+        </p>
+        {hasDiscount && (
+          <p className="whitespace-nowrap text-[11px] leading-tight text-teal-700 dark:text-teal-400">
+            สุทธิ {formatBaht(effNet)}
+          </p>
+        )}
+        {effTotal != null && (
+          <p className="mt-1 whitespace-nowrap text-base font-bold leading-none text-slate-900 dark:text-slate-100">
+            {formatBaht(effTotal)}
+          </p>
+        )}
+      </div>
+    );
+  }
+
   if (unitPrice == null && lineTotal == null) {
     return <span className="text-sm text-slate-400">-</span>;
   }
@@ -173,10 +251,30 @@ export function OrderReviewTable({ storeCode, items }: OrderReviewTableProps) {
     for (const item of items) {
       if (hasActivePromo(promoBySku.get(item.sku.code))) withPromo++;
     }
+    const priceFlagged = items.filter((i) => i.priceFlagged).length;
+    // ร้านแก้ราคาบรรทัดไหน ยอดรวมต้องคิดจากราคาของร้าน ไม่ใช่ราคา master วันนี้
+    const hasOverride = items.some((i) => i.unitPriceOverride != null);
+    if (hasOverride) {
+      orderTotal = 0;
+      for (const item of items) {
+        if (item.unitPriceOverride != null) {
+          const net =
+            calcNetUnitPrice(
+              item.unitPriceOverride,
+              item.c4DiscountBaht,
+              item.c4DiscountPct
+            ) ?? item.unitPriceOverride;
+          orderTotal += net * item.finalQty;
+        } else {
+          orderTotal += promoBySku.get(item.sku.code)?.lineTotal ?? 0;
+        }
+      }
+    }
     return {
       totalQty,
       skuCount: items.length,
       withPromo,
+      priceFlagged,
       orderTotal: orderTotal > 0 ? orderTotal : null,
     };
   }, [items, promoBySku, promoData?.orderTotal]);
@@ -241,6 +339,18 @@ export function OrderReviewTable({ storeCode, items }: OrderReviewTableProps) {
           value={`${stats.withPromo}`}
           icon={<Sparkles className="h-3 w-3 text-violet-500" />}
         />
+        {stats.priceFlagged > 0 && (
+          <>
+            <span aria-hidden className="text-slate-300 dark:text-slate-600">
+              ·
+            </span>
+            <CompactStat
+              label="แก้ราคา"
+              value={`${stats.priceFlagged}`}
+              icon={<AlertTriangle className="h-3 w-3 text-amber-500" />}
+            />
+          </>
+        )}
       </div>
 
       <div
@@ -309,10 +419,17 @@ export function OrderReviewTable({ storeCode, items }: OrderReviewTableProps) {
                   return (
                     <MobileRow
                       key={item.id}
-                      warn={flag === "red" && item.promoGroupStripe == null}
+                      warn={
+                        (flag === "red" || Boolean(item.priceFlagged)) &&
+                        item.promoGroupStripe == null
+                      }
                       className={cn(
                         promoGroupRowBgClass(item.promoGroupStripe ?? null),
-                        flag === "red" && !item.promoGroupStripe && "bg-red-50/40 dark:bg-red-950/20"
+                        flag === "red" && !item.promoGroupStripe && "bg-red-50/40 dark:bg-red-950/20",
+                        flag !== "red" &&
+                          item.priceFlagged &&
+                          !item.promoGroupStripe &&
+                          "bg-amber-50/40 dark:bg-amber-950/20"
                       )}
                     >
                       <MobileRowTop>
@@ -325,6 +442,13 @@ export function OrderReviewTable({ storeCode, items }: OrderReviewTableProps) {
                               {item.sku.code}
                             </span>
                             <FlagBadge flag={flag} />
+                            {item.priceFlagged && (
+                              <PriceFlagBadge
+                                reason={item.priceFlagReason}
+                                title={priceFlagTitle(item)}
+                                compact
+                              />
+                            )}
                           </div>
                           <p className="mt-0.5 line-clamp-2 text-sm font-medium leading-snug text-slate-800 dark:text-slate-100">
                             {item.sku.name}
@@ -349,6 +473,8 @@ export function OrderReviewTable({ storeCode, items }: OrderReviewTableProps) {
                               netUnitPrice={api?.netUnitPrice ?? null}
                               lineTotal={api?.lineTotal ?? null}
                               expired={api?.priceExpired}
+                              item={item}
+                              qty={item.finalQty}
                             />
                           )}
                         </MobileStat>
@@ -420,7 +546,11 @@ export function OrderReviewTable({ storeCode, items }: OrderReviewTableProps) {
                       promoGroupRowBgClass(item.promoGroupStripe ?? null),
                       flag === "red" &&
                         !item.promoGroupStripe &&
-                        "bg-red-50/40 dark:bg-red-950/20"
+                        "bg-red-50/40 dark:bg-red-950/20",
+                      flag !== "red" &&
+                        item.priceFlagged &&
+                        !item.promoGroupStripe &&
+                        "bg-amber-50/40 dark:bg-amber-950/20"
                     )}
                   >
                     <td className="px-2 py-2.5 align-top text-xs text-slate-400">
@@ -433,6 +563,13 @@ export function OrderReviewTable({ storeCode, items }: OrderReviewTableProps) {
                             {item.sku.code}
                           </span>
                           <FlagBadge flag={flag} />
+                          {item.priceFlagged && (
+                            <PriceFlagBadge
+                              reason={item.priceFlagReason}
+                              title={priceFlagTitle(item)}
+                              compact
+                            />
+                          )}
                         </div>
                         <p className="mt-0.5 line-clamp-2 text-sm font-medium leading-snug text-slate-800 dark:text-slate-100">
                           {item.sku.name}

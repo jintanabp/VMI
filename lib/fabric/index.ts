@@ -222,6 +222,19 @@ export function fabricPromoReady(): boolean {
   return shouldLoadPromotion() && getPromotionCreditDirectory().isLoaded;
 }
 
+/** ทำไมโปรถึงไม่พร้อม (null = ปกติ) — ให้หน้า admin เห็นแทนที่จะเงียบ */
+export function promoLoadError(): string | null {
+  if (!fabricMastersEnabled()) return null;
+  const path = getPromotionCsvPath();
+  if (!fs.existsSync(path)) {
+    return `ยังไม่มีไฟล์โปรโมชั่นในเครื่อง: ${path} — รัน sync masters ก่อน`;
+  }
+  if (fs.statSync(path).size <= 100) {
+    return `ไฟล์โปรโมชั่นว่าง/เล็กผิดปกติ: ${path}`;
+  }
+  return getPromotionCreditDirectory().loadError;
+}
+
 export function fabricSkuMasterReady(): boolean {
   return shouldLoadSkuMaster() && getSkuMasterDirectory().isLoaded;
 }
