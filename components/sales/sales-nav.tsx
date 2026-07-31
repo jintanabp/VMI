@@ -32,23 +32,6 @@ export function SalesNav() {
   const pendingCount = counts?.pending ?? 0;
   const priceFlaggedCount = counts?.priceFlagged ?? 0;
 
-  // PO ที่ออกวันนี้ — เดิม badge แท็บนี้ hardcode 0 ไว้เฉย ๆ
-  const todayIso = new Date().toISOString().slice(0, 10);
-  const { data: poToday } = useQuery<{ total: number }>({
-    queryKey: ["sales-po-today", todayIso],
-    queryFn: async () => {
-      const r = await fetch(
-        appPath(
-          `/api/sales/purchase-orders?dateFrom=${todayIso}&dateTo=${todayIso}&pageSize=1`
-        )
-      );
-      if (!r.ok) return { total: 0 };
-      return r.json();
-    },
-    refetchInterval: 60_000,
-  });
-  const poTodayCount = poToday?.total ?? 0;
-
   const tabs = [
     {
       href: "/sales/orders",
@@ -63,8 +46,11 @@ export function SalesNav() {
       href: "/sales/po",
       label: "ใบสั่งซื้อ (PO)",
       icon: FileText,
-      badge: poTodayCount,
-      badgeTitle: `${poTodayCount} PO ที่ออกวันนี้`,
+      // ไม่มี badge โดยตั้งใจ — เคยโชว์จำนวน "PO ที่ออกวันนี้" เป็นจุดแดง
+      // แต่มันไม่ใช่ตัวนับที่ยังไม่อ่าน กดเข้าไปดูก็ไม่หาย ค้างแดงทั้งวัน
+      // จำนวน PO ดูได้จากการ์ดสรุปในหน้านั้นอยู่แล้ว
+      badge: 0,
+      badgeTitle: "",
       warnBadge: 0,
       warnTitle: "",
     },
