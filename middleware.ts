@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { appPath } from "@/lib/paths";
 
 /** Keep cookie names here — do not import from roles.ts (pulls Prisma into Edge). */
 const CUSTOMER_STORE_COOKIE = "vmi_store_id";
@@ -36,12 +37,18 @@ export async function middleware(request: NextRequest) {
     (r) => pathname === r || pathname.startsWith(`${r}/`)
   );
 
+  // appPath() ต้องมี — `new URL(path, request.url)` แทนที่ path ทั้งเส้น
+  // basePath /vmi เลยหลุด แล้ว Location ที่ส่งกลับไปกลายเป็น 404
   if (isCustomerRoute && !storeId) {
-    return NextResponse.redirect(new URL("/login?mode=customer", request.url));
+    return NextResponse.redirect(
+      new URL(appPath("/login?mode=customer"), request.url)
+    );
   }
 
   if ((isSalesRoute || isAdminRoute) && !hasSalesSessionCookie(salesToken)) {
-    return NextResponse.redirect(new URL("/login?mode=sales", request.url));
+    return NextResponse.redirect(
+      new URL(appPath("/login?mode=sales"), request.url)
+    );
   }
 
   if (isAdminRoute) {

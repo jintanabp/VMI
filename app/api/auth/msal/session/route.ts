@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { appPath } from "@/lib/paths";
 import { SALES_SESSION_COOKIE } from "@/lib/auth/roles";
 import { buildSalesSessionWithAccess, signSalesSession } from "@/lib/auth/sales-session";
 
@@ -62,7 +63,10 @@ export async function POST(request: Request) {
     return response;
   }
 
-  const response = NextResponse.redirect(new URL(redirectTo, request.url), 303);
+  const response = NextResponse.redirect(
+    new URL(appPath(redirectTo), request.url),
+    303
+  );
   response.cookies.set(SALES_SESSION_COOKIE, token, cookieOptions());
   return response;
 }

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { appPath } from "@/lib/paths";
 import { exitAdminPreview } from "@/lib/auth/admin-preview";
 import { getSalesSession } from "@/lib/auth/sales-session";
 
@@ -9,5 +10,5 @@ export async function POST(request: Request) {
   }
 
   await exitAdminPreview();
-  return NextResponse.redirect(new URL("/admin", request.url), 303);
+  return NextResponse.redirect(new URL(appPath("/admin"), request.url), 303);
 }

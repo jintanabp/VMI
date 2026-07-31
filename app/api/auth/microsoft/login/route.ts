@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { appPath } from "@/lib/paths";
 import {
   PKCE_COOKIE,
   STATE_COOKIE,
@@ -27,7 +28,7 @@ export async function GET(request: Request) {
       err instanceof Error ? err.message : "ตั้งค่า Azure ไม่ครบ";
     return NextResponse.redirect(
       new URL(
-        `/login?mode=sales&error=${encodeURIComponent(message)}`,
+        appPath(`/login?mode=sales&error=${encodeURIComponent(message)}`),
         request.url
       )
     );

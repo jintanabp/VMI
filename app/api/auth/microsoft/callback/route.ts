@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { appPath } from "@/lib/paths";
 import { SALES_SESSION_COOKIE } from "@/lib/auth/roles";
 import {
   PKCE_COOKIE,
@@ -12,7 +13,7 @@ import { buildSalesSessionWithAccess, signSalesSession } from "@/lib/auth/sales-
 function loginErrorRedirect(request: Request, message: string) {
   return NextResponse.redirect(
     new URL(
-      `/login?mode=sales&error=${encodeURIComponent(message)}`,
+      appPath(`/login?mode=sales&error=${encodeURIComponent(message)}`),
       request.url
     )
   );
@@ -57,7 +58,9 @@ export async function GET(request: Request) {
     const nextPath =
       session.role === "admin" ? "/admin" : "/sales/orders";
 
-    const response = NextResponse.redirect(new URL(nextPath, request.url));
+    const response = NextResponse.redirect(
+      new URL(appPath(nextPath), request.url)
+    );
     response.cookies.set(SALES_SESSION_COOKIE, token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
