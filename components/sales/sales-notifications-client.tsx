@@ -137,7 +137,8 @@ export function SalesNotificationsClient() {
         subtitle="ออเดอร์ใหม่และรายการหยุดสั่งจากร้านที่คุณดูแล"
         role="sales"
       />
-      <main className="mx-auto w-full max-w-3xl space-y-3 px-3 py-4 sm:px-4">
+      {/* รายการอ่าน — ขยายพอให้ไม่เสียพื้นที่ แต่ไม่เต็มจอ บรรทัดยาวเกินอ่านยาก */}
+      <main className="mx-auto w-full max-w-5xl space-y-3 px-3 py-4 sm:px-4">
         <SalesNav />
 
         {isError && (
@@ -160,7 +161,7 @@ export function SalesNotificationsClient() {
               <PackagePlus className="h-4 w-4 text-teal-500" />
               ออเดอร์จากร้าน
               {orderUnseen > 0 && (
-                <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[11px] font-bold text-white">
                   ใหม่ {orderUnseen}
                 </span>
               )}
@@ -216,7 +217,7 @@ export function SalesNotificationsClient() {
                           </span>
                           <span className="truncate text-slate-500">
                             {n.storeName}
-                            <span className="ml-1 font-mono text-[10px] text-slate-400">
+                            <span className="ml-1 font-mono text-[11px] text-slate-400">
                               {n.storeCode}
                             </span>
                           </span>
@@ -229,7 +230,7 @@ export function SalesNotificationsClient() {
                             {n.detail}
                           </p>
                         )}
-                        <p className="mt-0.5 text-[11px] text-slate-400">
+                        <p className="mt-0.5 text-xs text-slate-400">
                           {fmt(n.createdAt)}
                         </p>
                       </div>
@@ -270,7 +271,7 @@ export function SalesNotificationsClient() {
               <Ban className="h-4 w-4 text-red-500" />
               รายการหยุดสั่ง
               {blockUnseen > 0 && (
-                <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[11px] font-bold text-white">
                   ใหม่ {blockUnseen}
                 </span>
               )}
@@ -318,7 +319,7 @@ export function SalesNotificationsClient() {
                         <Store className="h-3.5 w-3.5 shrink-0 text-slate-400" />
                         <span className="truncate">
                           {n.storeName}
-                          <span className="ml-1 font-mono text-[10px] text-slate-400">
+                          <span className="ml-1 font-mono text-[11px] text-slate-400">
                             {n.storeCode}
                           </span>
                         </span>
@@ -332,7 +333,7 @@ export function SalesNotificationsClient() {
                       <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
                         เหตุผล: {n.reason}
                       </p>
-                      <p className="mt-0.5 text-[11px] text-slate-400">
+                      <p className="mt-0.5 text-xs text-slate-400">
                         เริ่มหยุด {fmt(n.effectiveFrom)} · แจ้งเมื่อ{" "}
                         {fmt(n.createdAt)}
                       </p>

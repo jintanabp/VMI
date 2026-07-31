@@ -225,7 +225,7 @@ export function PoDetailPanel({
                         </td>
                         <td className="px-3 py-1.5 text-slate-600 dark:text-slate-300">
                           {l.promoLabel ? (
-                            <span className="inline-flex items-center gap-1 rounded bg-violet-50 px-1.5 py-0.5 text-[11px] font-medium text-violet-700 dark:bg-violet-950/40 dark:text-violet-300">
+                            <span className="inline-flex items-center gap-1 rounded bg-violet-50 px-1.5 py-0.5 text-xs font-medium text-violet-700 dark:bg-violet-950/40 dark:text-violet-300">
                               <Sparkles className="h-3 w-3" />
                               {l.promoLabel}
                             </span>

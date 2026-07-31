@@ -229,7 +229,8 @@ export function SalesPoClient() {
         role="sales"
       />
 
-      <main className="mx-auto w-full max-w-6xl space-y-3 px-3 py-3 sm:px-4">
+      {/* ตาราง 10 คอลัมน์ — ใช้ความกว้างเดียวกับหน้าตรวจออเดอร์ ให้สองหน้าฝั่งเซลล์เท่ากัน */}
+      <main className="mx-auto w-full max-w-[min(100%,96rem)] space-y-3 px-3 py-3 sm:px-4">
         <SalesNav />
 
         {/* สรุปคิดจากผลกรองทั้งหมด ไม่ใช่แค่หน้าที่เปิดอยู่ */}
@@ -473,7 +474,7 @@ export function SalesPoClient() {
                         </span>
                         {po.siblingCount > 1 && (
                           <span
-                            className="ml-1.5 text-[10px] text-slate-400"
+                            className="ml-1.5 text-[11px] text-slate-400"
                             title={`ออเดอร์นี้แบ่งเป็น ${po.siblingCount} PO`}
                           >
                             แบ่ง {po.siblingCount} ใบ
@@ -486,7 +487,7 @@ export function SalesPoClient() {
                       <td className="px-3 py-2">
                         <span
                           className={cn(
-                            "inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-semibold ring-1",
+                            "inline-flex items-center rounded-md px-1.5 py-0.5 text-xs font-semibold ring-1",
                             KIND_CLASS[po.priceKind] ?? KIND_CLASS.mixed
                           )}
                         >
@@ -554,14 +555,14 @@ export function SalesPoClient() {
                         <p className="truncate font-mono text-sm font-bold text-slate-900 dark:text-slate-100">
                           {po.poNumber}
                         </p>
-                        <p className="truncate text-[11px] text-slate-500">
+                        <p className="truncate text-xs text-slate-500">
                           {formatStoreLabel(po.storeCode, po.storeName)}
                         </p>
                       </div>
                     </div>
                     <span
                       className={cn(
-                        "shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ring-1",
+                        "shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-semibold ring-1",
                         KIND_CLASS[po.priceKind] ?? KIND_CLASS.mixed
                       )}
                     >

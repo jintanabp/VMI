@@ -205,7 +205,8 @@ export function ManageClient({
         role="customer"
       />
 
-      <main className="mx-auto w-full max-w-3xl px-3 py-4 sm:px-4">
+      {/* หน้าตั้งค่าแบบ section การ์ด — ขยายจาก 768px แต่ไม่เต็มจอ */}
+      <main className="mx-auto w-full max-w-5xl px-3 py-4 sm:px-4">
         <div className="mb-4 flex flex-wrap gap-1.5" role="tablist">
           {(
             [

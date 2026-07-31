@@ -172,7 +172,7 @@ function SummaryTile({
         {icon}
       </span>
       <span className="flex min-w-0 flex-col leading-none">
-        <span className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
+        <span className="truncate text-[11px] font-medium uppercase tracking-wide text-slate-400 dark:text-slate-500">
           {label}
         </span>
         <span className="mt-1 flex items-baseline gap-1">
@@ -180,7 +180,7 @@ function SummaryTile({
             {value}
           </span>
           {unit && (
-            <span className="shrink-0 text-[10px] font-medium text-slate-400 dark:text-slate-500">
+            <span className="shrink-0 text-[11px] font-medium text-slate-400 dark:text-slate-500">
               {unit}
             </span>
           )}
@@ -227,7 +227,7 @@ function OrderTimeline({ order }: { order: OrderHistoryEntry }) {
           >
             <span
               className={cn(
-                "flex items-center gap-1 text-[11px] font-semibold",
+                "flex items-center gap-1 text-xs font-semibold",
                 s.done
                   ? rejected && idx === 1
                     ? "text-red-700 dark:text-red-300"
@@ -247,7 +247,7 @@ function OrderTimeline({ order }: { order: OrderHistoryEntry }) {
               />
               {s.label}
             </span>
-            <span className="text-[10px] tabular-nums text-slate-400">
+            <span className="text-[11px] tabular-nums text-slate-400">
               {s.at ? fmtDateTime(s.at) : "รอดำเนินการ"}
             </span>
           </span>
@@ -495,7 +495,8 @@ export function OrderHistoryClient({
         role="customer"
       />
 
-      <main className="mx-auto w-full min-w-0 max-w-5xl space-y-3 px-3 py-3 sm:px-4">
+      {/* การ์ดที่กางออกมีตาราง 6 คอลัมน์ + timeline — 1024px เดิมแคบไปบนจอ 1536px */}
+      <main className="mx-auto w-full min-w-0 max-w-7xl space-y-3 px-3 py-3 sm:px-4">
         {/* ---- แจ้งเตือนจากพนักงาน ---- */}
         {notifications.length > 0 && (
           <section
@@ -524,7 +525,7 @@ export function OrderHistoryClient({
               <p className="min-w-0 flex-1 text-sm font-bold text-slate-800 dark:text-slate-100">
                 การแจ้งเตือนจากพนักงาน
                 {unread > 0 && (
-                  <span className="ml-1.5 rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                  <span className="ml-1.5 rounded-full bg-red-500 px-1.5 py-0.5 text-[11px] font-bold text-white">
                     ใหม่ {unread}
                   </span>
                 )}
@@ -533,7 +534,7 @@ export function OrderHistoryClient({
                 <Button
                   size="sm"
                   variant="outline"
-                  className="h-7 shrink-0 px-2 text-[11px]"
+                  className="h-7 shrink-0 px-2 text-xs"
                   pending={markRead.isPending}
                   onClick={() => markRead.mutate()}
                 >
@@ -557,7 +558,7 @@ export function OrderHistoryClient({
                   >
                     <span
                       className={cn(
-                        "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold",
+                        "shrink-0 rounded px-1.5 py-0.5 text-[11px] font-bold",
                         meta.className
                       )}
                     >
@@ -574,7 +575,7 @@ export function OrderHistoryClient({
                         {n.title}
                       </p>
                       {n.detail && (
-                        <p className="mt-0.5 break-words text-[11px] text-slate-500 dark:text-slate-400">
+                        <p className="mt-0.5 break-words text-xs text-slate-500 dark:text-slate-400">
                           {n.detail}
                         </p>
                       )}
@@ -583,7 +584,7 @@ export function OrderHistoryClient({
                           {n.poNumbers.map((po) => (
                             <span
                               key={po}
-                              className="rounded bg-emerald-100 px-1.5 py-0.5 font-mono text-[10px] font-bold text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300"
+                              className="rounded bg-emerald-100 px-1.5 py-0.5 font-mono text-[11px] font-bold text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300"
                             >
                               {po}
                             </span>
@@ -591,7 +592,7 @@ export function OrderHistoryClient({
                         </p>
                       )}
                     </div>
-                    <span className="shrink-0 text-[10px] text-slate-400">
+                    <span className="shrink-0 text-[11px] text-slate-400">
                       {relativeTime(n.createdAt)}
                     </span>
                   </li>
@@ -602,7 +603,7 @@ export function OrderHistoryClient({
               <button
                 type="button"
                 onClick={() => setShowAllNotif((v) => !v)}
-                className="w-full border-t border-slate-200/70 py-1.5 text-[11px] font-medium text-slate-500 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/40"
+                className="w-full border-t border-slate-200/70 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/40"
               >
                 {showAllNotif
                   ? "ย่อ"
@@ -613,7 +614,8 @@ export function OrderHistoryClient({
         )}
 
         {/* ---- สรุป ---- */}
-        <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+        {/* 5 ช่องเสมอ — เดิมเป็น 4 ช่องแล้วการ์ด "มูลค่ารวม" ตกไปอยู่บรรทัดใหม่ลำพัง */}
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
           <SummaryTile
             icon={<History className="h-4 w-4" />}
             label="ออเดอร์ทั้งหมด"
@@ -641,14 +643,18 @@ export function OrderHistoryClient({
             unit="หีบ"
             tone="teal"
           />
-          {stats.totalValue != null && (
-            <SummaryTile
-              icon={<Wallet className="h-4 w-4" />}
-              label="มูลค่ารวม"
-              value={formatBaht(stats.totalValue) ?? "-"}
-              tone="teal"
-            />
-          )}
+          {/* แสดงเสมอ ไม่ซ่อนตามเงื่อนไข — กริดจะได้ไม่กระโดดไปมา
+              "—" = ไม่มีข้อมูลราคา (ออเดอร์เก่า) ซึ่งต่างจาก 0 บาท */}
+          <SummaryTile
+            icon={<Wallet className="h-4 w-4" />}
+            label="มูลค่ารวม"
+            value={
+              stats.totalValue != null
+                ? (formatBaht(stats.totalValue) ?? "—")
+                : "—"
+            }
+            tone="teal"
+          />
         </div>
 
         {/* ---- ตัวกรอง ---- */}
@@ -758,19 +764,19 @@ export function OrderHistoryClient({
                         </span>
                         <span
                           className={cn(
-                            "inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-semibold ring-1",
+                            "inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-semibold ring-1",
                             meta.badge
                           )}
                         >
                           <StatusIcon className="h-3 w-3" />
                           {meta.label}
                         </span>
-                        <span className="text-[11px] text-slate-400">
+                        <span className="text-xs text-slate-400">
                           {relativeTime(order.createdAt)}
                         </span>
                       </div>
 
-                      <p className="mt-0.5 truncate text-[11px] text-slate-500 dark:text-slate-400">
+                      <p className="mt-0.5 truncate text-xs text-slate-500 dark:text-slate-400">
                         {order.items
                           .slice(0, 3)
                           .map((i) => i.skuName)
@@ -779,7 +785,7 @@ export function OrderHistoryClient({
                           ` +${order.items.length - 3} รายการ`}
                       </p>
 
-                      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] tabular-nums text-slate-500 dark:text-slate-400">
+                      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs tabular-nums text-slate-500 dark:text-slate-400">
                         <span className="inline-flex items-center gap-1">
                           <FileText className="h-3 w-3" />
                           {formatNumber(order.itemCount, 0)} รายการ
@@ -804,13 +810,13 @@ export function OrderHistoryClient({
 
                       {order.poNumbers && order.poNumbers.length > 0 && (
                         <div className="mt-1.5 flex flex-wrap items-center gap-1">
-                          <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400">
+                          <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
                             เลข PO
                           </span>
                           {order.poNumbers.map((po) => (
                             <span
                               key={po}
-                              className="rounded bg-emerald-100 px-1.5 py-0.5 font-mono text-[11px] font-bold text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300"
+                              className="rounded bg-emerald-100 px-1.5 py-0.5 font-mono text-xs font-bold text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300"
                               title="ใช้อ้างอิงเวลาตามของกับฝ่ายจัดซื้อ"
                             >
                               {po}
@@ -820,7 +826,7 @@ export function OrderHistoryClient({
                       )}
 
                       {order.rejectReason && (
-                        <p className="mt-1.5 flex items-start gap-1.5 rounded-lg bg-red-50 px-2 py-1 text-[11px] text-red-700 dark:bg-red-950/30 dark:text-red-300">
+                        <p className="mt-1.5 flex items-start gap-1.5 rounded-lg bg-red-50 px-2 py-1 text-xs text-red-700 dark:bg-red-950/30 dark:text-red-300">
                           <Trash2 className="mt-0.5 h-3 w-3 shrink-0" />
                           เหตุผลที่ปฏิเสธ: {order.rejectReason}
                         </p>
@@ -857,7 +863,7 @@ export function OrderHistoryClient({
                             </Button>
                           )}
                         {order.decidedBy && (
-                          <span className="text-[11px] text-slate-400">
+                          <span className="text-xs text-slate-400">
                             ดำเนินการโดย {order.decidedBy}
                           </span>
                         )}
@@ -924,7 +930,7 @@ export function OrderHistoryClient({
                                   <td className="px-3 py-1.5">
                                     {item.promoLabel ? (
                                       <span
-                                        className="inline-flex items-center gap-1 rounded bg-violet-50 px-1.5 py-0.5 text-[11px] font-medium text-violet-700 dark:bg-violet-950/40 dark:text-violet-300"
+                                        className="inline-flex items-center gap-1 rounded bg-violet-50 px-1.5 py-0.5 text-xs font-medium text-violet-700 dark:bg-violet-950/40 dark:text-violet-300"
                                         title={
                                           item.pooledQty &&
                                           item.pooledQty > item.finalQty
@@ -962,7 +968,7 @@ export function OrderHistoryClient({
                                   >
                                     {formatBaht(item.netUnitPrice) ?? "-"}
                                     {item.priceSetBySales && (
-                                      <span className="ml-1 text-[10px] font-normal text-amber-600 dark:text-amber-400">
+                                      <span className="ml-1 text-[11px] font-normal text-amber-600 dark:text-amber-400">
                                         (พนักงาน)
                                       </span>
                                     )}
@@ -1003,7 +1009,7 @@ export function OrderHistoryClient({
                             {order.freeGoods.map((fg) => (
                               <li
                                 key={`${fg.promoGroup ?? ""}-${fg.code}`}
-                                className="flex items-baseline justify-between gap-2 text-[11px]"
+                                className="flex items-baseline justify-between gap-2 text-xs"
                               >
                                 <span className="min-w-0 truncate text-slate-700 dark:text-slate-200">
                                   <span className="font-mono text-violet-700 dark:text-violet-300">
@@ -1039,7 +1045,7 @@ export function OrderHistoryClient({
           </p>
         )}
 
-        <p className="flex items-start gap-1.5 rounded-xl bg-slate-50 px-3 py-2 text-[11px] text-slate-500 dark:bg-slate-800/40 dark:text-slate-400">
+        <p className="flex items-start gap-1.5 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:bg-slate-800/40 dark:text-slate-400">
           <Wallet className="mt-0.5 h-3 w-3 shrink-0" />
           จำนวนที่แสดงเป็นหน่วยหีบ · ออเดอร์ก่อน 30 ก.ค. 2569 บันทึกเป็นหน่วยชิ้น
           ตัวเลขอาจดูสูงกว่าปกติ

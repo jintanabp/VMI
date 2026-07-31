@@ -684,14 +684,19 @@ body {
    text-[9px]/[10px] ไว้ ขยับตามได้พร้อมกันทั้งตาราง
 
    ตั้งค่าเดียวที่อ่านสบายบนทุกจอ — ไม่มีปุ่มให้ผู้ใช้เลือก
-   (13.5px สำหรับเนื้อตาราง เทียบกับเดิมที่บังคับเหลือ 11px ต่ำกว่า 1280px) */
+   (15px สำหรับเนื้อตาราง — เดิม 13.5px ผู้ใช้รายงานว่าเล็กเกินไปบนจอ 1536px
+    ก่อนหน้านั้นเคยบังคับเหลือ 11px ต่ำกว่า 1280px)
+
+   --vmi-row-h ต้องขึ้นตามขนาดตัวอักษร ไม่งั้นเซลล์ 2 บรรทัด (รหัส+บาร์โค้ด, badge+ชื่อ) จะอัด
+   virtualizer อ่านค่านี้จาก getComputedStyle ตอน runtime แล้ว re-measure ให้เอง
+   (stock-page-client.tsx estimateSize) จึงไม่ต้องแก้ฝั่ง TS */
 :root {
-  --vmi-row-fs: 0.84375rem;
-  --vmi-row-fs-sm: 0.78125rem;
-  --vmi-row-fs-xs: 0.71875rem;
-  --vmi-head-fs: 0.78125rem;
+  --vmi-row-fs: 0.9375rem;
+  --vmi-row-fs-sm: 0.875rem;
+  --vmi-row-fs-xs: 0.8125rem;
+  --vmi-head-fs: 0.875rem;
   --vmi-row-py: 0.375rem;
-  --vmi-row-h: 48px;
+  --vmi-row-h: 54px;
 }
 
 .vmi-t-sm {
@@ -776,21 +781,24 @@ body {
 
   /* เดิมบล็อกนี้ฮาร์ดโค้ด .vmi-data-table เหลือ 0.6875rem (11px) และ thead 10px
      ซึ่งชนะ :root variable เพราะมาทีหลัง — เป็นต้นเหตุจริงของ "ตัวอักษรเล็กมาก"
-     ตอนนี้เลื่อนแค่ token เล็กน้อย ไม่ย่อจนอ่านไม่ออก */
+     ตอนนี้เลื่อนแค่ token เล็กน้อย ไม่ย่อจนอ่านไม่ออก
+     (ขยับขึ้นตามสัดส่วนเดียวกับ :root รอบ 31 ก.ค. — จอแคบก็ควรได้อานิสงส์ด้วย) */
   .vmi-stock-main {
-    --vmi-row-fs: 0.8125rem;
-    --vmi-row-fs-sm: 0.75rem;
-    --vmi-row-fs-xs: 0.6875rem;
-    --vmi-head-fs: 0.75rem;
-    --vmi-row-h: 46px;
+    --vmi-row-fs: 0.875rem;
+    --vmi-row-fs-sm: 0.8125rem;
+    --vmi-row-fs-xs: 0.75rem;
+    --vmi-head-fs: 0.8125rem;
+    --vmi-row-h: 50px;
   }
 
+  /* กฎสองข้อนี้ specificity สูงกว่า .vmi-data-table จึงชนะ :root variable
+     ต้องขยับตามด้วย ไม่งั้นตารางตรวจออเดอร์บนจอแคบยังเล็กเท่าเดิม */
   .vmi-sales-orders-page table {
-    font-size: 0.78125rem;
+    font-size: 0.84375rem;
   }
 
   .vmi-sales-orders-page table thead {
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
   }
 
   .vmi-stock-toolbar {
