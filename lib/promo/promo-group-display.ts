@@ -121,6 +121,30 @@ export function promoGroupRowBgClass(
   return STRIPE_ROW_CLASSES[stripe];
 }
 
+/**
+ * แถบตั้งซ้ายอย่างเดียว ไม่มีพื้นหลัง
+ *
+ * ใช้แทน promoGroupRowBgClass ในตารางที่พื้นหลังต้องสงวนไว้ให้ "สถานะของแถว"
+ * (เลือกแล้ว / ธงแดง / ควรสั่ง) — ถ้าปล่อยให้กลุ่มโปรกินพื้นหลังด้วย
+ * จะมี bg-* ซ้อนกันหลายชั้นบน element เดียว แล้วผลลัพธ์จะขึ้นกับลำดับ CSS
+ * ของ Tailwind ไม่ใช่ลำดับที่เขียนใน cn() — เดาไม่ได้และ debug ยาก
+ *
+ * กลุ่มยังอ่านออกชัดเพราะสมาชิกเรียงติดกัน + มีแถวหัวกลุ่มและ badge สีเดียวกัน
+ */
+const STRIPE_BORDER_CLASSES: Record<PromoGroupStripe, string> = {
+  0: "border-l-[3px] border-l-violet-400 dark:border-l-violet-500",
+  1: "border-l-[3px] border-l-sky-400 dark:border-l-sky-500",
+  2: "border-l-[3px] border-l-emerald-400 dark:border-l-emerald-500",
+  3: "border-l-[3px] border-l-amber-400 dark:border-l-amber-500",
+};
+
+export function promoGroupBorderClass(
+  stripe: PromoGroupStripe | null | undefined
+): string {
+  if (stripe == null) return "";
+  return STRIPE_BORDER_CLASSES[stripe];
+}
+
 export function promoGroupBadgeClass(
   stripe: PromoGroupStripe | null | undefined
 ): string {

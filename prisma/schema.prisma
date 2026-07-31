@@ -93,6 +93,14 @@ model PurchaseOrder {
   totalQty    Int
   totalAmount Float
   exportPath  String?
+  /// สถานะหลังออกเลข — ค่าที่ใช้ได้ดูที่ lib/po/po-status.ts (PO_STATUSES)
+  /// เก็บเป็น String ไม่ใช่ enum ตั้งใจให้ปรับ flow ได้โดยไม่ต้อง migrate
+  status      String      @default("issued")
+  /// เวลาที่เปลี่ยนสถานะครั้งล่าสุด (null = ยังไม่เคยเปลี่ยนจากค่าเริ่มต้น)
+  statusAt    DateTime?
+  statusBy    String      @default("")
+  /// หมายเหตุตอนเปลี่ยนสถานะ เช่น เหตุผลที่ยกเลิก
+  statusNote  String      @default("")
   issuedBy    String      @default("")
   issuedAt    DateTime    @default(now())
   order       Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)

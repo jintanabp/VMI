@@ -55,15 +55,8 @@ interface Metric {
   title: string;
 }
 
-/** ย่อเฉพาะเมื่อเกินล้าน — ต่ำกว่านั้นแสดงเต็มเพราะยังอ่านออกและตรงกว่า */
-function compactBaht(n: number): { value: string; unit: string } {
-  if (Math.abs(n) >= 1_000_000) {
-    return { value: formatNumber(n / 1_000_000, 2), unit: "ล้านบาท" };
-  }
-  return { value: formatNumber(n, 0), unit: "บาท" };
-}
-
-/** ย่อจำนวนให้พอดีจอมือถือ: 772,474 → 772K · 4,120,000 → 4.1M */
+/** ย่อจำนวนให้พอดีจอมือถือ: 772,474 → 772K · 4,120,000 → 4.1M
+ *  หมายเหตุ: ไม่ใช้กับมูลค่ารวม — ผู้ใช้ต้องการเห็นเลขเต็มเสมอ */
 function shortNumber(n: number): string {
   const abs = Math.abs(n);
   if (abs >= 1_000_000) return `${formatNumber(n / 1_000_000, 1)}M`;
@@ -86,8 +79,6 @@ export function StockSummaryInline({
   statusMsg?: { text: string; tone: "info" | "warn" } | null;
   onRefresh: () => void;
 }) {
-  const money = compactBaht(summary.totalValue);
-
   const metrics: Metric[] = [
     {
       key: "sku",
@@ -117,9 +108,11 @@ export function StockSummaryInline({
       tone: "amber",
       label: "มูลค่ารวม",
       shortLabel: "มูลค่า",
-      value: money.value,
-      shortValue: shortNumber(summary.totalValue),
-      unit: money.unit,
+      // เลขเต็มทั้งสอง breakpoint — เดิมจอแคบได้ "740K" และเกินล้านได้ "0.74 ล้านบาท"
+      // ซึ่งอ่านแล้วเทียบตัวเลขจริงไม่ได้
+      value: formatNumber(summary.totalValue, 0),
+      shortValue: formatNumber(summary.totalValue, 0),
+      unit: "บาท",
       title: `คงเหลือ (หีบ) × ราคา/หีบ = ${formatNumber(summary.totalValue, 2)} บาท`,
     },
     mode === "promo"

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 import { getSalesSession } from "@/lib/auth/sales-session";
+import { isPoStatus } from "@/lib/po/po-status";
 import { prisma } from "@/lib/prisma";
 import {
   resolveAllPersonVdaCodes,
@@ -23,6 +24,11 @@ export interface PurchaseOrderRow {
   totalAmount: number;
   issuedAt: string;
   issuedBy: string;
+  /** สถานะหลังออกเลข — ค่าที่ใช้ได้ดูที่ lib/po/po-status.ts */
+  status: string;
+  statusAt: string | null;
+  statusBy: string;
+  statusNote: string;
   orderId: string;
   storeCode: string;
   storeName: string;
@@ -50,6 +56,9 @@ export async function GET(request: Request) {
   const sortKey =
     sortParam === "amount" || sortParam === "poNumber" ? sortParam : "issuedAt";
   const sortDir = searchParams.get("dir") === "asc" ? "asc" : "desc";
+  /** ดู PO ของทุก VDA ที่อีเมลนี้ดูแล ไม่ใช่เฉพาะรหัสเซลล์ที่ active อยู่
+   *  (พฤติกรรมเดียวกับหน้าตรวจออเดอร์ — เซลล์ที่ถือหลายรหัสไม่ต้องสลับรหัสไปมา) */
+  const allPersonVdas = searchParams.get("allPersonVdas") === "true";
 
   const pageRaw = Number.parseInt(searchParams.get("page") ?? "", 10);
   const page = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1;
@@ -71,6 +80,8 @@ export async function GET(request: Request) {
     ];
   }
   if (priceKind && priceKind !== "all") where.priceKind = priceKind;
+  const status = searchParams.get("status")?.trim();
+  if (status && status !== "all" && isPoStatus(status)) where.status = status;
 
   const from = dateFrom ? new Date(dateFrom) : null;
   const to = dateTo ? new Date(dateTo) : null;
@@ -85,9 +96,20 @@ export async function GET(request: Request) {
 
   if (session.role !== "admin") {
     const codes = resolveSalesmanCodesForFilter(session);
-    let allowed = resolveVdaCodesForSalesmanCodes(codes);
-    if (allowed.length === 0 && session.role === "sales") {
-      allowed = resolveAllPersonVdaCodes(session.email);
+    let allowed: string[];
+    if (allPersonVdas && session.role === "sales") {
+      // ขอดูทุก VDA ของคนนี้ — รวมของทุกรหัสที่ถืออยู่ ไม่ใช่แค่รหัส active
+      allowed = [
+        ...new Set([
+          ...resolveVdaCodesForSalesmanCodes(codes),
+          ...resolveAllPersonVdaCodes(session.email),
+        ]),
+      ];
+    } else {
+      allowed = resolveVdaCodesForSalesmanCodes(codes);
+      if (allowed.length === 0 && session.role === "sales") {
+        allowed = resolveAllPersonVdaCodes(session.email);
+      }
     }
     if (allowed.length === 0) {
       return NextResponse.json({
@@ -147,6 +169,10 @@ export async function GET(request: Request) {
     totalAmount: po.totalAmount,
     issuedAt: po.issuedAt.toISOString(),
     issuedBy: po.issuedBy,
+    status: po.status,
+    statusAt: po.statusAt?.toISOString() ?? null,
+    statusBy: po.statusBy,
+    statusNote: po.statusNote,
     orderId: po.order.id,
     storeCode: po.order.store.code,
     storeName: po.order.store.name,

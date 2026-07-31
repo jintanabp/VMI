@@ -106,7 +106,7 @@ import {
 import {
   annotatePromoGroupStripes,
   followsPooledPromoGroup,
-  promoGroupRowBgClass,
+  promoGroupBorderClass,
   type PromoGroupStripe,
 } from "@/lib/promo/promo-group-display";
 import {
@@ -800,35 +800,55 @@ export function StockPageClient({
     if (adding && row) initQtyForRow(row);
   }
 
+  /**
+   * แถวที่ปุ่ม "เลือกทั้งหมด" บนหัวตารางจะกวาด — ตัดสินจาก "จำนวนที่จะสั่งจริง"
+   * ไม่ใช่ needsOrder อย่างเดียว จึงครอบทุกเจตนาของผู้ใช้ด้วยเงื่อนไขเดียว
+   *
+   *   ระบบแนะนำ ไม่ได้แตะ      → suggestOrder > 0  ✅
+   *   ไม่แนะนำ แต่ตั้งจำนวนเอง → override > 0      ✅ (เดิมตกหล่น)
+   *   ไม่แนะนำ ไม่ได้แตะ        → 0                ❌
+   *   แนะนำ แต่ตั้งเป็น 0 เอง   → 0                ❌ ผู้ใช้บอกชัดว่าไม่เอา
+   *
+   * เคสสุดท้ายสำคัญ: เดิมเลือกแถวนั้นด้วย แล้วไปติด selectedZeroQtyCount
+   * ซึ่งปิดปุ่ม "ตรวจสอบคำสั่ง" — กดเลือกทั้งหมดแล้วส่งออเดอร์ไม่ได้โดยไม่รู้สาเหตุ
+   */
+  const selectableRows = useMemo(
+    () => filtered.filter((r) => resolveLineQty(r) > 0),
+    [filtered, resolveLineQty]
+  );
+
+  /** เฉพาะที่ระบบแนะนำ — ใช้กับปุ่ม "เลือกที่ควรสั่ง" ที่แถบล่าง
+   *  (คนละความหมายกับ selectableRows ข้างบน ป้ายปุ่มก็บอกต่างกัน) */
   const filteredNeedsOrder = useMemo(
     () => filtered.filter((r) => r.needsOrder),
     [filtered]
   );
 
-  const allNeedsSelected =
-    filteredNeedsOrder.length > 0 &&
-    filteredNeedsOrder.every((r) => selected.has(r.skuId));
+  const allSelectableSelected =
+    selectableRows.length > 0 &&
+    selectableRows.every((r) => selected.has(r.skuId));
 
-  const someNeedsSelected =
-    filteredNeedsOrder.some((r) => selected.has(r.skuId)) && !allNeedsSelected;
+  const someSelectableSelected =
+    selectableRows.some((r) => selected.has(r.skuId)) && !allSelectableSelected;
 
   function toggleSelectAllNeeds() {
-    if (allNeedsSelected) {
+    if (allSelectableSelected) {
       setSelected((prev) => {
         const next = new Set(prev);
-        filteredNeedsOrder.forEach((r) => next.delete(r.skuId));
+        selectableRows.forEach((r) => next.delete(r.skuId));
         return next;
       });
       return;
     }
     setSelected((prev) => {
       const next = new Set(prev);
-      filteredNeedsOrder.forEach((r) => next.add(r.skuId));
+      selectableRows.forEach((r) => next.add(r.skuId));
       return next;
     });
+    // ตรึงค่าที่แนะนำให้เป็นค่าจริงในดราฟต์ — แถวที่ผู้ใช้ตั้งเองมีค่าอยู่แล้ว ไม่ทับ
     setQtyOverrides((prev) => {
       const next = { ...prev };
-      for (const r of filteredNeedsOrder) {
+      for (const r of selectableRows) {
         if (next[r.skuCode] == null) {
           next[r.skuCode] = r.suggestOrder > 0 ? r.suggestOrder : 0;
         }
@@ -1175,36 +1195,39 @@ export function StockPageClient({
             ) : (
             <table className="vmi-data-table vmi-stock-fit-table w-full table-fixed text-left">
             {/* ชื่อสินค้า 21% — วัดจากข้อมูลจริงแล้วชื่อที่ยาวสุดใช้ ~271px พอดีหนึ่งบรรทัด
-                ที่เหลือยกให้คอลัมน์โปร (19%) ซึ่งต้องวาง 3 บรรทัดของข้อมูลโปร */}
+                ที่เหลือยกให้คอลัมน์โปร (19%) ซึ่งต้องวาง 3 บรรทัดของข้อมูลโปร
+
+                ⚠️ ความกว้างอิง "ตำแหน่ง" ไม่ใช่ชื่อคอลัมน์ — ย้ายคอลัมน์เมื่อไหร่
+                ต้องย้าย <col> ให้ตรงกันทุกครั้ง ไม่งั้นความกว้างสลับมั่วทั้งตาราง */}
             <colgroup>
-              <col className="w-[2.5%]" />
-              <col className="w-[6.5%]" />
-              <col className="w-[21%]" />
-              <col className="w-[5%]" />
-              <col className="w-[5.5%]" />
-              <col className="w-[4.5%]" />
-              <col className="w-[5%]" />
-              <col className="w-[9%]" />
-              <col className="w-[6.5%]" />
-              <col className="w-[5%]" />
-              <col className="w-[5%]" />
-              <col className="w-[5.5%]" />
-              <col className="w-[19%]" />
+              <col className="w-[2.5%]" /> {/* checkbox */}
+              <col className="w-[6.5%]" /> {/* SKU */}
+              <col className="w-[21%]" /> {/* ชื่อสินค้า */}
+              <col className="w-[5%]" /> {/* สต็อก */}
+              <col className="w-[5.5%]" /> {/* ขายเฉลี่ย */}
+              <col className="w-[4.5%]" /> {/* CVD */}
+              <col className="w-[5%]" /> {/* MIN / MAX */}
+              <col className="w-[5%]" /> {/* ราคา/หีบ */}
+              <col className="w-[5%]" /> {/* ส่วนลด */}
+              <col className="w-[5.5%]" /> {/* ราคาสุทธิ/หีบ */}
+              <col className="w-[19%]" /> {/* โปร */}
+              <col className="w-[9%]" /> {/* จำนวนสั่ง */}
+              <col className="w-[6.5%]" /> {/* CVD หลังสั่ง */}
             </colgroup>
             <thead className="font-medium text-slate-500 dark:text-slate-400">
               <tr>
                 <th className="px-1 py-2">
                   <Checkbox
                     checked={
-                      allNeedsSelected
+                      allSelectableSelected
                         ? true
-                        : someNeedsSelected
+                        : someSelectableSelected
                           ? "indeterminate"
                           : false
                     }
                     onCheckedChange={toggleSelectAllNeeds}
-                    aria-label="เลือกรายการที่ควรสั่งทั้งหมดในตาราง"
-                    title="เลือกรายการที่ควรสั่ง (ตามตัวกรอง)"
+                    aria-label="เลือกทุกรายการที่มีจำนวนสั่งในตาราง"
+                    title="เลือกทุกรายการที่มีจำนวนสั่ง — ทั้งที่ระบบแนะนำ และที่คุณปรับจำนวนเอง (ตามตัวกรอง)"
                   />
                 </th>
                 <SortableTh
@@ -1254,6 +1277,12 @@ export function StockPageClient({
                 >
                   MIN / MAX
                 </th>
+                <th className="px-1 py-2 text-right">ราคา/หีบ</th>
+                <th className="px-1 py-2 text-right">ส่วนลด</th>
+                {/* ตัวเลขชิดขวาชนข้อความโปรที่ชิดซ้าย — เว้นช่องให้ห่างขึ้น
+                    เขียน pl/pr แยกแทน px-1 เพราะ px กับ pl ทับกันเองตามลำดับ CSS */}
+                <th className="py-2 pl-1 pr-2 text-right">ราคาสุทธิ/หีบ</th>
+                <th className="py-2 pl-3 pr-1">โปร</th>
                 <SortableTh
                   label="จำนวนสั่ง"
                   align="center"
@@ -1265,14 +1294,10 @@ export function StockPageClient({
                 />
                 <th
                   className="px-1 py-2 text-center"
-                  title="CVD หลังสั่ง — เกิน MAX ได้ไม่เกิน 4 วันยังถือว่าเหมาะสม"
+                  title="CVD หลังของเข้า — เกิน MAX ได้ไม่เกิน 4 วันยังถือว่าเหมาะสม"
                 >
-                  หลังสั่ง
+                  CVD หลังสั่ง
                 </th>
-                <th className="px-1 py-2 text-right">ราคา/หีบ</th>
-                <th className="px-1 py-2 text-right">ส่วนลด</th>
-                <th className="px-1 py-2 text-right">ราคาสุทธิ/หีบ</th>
-                <th className="px-1 py-2">โปร</th>
               </tr>
             </thead>
             <tbody>
@@ -1354,13 +1379,25 @@ export function StockPageClient({
                     <tr
                       data-sku-code={row.skuCode}
                       className={cn(
-                        "border-t border-slate-100 text-slate-800 transition-colors hover:bg-slate-50/60 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-800/40",
+                        "border-t border-slate-100 text-slate-800 transition-colors dark:border-slate-800 dark:text-slate-200",
                         afterPromoGroup &&
                           "border-t-2 border-t-slate-300 dark:border-t-slate-600",
-                        promoGroupRowBgClass(row.promoGroupStripe),
-                        lowStock && !row.promoGroupStripe && "bg-amber-100/80 dark:bg-amber-950/20",
-                        selected.has(row.skuId) && "bg-teal-100/70 dark:bg-teal-950/25",
-                        flag === "red" && "bg-red-50/70 dark:bg-red-950/25"
+                        // กลุ่มโปร = แถบตั้งซ้าย · ไม่กินพื้นหลัง
+                        promoGroupBorderClass(row.promoGroupStripe),
+                        // พื้นหลัง = สถานะของแถว ชั้นเดียว มีลำดับชัดเจน
+                        // เขียนเป็น ternary ไม่ใช่ซ้อน class เพราะ bg-* หลายตัวบน element เดียว
+                        // จะให้ผลตามลำดับ CSS ของ Tailwind ไม่ใช่ลำดับที่เขียนตรงนี้
+                        //
+                        // สี hover ต้องอยู่ในก้อนเดียวกับสีพื้นด้วย — เดิมมี hover:bg-slate-50/60
+                        // อยู่ใน class พื้นฐาน ซึ่ง :hover มี specificity สูงกว่า bg-* ธรรมดา
+                        // เลยทับสีสถานะเป็นขาวทุกครั้งที่ชี้เมาส์ มองไม่ออกว่าเลือกไว้แล้ว
+                        selected.has(row.skuId)
+                          ? "bg-teal-100 hover:bg-teal-200 dark:bg-teal-900/40 dark:hover:bg-teal-900/60"
+                          : flag === "red"
+                            ? "bg-red-50/70 hover:bg-red-100/80 dark:bg-red-950/25 dark:hover:bg-red-950/40"
+                            : lowStock
+                              ? "bg-amber-100/80 hover:bg-amber-200/70 dark:bg-amber-950/20 dark:hover:bg-amber-950/35"
+                              : "hover:bg-slate-50/60 dark:hover:bg-slate-800/40"
                       )}
                     >
                       <td className="px-1 py-1.5">
@@ -1460,6 +1497,61 @@ export function StockPageClient({
                       >
                         {row.minDays}/{row.maxDays} วัน
                       </td>
+                      <td className="px-1 py-1.5 text-right">
+                        <StockListPriceCell
+                          unitPrice={row.unitPrice}
+                          expired={row.priceExpired}
+                          compact
+                        />
+                      </td>
+                      <td className="px-1 py-1.5 text-right">
+                        <StockDiscountPerCaseCell
+                          discountBaht={row.discountBahtPerCase}
+                          discountPct={row.discountPctPerCase}
+                          compact
+                        />
+                      </td>
+                      <td className="py-1.5 pl-1 pr-2 text-right">
+                        <StockNetPriceCell
+                          unitPrice={row.unitPrice}
+                          netUnitPrice={row.netUnitPrice}
+                          expired={row.priceExpired}
+                          compact
+                        />
+                      </td>
+                      <td className="max-w-0 overflow-hidden py-1.5 pl-3 pr-1 align-top">
+                        <div className="min-w-0">
+                          <PromoDetailCell
+                            variant="compact"
+                            currentPromo={row.currentPromo}
+                            currentKind={row.currentPromoKind}
+                            nextPromo={row.nextPromo}
+                            qtyToNext={row.qtyToNext}
+                            nextPromoQty={row.nextPromoQty}
+                            nextKind={row.nextPromoKind}
+                            freeGood={row.freeGood}
+                            showFreeGoodChip={false}
+                            hasPromoLadder={row.hasPromoLadder}
+                            tiers={row.promoTiers}
+                            endsInDays={row.currentPromoEndsInDays}
+                            onApplyNext={(qty) =>
+                              setLineQty(row.skuCode, qty)
+                            }
+                            muted={row.suggestOrder <= 0}
+                            // เรียงแบบกลุ่มโปรมีแถวหัวกลุ่ม + แถบสีบอกอยู่แล้ว ไม่ต้องซ้ำ
+                            showGroupChip={row.promoGroupStripe == null}
+                            inspector={buildPromoInspectorProps(row, {
+                              storeCode: activeVda,
+                              stagedQty: promoStagedQty,
+                              memberSkus: row.promoGroup
+                                ? groupMemberSkusMap.get(row.promoGroup)
+                                : undefined,
+                              onConfirmStaged: applyGroupStaged,
+                              suggestByProduct,
+                            })}
+                          />
+                        </div>
+                      </td>
                       <td className="px-1 py-1.5 text-center">
                         <StockQtyStepper
                           qty={lineQty(row)}
@@ -1500,61 +1592,6 @@ export function StockPageClient({
                         ) : (
                           <span className="text-slate-400">—</span>
                         )}
-                      </td>
-                      <td className="px-1 py-1.5 text-right">
-                        <StockListPriceCell
-                          unitPrice={row.unitPrice}
-                          expired={row.priceExpired}
-                          compact
-                        />
-                      </td>
-                      <td className="px-1 py-1.5 text-right">
-                        <StockDiscountPerCaseCell
-                          discountBaht={row.discountBahtPerCase}
-                          discountPct={row.discountPctPerCase}
-                          compact
-                        />
-                      </td>
-                      <td className="px-1 py-1.5 text-right">
-                        <StockNetPriceCell
-                          unitPrice={row.unitPrice}
-                          netUnitPrice={row.netUnitPrice}
-                          expired={row.priceExpired}
-                          compact
-                        />
-                      </td>
-                      <td className="max-w-0 overflow-hidden px-1 py-1.5 align-top">
-                        <div className="min-w-0">
-                          <PromoDetailCell
-                            variant="compact"
-                            currentPromo={row.currentPromo}
-                            currentKind={row.currentPromoKind}
-                            nextPromo={row.nextPromo}
-                            qtyToNext={row.qtyToNext}
-                            nextPromoQty={row.nextPromoQty}
-                            nextKind={row.nextPromoKind}
-                            freeGood={row.freeGood}
-                            showFreeGoodChip={false}
-                            hasPromoLadder={row.hasPromoLadder}
-                            tiers={row.promoTiers}
-                            endsInDays={row.currentPromoEndsInDays}
-                            onApplyNext={(qty) =>
-                              setLineQty(row.skuCode, qty)
-                            }
-                            muted={row.suggestOrder <= 0}
-                            // เรียงแบบกลุ่มโปรมีแถวหัวกลุ่ม + แถบสีบอกอยู่แล้ว ไม่ต้องซ้ำ
-                            showGroupChip={row.promoGroupStripe == null}
-                            inspector={buildPromoInspectorProps(row, {
-                              storeCode: activeVda,
-                              stagedQty: promoStagedQty,
-                              memberSkus: row.promoGroup
-                                ? groupMemberSkusMap.get(row.promoGroup)
-                                : undefined,
-                              onConfirmStaged: applyGroupStaged,
-                              suggestByProduct,
-                            })}
-                          />
-                        </div>
                       </td>
                     </tr>
                     {showFreeGoodRow && row.freeGood && (
@@ -1835,16 +1872,15 @@ const StockMobileRow = memo(function StockMobileRow({
     <MobileRow
       data-sku-code={row.skuCode}
       selected={selected}
-      warn={
-        (orderFlag === "red" || lowStock) && row.promoGroupStripe == null
-      }
+      // MobileRow จัดการพื้นหลังตอน selected ให้แล้ว (selected ชนะ warn)
+      warn={orderFlag === "red" || lowStock}
       className={cn(
         "vmi-cv-auto",
         afterPromoGroup && "border-t-2 border-t-slate-300 dark:border-t-slate-600",
-        promoGroupRowBgClass(row.promoGroupStripe ?? null),
-        orderFlag === "red"
-          ? "bg-red-50/70 dark:bg-red-950/25"
-          : lowStock && !row.promoGroupStripe && "bg-amber-100/80 dark:bg-amber-950/20"
+        // กลุ่มโปร = แถบตั้งซ้าย เหมือนฝั่งเดสก์ท็อป
+        promoGroupBorderClass(row.promoGroupStripe ?? null),
+        // สีแดงเฉพาะตอนยังไม่ถูกเลือก — ถูกเลือกแล้วต้องเป็นเขียวจาก MobileRow
+        !selected && orderFlag === "red" && "bg-red-50/70 dark:bg-red-950/25"
       )}
     >
       {row.promoGroupIsFirst && row.promoGroupStripe != null && row.promoGroup && (
@@ -1937,7 +1973,7 @@ const StockMobileRow = memo(function StockMobileRow({
         </MobileStat>
         <MobileStat label="CVD" value={formatDays(row.stockCvd)} />
         {orderFlag && (
-          <MobileStat label="หลังสั่ง">
+          <MobileStat label="CVD หลังสั่ง">
             <div
               className="flex flex-col items-start gap-0.5"
               title={cvdFlagHint(orderFlag, orderCvdReason, row)}

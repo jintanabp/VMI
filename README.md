@@ -18,6 +18,9 @@
 - Microsoft Entra ID (OAuth ฝั่ง server)
 - Microsoft Fabric OneLake (ข้อมูล master / stock / โปร)
 - TanStack Query
+- Vitest (เทสต์เฉพาะ logic ล้วน — `npm test`)
+
+📚 เอกสารละเอียดอยู่ที่ [`docs/wiki/`](./docs/wiki/00-home.md)
 
 ## เริ่มต้นใช้งาน (Local)
 
@@ -115,9 +118,24 @@ Production: ตั้ง `NEXT_PUBLIC_AZURE_REDIRECT_URI=https://spc-ai.sahapat.
 | Suggest Order | ถ้า stock < MIN → ceil(MAX - stock + avg×3) |
 | CVD Est. | (stock + order qty) ÷ avg sales |
 
-## PO Integration (Stub)
+## ใบสั่งซื้อ (PO)
 
-เมื่อเซลล์อนุมัติ ระบบบันทึก JSON ที่ `logs/po-export/{orderId}.json`
+เมื่อเซลล์อนุมัติออเดอร์ ระบบจะ **ออกเลข PO จริง** ไม่ใช่ stub แล้ว
+
+| เรื่อง | รายละเอียด |
+|---|---|
+| ตาราง | `PurchaseOrder` (เลข PO, กลุ่ม, ประเภทราคา, ยอด, สถานะ) + `PoSequence` (running number ต่อคลัง/วัน) |
+| เลข PO | `lib/po/po-number.ts` — รูปแบบ `{prefix}{ปี}{เดือนวัน}{ลำดับ}` ต่อท้าย A/B เมื่อแบ่งใบ |
+| แบ่งใบ | `lib/po/split-plan.ts` — แยก "ราคาตรง C4" ออกจาก "ราคาไม่ตรง C4" · ตรวจไม่ให้กลุ่มโปรเดียวกันหลุดคนละใบ |
+| เอกสาร | `lib/po/po-document.ts` เขียน JSON ที่ `logs/po-export/{poNumber}.json` เป็นหลักฐาน · ถ้าไฟล์หาย ระบบประกอบใหม่จาก DB ให้ (`lib/po/po-from-db.ts`) |
+| หน้าเว็บ | `/sales/po` — ค้นหา กรองวันที่/คลัง/สถานะ แบ่งหน้า ดูรายละเอียดในเว็บ พิมพ์ และโหลด Excel (ทีละใบหรือหลายใบรวมไฟล์เดียว) |
+| สถานะ | ออกแล้ว → ส่งซัพแล้ว → รับของแล้ว / ยกเลิก · **ปรับค่าได้ที่ `lib/po/po-status.ts` โดยไม่ต้อง migrate** (คอลัมน์เป็น `String` ไม่ใช่ enum) |
+
+โปรโมชันและของแถมถูก **แช่ไว้ตอนร้านกดส่ง** (`OrderItem.c4Promo*` / `c4FreeGood*`)
+เอกสาร PO จึงระบุได้ว่าบรรทัดไหนได้โปรอะไรและต้องแถมอะไรบ้าง
+
+> ⚠️ ของแถมของ**โปรกลุ่ม** จะติดมาทุกบรรทัดในกลุ่ม — ต้องรวมยอดด้วย
+> `collectOwedFreeGoods()` (`lib/promo/order-free-goods.ts`) เท่านั้น ห้ามบวกเอง ไม่งั้นของแถมจะคูณตามจำนวนสมาชิก
 
 ## Fabric / OneLake
 
@@ -241,17 +259,24 @@ docker compose exec vmi node scripts/backup-db.mjs
 | `npm run dev` | Dev server (port 3000) |
 | `npm run build` / `npm start` | Production local |
 | `npm run db:setup` | migrate + seed |
+| `npm test` | รันเทสต์ (vitest) |
 | `npm run sync:masters` | ดึง Fabric → cache |
 | `npm run backup:db` | backup SQLite |
 | `docker compose up -d --build` | Deploy production |
+
+> **สำคัญ:** หยุด `npm run dev` ก่อนรัน `npm run build` — ทั้งคู่ใช้โฟลเดอร์ `.next/` ร่วมกัน
+> ถ้าไม่หยุดจะเจอ error "โมดูลหาย" ที่ไม่ใช่บั๊กจริง
 
 ## โครงสร้างหลัก
 
 ```
 app/              # Pages & API routes
 components/       # UI
-lib/              # Business logic, auth, Fabric, repositories
-prisma/           # Schema & seed
+lib/              # Business logic, auth, Fabric, repositories, po, promo
+hooks/            # React hooks ที่ใช้ร่วมหลายหน้า
+tests/            # Vitest — เฉพาะ logic ล้วน
+prisma/           # Schema, migrations & seed
+docs/wiki/        # เอกสารโปรเจกต์
 docker/           # Dockerfile, entrypoint
-scripts/          # sync, backup
+scripts/          # sync, backup, verify
 ```

@@ -30,6 +30,11 @@ import {
 } from "@/components/ui/mobile-row";
 import { formatBaht, formatNumber } from "@/lib/calculations";
 import { formatStoreLabel } from "@/lib/format-store-label";
+import {
+  PO_STATUSES,
+  PO_STATUS_CLASS,
+  poStatusMeta,
+} from "@/lib/po/po-status";
 import { cn } from "@/lib/utils";
 import type { PurchaseOrderRow } from "@/app/api/sales/purchase-orders/route";
 
@@ -97,7 +102,18 @@ function downloadPo(poNumber: string, format: "xlsx" | "json") {
  */
 export function SalesPoClient() {
   // useVdaOptions ดู session ให้แล้ว — vdaReady ครอบทั้ง "มี session" และ "สิทธิ์ VDA มาถึง"
-  const { availableVdas, isAdmin, ready: vdaReady } = useVdaOptions();
+  const {
+    availableVdas,
+    isAdmin,
+    vdaAccess,
+    ready: vdaReady,
+  } = useVdaOptions();
+  const [allPersonVdas, setAllPersonVdas] = useState(false);
+  /** เห็นปุ่มนี้เฉพาะเซลล์ที่ถือหลายรหัส — คนที่ถือรหัสเดียวกดไปก็ได้ผลเท่าเดิม */
+  const canViewAllPersonVdas =
+    !isAdmin &&
+    (vdaAccess?.allPersonVdas?.length ?? 0) > 0 &&
+    Boolean(vdaAccess?.multipleCodes);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [priceKind, setPriceKind] = useState<string>("all");
@@ -106,6 +122,8 @@ export function SalesPoClient() {
   const [sortKey, setSortKey] = useState<PoSortKey>("issuedAt");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [vda, setVda] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusBusy, setStatusBusy] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [detailPo, setDetailPo] = useState<string | null>(null);
@@ -120,20 +138,44 @@ export function SalesPoClient() {
   // เปลี่ยนตัวกรองแล้วต้องกลับหน้า 1 ไม่งั้นค้างอยู่หน้าที่ไม่มีข้อมูลแล้ว
   useEffect(() => {
     setPage(1);
-  }, [search, priceKind, dateFrom, dateTo, sortKey, sortDir, vda]);
+  }, [
+    search,
+    priceKind,
+    dateFrom,
+    dateTo,
+    sortKey,
+    sortDir,
+    vda,
+    allPersonVdas,
+    statusFilter,
+  ]);
 
   const { data, isLoading, isError, refetch } = useQuery<PoListResponse>({
     queryKey: [
       "sales-purchase-orders",
-      { priceKind, search, dateFrom, dateTo, sortKey, sortDir, page, vda },
+      {
+        priceKind,
+        search,
+        dateFrom,
+        dateTo,
+        sortKey,
+        sortDir,
+        page,
+        vda,
+        allPersonVdas,
+        statusFilter,
+      },
     ],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (priceKind !== "all") params.set("priceKind", priceKind);
+      if (statusFilter !== "all") params.set("status", statusFilter);
       if (search) params.set("search", search);
       if (dateFrom) params.set("dateFrom", dateFrom);
       if (dateTo) params.set("dateTo", dateTo);
-      if (vda) params.set("vdaCode", vda);
+      // ทั้งสองอย่างพร้อมกันไม่มีความหมาย — "ทุก VDA" กว้างกว่าเสมอ
+      if (allPersonVdas) params.set("allPersonVdas", "true");
+      else if (vda) params.set("vdaCode", vda);
       params.set("sort", sortKey);
       params.set("dir", sortDir);
       params.set("page", String(page));
@@ -217,6 +259,36 @@ export function SalesPoClient() {
     URL.revokeObjectURL(url);
   });
 
+  /** เปลี่ยนสถานะ PO — โหลดรายการใหม่หลังสำเร็จเพื่อให้ตัวกรองสถานะสอดคล้อง */
+  async function changeStatus(poNumber: string, status: string) {
+    setStatusBusy(poNumber);
+    setExportError("");
+    try {
+      const res = await fetch(
+        appPath(`/api/sales/purchase-orders/${encodeURIComponent(poNumber)}`),
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status }),
+        }
+      );
+      if (!res.ok) {
+        const b = (await res.json().catch(() => null)) as {
+          error?: unknown;
+        } | null;
+        setExportError(
+          typeof b?.error === "string"
+            ? b.error
+            : `เปลี่ยนสถานะไม่สำเร็จ (${res.status})`
+        );
+        return;
+      }
+      await refetch();
+    } finally {
+      setStatusBusy(null);
+    }
+  }
+
   const sortIndicator = (key: PoSortKey) =>
     sortKey === key ? (sortDir === "asc" ? " ▲" : " ▼") : "";
 
@@ -292,7 +364,36 @@ export function SalesPoClient() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          {availableVdas.length > 0 && (
+          <label className="flex items-center gap-1.5 text-slate-500">
+            สถานะ
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="h-8 rounded-lg border border-slate-300 bg-white px-2 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+            >
+              <option value="all">ทั้งหมด</option>
+              {PO_STATUSES.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          {canViewAllPersonVdas && (
+            <Button
+              size="sm"
+              variant={allPersonVdas ? "default" : "outline"}
+              className="h-8 text-xs"
+              onClick={() => {
+                setAllPersonVdas((v) => !v);
+                setVda("");
+              }}
+              title="ดู PO ของทุก VDA ที่คุณดูแล ไม่ต้องสลับรหัสเซลล์"
+            >
+              ทุก VDA ของฉัน
+            </Button>
+          )}
+          {availableVdas.length > 0 && !allPersonVdas && (
             <label className="flex items-center gap-1.5 text-slate-500">
               คลัง
               <select
@@ -329,7 +430,7 @@ export function SalesPoClient() {
               className="h-8 w-auto py-1 text-xs"
             />
           </label>
-          {(dateFrom || dateTo || vda) && (
+          {(dateFrom || dateTo || vda || allPersonVdas) && (
             <Button
               size="sm"
               variant="ghost"
@@ -338,6 +439,7 @@ export function SalesPoClient() {
                 setDateFrom("");
                 setDateTo("");
                 setVda("");
+                setAllPersonVdas(false);
               }}
             >
               ล้างตัวกรอง
@@ -431,6 +533,7 @@ export function SalesPoClient() {
                     </th>
                     <th className="px-3 py-2">ร้าน / คลัง</th>
                     <th className="px-3 py-2">ประเภทราคา</th>
+                    <th className="px-3 py-2">สถานะ</th>
                     <th className="px-3 py-2 text-right">รายการ</th>
                     <th className="px-3 py-2 text-right">หีบ</th>
                     <th
@@ -493,6 +596,30 @@ export function SalesPoClient() {
                         >
                           {KIND_LABEL[po.priceKind] ?? po.priceKind}
                         </span>
+                      </td>
+                      <td
+                        className="px-3 py-2"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <select
+                          value={po.status}
+                          disabled={statusBusy === po.poNumber}
+                          onChange={(e) =>
+                            void changeStatus(po.poNumber, e.target.value)
+                          }
+                          title={poStatusMeta(po.status).hint}
+                          className={cn(
+                            "rounded-md px-1.5 py-0.5 text-[11px] font-semibold ring-1 outline-none",
+                            PO_STATUS_CLASS[poStatusMeta(po.status).tone] ??
+                              PO_STATUS_CLASS.slate
+                          )}
+                        >
+                          {PO_STATUSES.map((s) => (
+                            <option key={s.value} value={s.value}>
+                              {s.label}
+                            </option>
+                          ))}
+                        </select>
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums">
                         {formatNumber(po.itemCount, 0)}
@@ -560,14 +687,25 @@ export function SalesPoClient() {
                         </p>
                       </div>
                     </div>
-                    <span
-                      className={cn(
-                        "shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-semibold ring-1",
-                        KIND_CLASS[po.priceKind] ?? KIND_CLASS.mixed
-                      )}
-                    >
-                      {KIND_LABEL[po.priceKind] ?? po.priceKind}
-                    </span>
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                      <span
+                        className={cn(
+                          "rounded-md px-1.5 py-0.5 text-[11px] font-semibold ring-1",
+                          KIND_CLASS[po.priceKind] ?? KIND_CLASS.mixed
+                        )}
+                      >
+                        {KIND_LABEL[po.priceKind] ?? po.priceKind}
+                      </span>
+                      <span
+                        className={cn(
+                          "rounded-md px-1.5 py-0.5 text-[11px] font-semibold ring-1",
+                          PO_STATUS_CLASS[poStatusMeta(po.status).tone] ??
+                            PO_STATUS_CLASS.slate
+                        )}
+                      >
+                        {poStatusMeta(po.status).label}
+                      </span>
+                    </div>
                   </MobileRowTop>
                   <MobileRowStats>
                     <MobileStat

@@ -7,7 +7,66 @@ import { assertOrderAccess } from "@/lib/orders/access";
 import { VAT_RATE, type PoDocument } from "@/lib/po/po-document";
 import { sanitizePoNumber } from "@/lib/po/po-number";
 import { rebuildPoDocumentFromDb } from "@/lib/po/po-from-db";
+import { isPoStatus } from "@/lib/po/po-status";
 import { collectOwedFreeGoods } from "@/lib/promo/order-free-goods";
+
+/**
+ * เปลี่ยนสถานะ PO (ออกแล้ว → ส่งซัพ → รับของ / ยกเลิก)
+ *
+ * ไม่มี state machine บังคับลำดับ — flow จริงยังไม่นิ่ง และของจริงมีเคสข้ามขั้น
+ * (เช่น ออกแล้วยกเลิกเลย) บันทึกว่าใครเปลี่ยนเมื่อไรไว้แทน
+ */
+export async function PATCH(
+  request: Request,
+  ctx: { params: Promise<{ poNumber: string }> }
+) {
+  const session = await getSalesSession();
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { poNumber: raw } = await ctx.params;
+  const poNumber = sanitizePoNumber(decodeURIComponent(raw));
+  if (!poNumber) {
+    return NextResponse.json({ error: "เลข PO ไม่ถูกต้อง" }, { status: 400 });
+  }
+
+  const body = (await request.json().catch(() => null)) as {
+    status?: unknown;
+    note?: unknown;
+  } | null;
+  if (!isPoStatus(body?.status)) {
+    return NextResponse.json({ error: "สถานะไม่ถูกต้อง" }, { status: 400 });
+  }
+  const note =
+    typeof body?.note === "string" ? body.note.trim().slice(0, 500) : "";
+
+  const po = await prisma.purchaseOrder.findUnique({
+    where: { poNumber },
+    select: { orderId: true },
+  });
+  if (!po) {
+    return NextResponse.json({ error: "ไม่พบ PO" }, { status: 404 });
+  }
+  try {
+    await assertOrderAccess(po.orderId, session);
+  } catch {
+    return NextResponse.json({ error: "ไม่มีสิทธิ์แก้ PO นี้" }, { status: 403 });
+  }
+
+  const updated = await prisma.purchaseOrder.update({
+    where: { poNumber },
+    data: {
+      status: body.status,
+      statusAt: new Date(),
+      statusBy: session.email,
+      statusNote: note,
+    },
+    select: { poNumber: true, status: true, statusAt: true, statusBy: true },
+  });
+
+  return NextResponse.json(updated);
+}
 
 const NUM_INT = "#,##0";
 const NUM_MONEY = "#,##0.00";

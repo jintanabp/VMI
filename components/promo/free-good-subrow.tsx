@@ -32,21 +32,23 @@ export function FreeGoodStockTableRow({
       <td className="relative px-1 py-1.5 align-middle">
         <FreeGoodConnectorRail />
       </td>
+      {/* คอลัมน์ 1–2: รหัส + ชื่อของแถม */}
       <td className="px-1 py-1.5" colSpan={2}>
         <FreeGoodIdentity freeGood={freeGood} rule={rule} />
       </td>
-      <td className="px-1 py-1.5 text-slate-400" colSpan={3}>
-        —
-      </td>
-      <td className="px-1 py-1.5 text-center">
-        <FreeGoodQty freeGood={freeGood} />
-      </td>
+      {/* คอลัมน์ 3–10: สต็อก … โปร — ของแถมไม่มีค่าพวกนี้ ใช้บอกเงื่อนไขแทน */}
       <td
         className="px-1 py-1.5 text-center vmi-t-xs text-slate-500 dark:text-slate-400"
-        colSpan={5}
+        colSpan={8}
       >
         <FreeGoodRuleInline rule={rule} />
       </td>
+      {/* คอลัมน์ 11: ตรงกับ "จำนวนสั่ง" ของแถวสินค้าด้านบน */}
+      <td className="px-1 py-1.5 text-center">
+        <FreeGoodQty freeGood={freeGood} />
+      </td>
+      {/* คอลัมน์ 12: CVD หลังสั่ง — ของแถมไม่มี */}
+      <td className="px-1 py-1.5 text-center text-slate-400">—</td>
     </tr>
   );
 }

@@ -39,8 +39,11 @@ export function MobileRow({
       {...rest}
       className={cn(
         "px-2 py-2.5 transition-colors sm:px-3",
-        warn && "bg-amber-50/60 dark:bg-amber-950/30",
-        selected && "bg-teal-50/50 dark:bg-teal-950/35",
+        // ternary ไม่ใช่ซ้อน class — bg-* สองตัวบน element เดียวจะให้ผลตามลำดับ CSS
+        // ของ Tailwind ไม่ใช่ลำดับที่เขียนตรงนี้ ทำให้ selected ชนะบ้างแพ้บ้าง
+        selected
+          ? "bg-teal-100 dark:bg-teal-900/40"
+          : warn && "bg-amber-50/60 dark:bg-amber-950/30",
         className
       )}
     >

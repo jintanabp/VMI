@@ -27,7 +27,6 @@ import {
 } from "@/components/promo/promo-group-header";
 import {
   StockDiscountPerCaseCell,
-  StockListPriceCell,
   StockNetPriceCell,
 } from "@/components/stock/stock-price-cells";
 import { Button } from "@/components/ui/button";
@@ -58,6 +57,7 @@ import {
 } from "@/lib/calculations";
 import { cvdFlagHint } from "@/lib/stock/cvd-hint";
 import { StorePriceInput } from "@/components/order/store-price-input";
+import { StockQtyStepper } from "@/components/stock/stock-qty-stepper";
 import { cn } from "@/lib/utils";
 import {
   annotatePromoGroupStripes,
@@ -431,6 +431,34 @@ export function OrderPageClient({
     [enriched]
   );
 
+  /**
+   * แก้จำนวนได้ในหน้านี้เลย ไม่ต้องเด้งกลับ /stock
+   *
+   * เดิมหน้านี้แก้ได้แค่ราคา พอจำนวนไม่เข้าเป้าหมายก็ต้องย้อนกลับไปหน้าสต็อก
+   * ซึ่งเป็นต้นตอของบั๊ก "ติดธงแดงแล้วส่งไม่ได้" — ปุ่ม «แก้ที่สต็อก» ยังอยู่
+   * สำหรับคนที่อยากไปดูบริบทสต็อกเต็ม ๆ
+   */
+  function setLineQty(skuCode: string, qty: number) {
+    const next = lines.map((l) =>
+      l.row.skuCode === skuCode
+        ? { ...l, qty: Math.max(0, Math.floor(qty)) }
+        : l
+    );
+    setLines(next);
+    // เขียนกลับ session ทันที — หน้า /stock อ่านคีย์นี้ตอนกดย้อนกลับ
+    try {
+      const qtyMap: Record<string, number> = {};
+      for (const l of next) qtyMap[l.row.skuCode] = l.qty;
+      sessionStorage.setItem("vmi_order_qty", JSON.stringify(qtyMap));
+      sessionStorage.setItem(
+        "vmi_order_draft",
+        JSON.stringify(next.map((l) => l.row))
+      );
+    } catch {
+      // sessionStorage ปิดอยู่ — แก้ในหน้านี้ยังใช้ได้ แค่ไม่รอดข้ามหน้า
+    }
+  }
+
   function resetAllToSuggested() {
     // ไม่กรองแถวที่ได้ 0 ทิ้ง — ปุ่มนี้ "รีเซ็ตจำนวน" ไม่ใช่ "ลบรายการ"
     // (เดิมกรองทิ้ง ทำให้ทุกแถวหายพร้อมกันเมื่อ suggestOrder เป็น 0 หมด แล้วหน้าค้างที่ spinner)
@@ -664,7 +692,7 @@ export function OrderPageClient({
         </div>
 
         <p className="mb-2 shrink-0 text-xs text-slate-500 dark:text-slate-400">
-          ตรวจสอบรายการก่อนส่ง — แก้ราคา/หีบ ได้ที่หน้านี้ · แก้จำนวน กลับไปหน้าสต็อก
+          ตรวจสอบรายการก่อนส่ง — แก้จำนวนและราคาได้ที่หน้านี้เลย
         </p>
 
         {stats.mismatchCount > 0 && (
@@ -702,7 +730,7 @@ export function OrderPageClient({
               ))}
             </ul>
             <p className="mt-1.5 text-xs">
-              ต้องการปรับจำนวน — กด «แก้ที่สต็อก» ที่ท้ายแถว หรือ «กลับหน้าสต็อก»
+              ปรับจำนวนได้ที่ช่องในตารางนี้เลย
             </p>
           </div>
         )}
@@ -760,6 +788,7 @@ export function OrderPageClient({
           groupMemberSkusMap={groupMemberSkusMap}
           onFocusStock={focusSkuOnStock}
           onPriceChange={setPriceOverride}
+          onQtyChange={setLineQty}
         />
       </main>
 
@@ -863,12 +892,14 @@ function OrderSummaryList({
   groupMemberSkusMap,
   onFocusStock,
   onPriceChange,
+  onQtyChange,
 }: {
   lines: EnrichedLine[];
   promoStagedQty: Record<string, number>;
   groupMemberSkusMap: Map<string, string[]>;
   onFocusStock: (skuCode: string) => void;
   onPriceChange: (skuCode: string, price: number | null) => void;
+  onQtyChange: (skuCode: string, qty: number) => void;
 }) {
   return (
     <div className="vmi-table-wrap vmi-order-list-wrap min-h-0 flex-1">
@@ -913,16 +944,26 @@ function OrderSummaryList({
                     </p>
                   </div>
                   <div className="flex shrink-0 flex-col items-end gap-1">
-                    <span className="text-sm font-bold tabular-nums text-slate-900 dark:text-white">
-                      {line.qty} หีบ
-                    </span>
+                    <StockQtyStepper
+                      qty={line.qty}
+                      suggestOrder={line.row.suggestOrder}
+                      onMinus={() =>
+                        onQtyChange(line.row.skuCode, line.qty - 1)
+                      }
+                      onPlus={() => onQtyChange(line.row.skuCode, line.qty + 1)}
+                      onSetQty={(n) => onQtyChange(line.row.skuCode, n)}
+                      onApplySuggest={() =>
+                        onQtyChange(line.row.skuCode, line.row.suggestOrder)
+                      }
+                      compact
+                    />
                     <button
                       type="button"
                       onClick={() => onFocusStock(line.row.skuCode)}
                       className="inline-flex items-center gap-0.5 text-[11px] font-medium text-teal-700 hover:underline dark:text-teal-400"
                     >
                       <Pencil className="h-3 w-3" />
-                      แก้ที่สต็อก
+                      ดูที่สต็อก
                     </button>
                   </div>
                 </div>
@@ -1041,17 +1082,24 @@ function OrderSummaryList({
                 </td>
                 <td className="px-2 py-2 text-right">
                   <div className="inline-flex flex-col items-end gap-0.5">
-                    <span className="font-semibold tabular-nums">
-                      {line.qty} หีบ
-                    </span>
+                    <StockQtyStepper
+                      qty={line.qty}
+                      suggestOrder={line.row.suggestOrder}
+                      onMinus={() => onQtyChange(line.row.skuCode, line.qty - 1)}
+                      onPlus={() => onQtyChange(line.row.skuCode, line.qty + 1)}
+                      onSetQty={(n) => onQtyChange(line.row.skuCode, n)}
+                      onApplySuggest={() =>
+                        onQtyChange(line.row.skuCode, line.row.suggestOrder)
+                      }
+                    />
                     <button
                       type="button"
                       onClick={() => onFocusStock(line.row.skuCode)}
-                      className="inline-flex items-center gap-0.5 text-[10px] font-medium text-teal-700 hover:underline dark:text-teal-400"
-                      title="กลับหน้าสต็อกเพื่อแก้จำนวน SKU นี้"
+                      className="inline-flex items-center gap-0.5 text-[11px] font-medium text-teal-700 hover:underline dark:text-teal-400"
+                      title="ไปดู SKU นี้ในหน้าสต็อก (ดูยอดขาย/โปรเต็ม ๆ)"
                     >
                       <Pencil className="h-2.5 w-2.5" />
-                      แก้ที่สต็อก
+                      ดูที่สต็อก
                     </button>
                   </div>
                 </td>

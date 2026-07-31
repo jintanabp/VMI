@@ -25,12 +25,15 @@
 
 | รายการ | ค่า |
 |--------|-----|
-| Repository | `VMI` (Next.js monorepo) |
-| Dev URL | http://localhost:3000 |
-| Production (Docker) | http://127.0.0.1:3001 |
-| Health check | `/api/health` |
-| Admin panel | `/admin` |
+| Repository | `VMI` (Next.js App Router) |
+| Dev URL | http://localhost:3000/vmi |
+| Production (Docker) | host port **3002** → container 3000 · เข้าผ่าน nginx ที่ path `/vmi/` |
+| Health check | `/vmi/api/health` |
+| Admin panel | `/vmi/admin` |
 | เอกสาร env | `.env.example` |
+| เทสต์ | `npm test` (vitest) |
+
+> **basePath คือ `/vmi`** — ทุก URL ของแอปมี prefix นี้เสมอ (ตั้งใน `next.config.ts`)
 
 ---
 
@@ -39,24 +42,28 @@
 ```mermaid
 flowchart LR
     VDA["คลัง VDA"] -->|ดูสต็อก สั่งสินค้า| Stock["/stock → /order"]
-    Sales["เซลล์"] -->|อนุมัติออเดอร์| Orders["/sales/orders"]
+    VDA -->|ดูประวัติ ยกเลิกออเดอร์| History["/history"]
+    Sales["เซลล์"] -->|ตรวจ อนุมัติ ออก PO| Orders["/sales/orders"]
+    Sales -->|ติดตาม PO| Po["/sales/po"]
     Admin["Admin"] -->|ควบคุม sync preview| AdminPage["/admin"]
 ```
 
 | บทบาท | เข้าสู่ระบบ | หน้าหลัก |
 |-------|-------------|----------|
-| **คลัง VDA** | เลือกรหัส VDA (ไม่ใช้ password) | `/stock`, `/order` |
-| **เซลล์** | Microsoft Entra ID | `/sales/orders` |
+| **คลัง VDA** | เลือกรหัส VDA (ไม่ใช้ password) | `/stock`, `/order`, `/history`, `/manage` |
+| **ร้านค้า (มีบัญชี)** | รหัสร้าน + password | เหมือน VDA |
+| **เซลล์** | Microsoft Entra ID | `/sales/orders`, `/sales/po`, `/sales/notifications` |
 | **Admin** | Microsoft + อีเมลใน `ADMIN_EMAILS` | `/admin` |
 
 ---
 
 ## สถานะโปรเจกต์
 
-- UI ภาษาไทย
+- UI ภาษาไทยทั้งหมด
 - รองรับจอแคบ (iPad / ครึ่งจอ) — breakpoint หลักที่ **1280px**
 - โหมดข้อมูล: `dummy` (dev) / `fabric` (production)
-- PO export: stub JSON ที่ `logs/po-export/`
+- PO ออกเลขจริงและมีสถานะติดตาม (ดู [08 — กฎทางธุรกิจ](./08-business-rules.md))
+- งานที่ยังค้างอยู่ใน [`docs/IMPROVEMENT-PLAN.md`](../IMPROVEMENT-PLAN.md)
 
 ---
 
