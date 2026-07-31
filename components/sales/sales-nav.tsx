@@ -32,12 +32,30 @@ export function SalesNav() {
   const pendingCount = counts?.pending ?? 0;
   const priceFlaggedCount = counts?.priceFlagged ?? 0;
 
+  // PO ที่ออกวันนี้ — เดิม badge แท็บนี้ hardcode 0 ไว้เฉย ๆ
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const { data: poToday } = useQuery<{ total: number }>({
+    queryKey: ["sales-po-today", todayIso],
+    queryFn: async () => {
+      const r = await fetch(
+        appPath(
+          `/api/sales/purchase-orders?dateFrom=${todayIso}&dateTo=${todayIso}&pageSize=1`
+        )
+      );
+      if (!r.ok) return { total: 0 };
+      return r.json();
+    },
+    refetchInterval: 60_000,
+  });
+  const poTodayCount = poToday?.total ?? 0;
+
   const tabs = [
     {
       href: "/sales/orders",
       label: "คำสั่งซื้อ",
       icon: ClipboardList,
       badge: pendingCount,
+      badgeTitle: `${pendingCount} ออเดอร์รอตรวจ`,
       warnBadge: priceFlaggedCount,
       warnTitle: `${priceFlaggedCount} ออเดอร์มีราคาที่ร้านแก้เอง`,
     },
@@ -45,7 +63,8 @@ export function SalesNav() {
       href: "/sales/po",
       label: "ใบสั่งซื้อ (PO)",
       icon: FileText,
-      badge: 0,
+      badge: poTodayCount,
+      badgeTitle: `${poTodayCount} PO ที่ออกวันนี้`,
       warnBadge: 0,
       warnTitle: "",
     },
@@ -54,6 +73,7 @@ export function SalesNav() {
       label: "การแจ้งเตือน",
       icon: Bell,
       badge: unseen,
+      badgeTitle: `${unseen} การแจ้งเตือนที่ยังไม่รับทราบ`,
       warnBadge: 0,
       warnTitle: "",
     },
@@ -81,6 +101,7 @@ export function SalesNav() {
             {t.label}
             {t.badge > 0 && (
               <span
+                title={t.badgeTitle}
                 className={cn(
                   "inline-flex min-w-[1.1rem] items-center justify-center rounded-full px-1 text-[10px] font-bold leading-4",
                   active ? "bg-white text-teal-700" : "bg-red-500 text-white"

@@ -24,6 +24,7 @@ model Store {
   orders          Order[]
   groupThresholds StoreGroupThreshold[]
   skuBlocks       StoreSkuBlock[]
+  salesNotifications SalesNotification[]
 }
 
 model Sku {
@@ -66,6 +67,10 @@ model Order {
   rejectReason String?
   createdAt    DateTime    @default(now())
   approvedAt   DateTime?
+  /// เวลาที่พนักงานตัดสิน (อนุมัติ *หรือ* ปฏิเสธ)
+  /// เดิมมีแต่ approvedAt ซึ่งการปฏิเสธไม่เคยเขียน → ออเดอร์ที่ถูกปฏิเสธไม่มีวันเวลาเลย
+  /// (null = ออเดอร์เก่าก่อนมีฟิลด์นี้ → ฝั่งอ่าน fallback ไป approvedAt)
+  decidedAt    DateTime?
   /// อีเมลพนักงานที่อนุมัติ/ปฏิเสธ — ก่อนหน้านี้ไม่มีการบันทึกว่าใครทำอะไรเลย
   decidedBy    String      @default("")
   store        Store       @relation(fields: [storeId], references: [id])
@@ -109,7 +114,7 @@ model PoSequence {
 model StoreNotification {
   id        String    @id @default(cuid())
   storeId   String
-  /// approved | rejected | deleted | price_changed | qty_changed
+  /// approved | rejected | deleted | price_changed | qty_changed | po_issued
   kind      String
   title     String
   detail    String    @default("")
@@ -122,6 +127,26 @@ model StoreNotification {
 
   @@index([storeId, readAt])
   @@index([storeId, createdAt])
+}
+
+/// แจ้งเตือนพนักงานขายเมื่อร้านทำอะไรกับออเดอร์ (ส่งใหม่ / ยกเลิกเอง)
+/// ผูกกับ store ไม่ใช่ตัวเซลล์ เพราะสิทธิ์ของเซลล์คำนวณจาก VDA registry ตอน query
+/// (ดู storeScopeWhere ใน app/api/sales/notifications/route.ts) — เก็บ salesCode ไว้ก็จะเพี้ยนเมื่อมีการย้ายเขต
+/// acknowledgedAt เป็นค่ากลางต่อแถวแบบเดียวกับ StoreSkuBlock ที่ใช้อยู่แล้ว
+model SalesNotification {
+  id             String    @id @default(cuid())
+  storeId        String
+  /// order_created | order_cancelled
+  kind           String
+  title          String
+  detail         String    @default("")
+  orderId        String?
+  createdAt      DateTime  @default(now())
+  acknowledgedAt DateTime?
+  store          Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId, acknowledgedAt])
+  @@index([createdAt])
 }
 
 model OrderItem {
@@ -152,6 +177,25 @@ model OrderItem {
   priceFlagged      Boolean  @default(false)
   /// mismatch | no_baseline | unverified
   priceFlagReason   String?
+
+  // --- สแนปช็อตโปรโมชัน + ของแถม ณ เวลาส่ง ---
+  // เหตุผลเดียวกับราคา: แคมเปญเปลี่ยนตลอด ถ้าไม่แช่ไว้ อีกเดือนพิสูจน์ไม่ได้ว่าตอนร้านกดส่ง
+  // ระบบบอกว่าจะได้โปร/ของแถมอะไร — เดิมข้อมูลนี้ถูกคำนวณตอนส่งแล้วทิ้งทั้งหมด
+  // (null = ออเดอร์ก่อนมีฟีเจอร์นี้ ≠ "ไม่มีโปร" — ต้องแยกสองอย่างนี้ตอนแสดงผล)
+  /// ข้อความขั้นโปรที่ได้ ณ เวลาส่ง เช่น "ลด 20 บาท/หีบ"
+  c4PromoLabel        String?
+  /// ชนิดขั้นโปร (discount | premium | ...)
+  c4PromoKind         String?
+  /// กลุ่มโปรที่รวมยอดข้าม SKU — ใช้ dedupe ของแถมตอนแสดง/ส่งออก
+  c4PromoGroup        String?
+  c4PromoGroupMembers Int?
+  /// ยอดรวมของกลุ่มที่ใช้ตัดสินขั้นโปร — อธิบายว่าทำไมสั่ง 3 หีบถึงได้ขั้น 50
+  c4PooledQty         Int?
+  /// ของแถมที่ควรได้ ณ เวลาส่ง (โปรกลุ่มจะซ้ำกันทุกบรรทัดในกลุ่ม — ต้อง dedupe ตอนอ่าน)
+  c4FreeGoodCode      String?
+  c4FreeGoodName      String?
+  c4FreeGoodQty       Int?
+  c4FreeGoodUnit      String?
 
   // --- ราคาที่พนักงานแก้ + การแบ่ง PO ---
   // แยกช่องจาก unitPriceOverride ของร้าน เพื่อไม่ให้ทับหลักฐานว่าร้าน "ขอ" ราคาเท่าไร

@@ -3,9 +3,12 @@
 import { appPath } from "@/lib/paths";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, LogOut, Package, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
+import type { StoreNotificationRow } from "@/lib/orders/store-notify";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { cn } from "@/lib/utils";
 import { useSalesSession } from "@/hooks/use-sales-session";
@@ -53,6 +56,9 @@ export function AppHeader({
   const { session } = useSalesSession();
   const adminPreview = useAdminPreview();
   const salesPreview = useSalesPreview();
+  const { toast } = useToast();
+  /** เวลาของแจ้งเตือนล่าสุดที่เคยเห็น — null = ยังไม่เคย poll สำเร็จสักรอบ */
+  const lastSeenAt = useRef<string | null>(null);
 
   const isCustomerRoute =
     pathname.startsWith("/stock") ||
@@ -147,11 +153,19 @@ export function AppHeader({
               ? "Admin"
               : null;
 
-  // จำนวนแจ้งเตือนที่ยังไม่อ่าน — endpoint นับอย่างเดียว จึง poll ได้ถี่
-  const { data: notif } = useQuery<{ unread: number }>({
+  // จำนวนแจ้งเตือนที่ยังไม่อ่าน + รายการที่เพิ่งเข้ามาหลังรอบก่อน (ไว้เด้ง toast)
+  // ยิงคำขอเดียวเหมือนเดิม — `since` แค่ทำให้ response แถมรายการใหม่มาด้วย
+  const { data: notif } = useQuery<{
+    unread: number;
+    fresh?: StoreNotificationRow[];
+  }>({
     queryKey: ["store-notifications-count"],
     queryFn: async () => {
-      const r = await fetch(appPath("/api/store/notifications?count=1"));
+      const since = lastSeenAt.current;
+      const url = appPath(
+        `/api/store/notifications?count=1${since ? `&since=${encodeURIComponent(since)}` : ""}`
+      );
+      const r = await fetch(url);
       if (!r.ok) return { unread: 0 };
       return r.json();
     },
@@ -160,6 +174,36 @@ export function AppHeader({
     refetchOnWindowFocus: true,
   });
   const unreadNotifications = notif?.unread ?? 0;
+
+  // รอบแรกไม่เด้ง (จะเด้งย้อนหลังทั้งกอง) — แค่ตั้งหลักเวลาไว้ แล้วเด้งเฉพาะของที่มาทีหลัง
+  useEffect(() => {
+    if (role !== "customer") return;
+    if (!notif) return;
+    if (lastSeenAt.current == null) {
+      lastSeenAt.current = new Date().toISOString();
+      return;
+    }
+    const fresh = notif.fresh ?? [];
+    if (fresh.length === 0) return;
+    // เรียงเก่า → ใหม่ ให้ toast ตัวล่าสุดอยู่ล่างสุด
+    for (const n of [...fresh].reverse()) {
+      toast({
+        key: n.id,
+        title: n.title,
+        detail: n.detail || undefined,
+        tone:
+          n.kind === "rejected" || n.kind === "deleted"
+            ? "warn"
+            : n.kind === "approved" || n.kind === "po_issued"
+              ? "success"
+              : "info",
+      });
+    }
+    lastSeenAt.current = fresh.reduce(
+      (max, n) => (n.createdAt > max ? n.createdAt : max),
+      lastSeenAt.current
+    );
+  }, [notif, role, toast]);
 
   const toolbar = (
     <div className="flex w-full flex-wrap items-center gap-1.5 sm:gap-2 md:w-auto md:flex-nowrap md:justify-end">

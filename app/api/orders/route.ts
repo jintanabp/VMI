@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getRepositories } from "@/lib/repositories";
 import { approveWithPoSplit } from "@/lib/po/approve-with-split";
 import { notifyStore } from "@/lib/orders/store-notify";
+import { notifySales } from "@/lib/orders/sales-notify";
 import {
   CUSTOMER_STORE_CODE_COOKIE,
   CUSTOMER_STORE_COOKIE,
@@ -223,6 +224,11 @@ export async function POST(request: Request) {
       c4UnitPrice: c4?.unitPrice ?? null,
       promoLoaded: c4BySku != null,
     });
+    // แช่โปร + ของแถมไว้ด้วย — ข้อมูลชุดนี้อยู่ใน c4 อยู่แล้วแต่เดิมถูกทิ้ง
+    // ทำให้พิสูจน์ย้อนหลังไม่ได้ว่าตอนร้านกดส่ง ระบบบอกว่าจะได้ของแถมอะไร
+    // (โปรกลุ่มจะได้ freeGood ตัวเดียวกันทุกบรรทัดในกลุ่ม — ตั้งใจเก็บตามนั้น
+    //  ให้ฝั่งอ่าน dedupe ด้วย c4PromoGroup ไม่งั้น snapshot จะไม่ตรงกับที่ร้านเห็น)
+    const free = c4?.freeGood ?? null;
     return {
       ...i,
       unitPriceOverride: verdict.override,
@@ -233,13 +239,63 @@ export async function POST(request: Request) {
       c4PriceExpired: c4?.priceExpired ?? null,
       priceFlagged: verdict.flagged,
       priceFlagReason: verdict.reason,
+      c4PromoLabel: c4?.currentPromo ?? null,
+      c4PromoKind: c4?.currentKind ?? null,
+      c4PromoGroup: c4?.promoGroup ?? null,
+      c4PromoGroupMembers: c4?.promoGroupMembers ?? null,
+      c4PooledQty: c4?.pooledQty ?? null,
+      c4FreeGoodCode: free?.premiumProduct ?? null,
+      c4FreeGoodName: free?.premiumName ?? null,
+      c4FreeGoodQty: free?.qty ?? null,
+      c4FreeGoodUnit: free?.unitLabel ?? null,
     };
   });
 
   const { orders } = getRepositories();
   const order = await orders.createOrder(storeId, enrichedItems);
+
+  const totalQty = items.reduce((s, i) => s + i.finalQty, 0);
+  const flaggedCount = enrichedItems.filter((i) => i.priceFlagged).length;
+  await notifySales({
+    storeId,
+    kind: "order_created",
+    title: `${storeCode || store?.name || "ร้านค้า"} ส่งคำสั่งซื้อใหม่`,
+    detail:
+      `${items.length} รายการ · ${totalQty} หีบ` +
+      (flaggedCount > 0 ? ` · มีราคาไม่ตรง C4 ${flaggedCount} รายการ` : ""),
+    orderId: order.id,
+  });
+
   const full = await orders.getOrderById(order.id);
   return NextResponse.json(full, { status: 201 });
+}
+
+/**
+ * ค่าเดิมของบรรทัดก่อนพนักงานแก้ — ใช้เขียนข้อความแจ้งเตือนให้ร้านรู้ว่า
+ * "สินค้าตัวไหน จากเท่าไร เป็นเท่าไร" แทนข้อความรวม ๆ ที่ไม่บอกว่าแตะรายการใด
+ * คืน null เมื่อหาไม่เจอ — คนเรียกยังเดินต่อได้ด้วยข้อความแบบเดิม
+ */
+async function snapshotOrderItem(orderId: string, itemId: string) {
+  const item = await prisma.orderItem.findFirst({
+    where: { id: itemId, orderId },
+    select: {
+      finalQty: true,
+      c4UnitPrice: true,
+      salesPriceOverride: true,
+      unitPriceOverride: true,
+      sku: { select: { code: true, name: true } },
+    },
+  });
+  if (!item) return null;
+  return {
+    skuCode: item.sku.code,
+    skuName: item.sku.name,
+    finalQty: item.finalQty,
+    c4UnitPrice: item.c4UnitPrice,
+    /** ราคาที่มีผลอยู่ก่อนแก้: พนักงาน > ร้าน > C4 */
+    effectivePrice:
+      item.salesPriceOverride ?? item.unitPriceOverride ?? item.c4UnitPrice,
+  };
 }
 
 export async function PATCH(request: Request) {
@@ -298,15 +354,29 @@ export async function PATCH(request: Request) {
         body.poNumbers ?? {}
       );
       const pos = result.purchaseOrders;
+      const totalQty = pos.reduce((s, po) => s + po.totalQty, 0);
+      const totalItems = pos.reduce((s, po) => s + po.itemCount, 0);
       await notifyStore({
         storeId: order.storeId,
         kind: "approved",
+        title: "อนุมัติคำสั่งซื้อแล้ว",
+        detail: `รวม ${totalItems} รายการ · ${totalQty} หีบ`,
+        poNumbers: pos.map((po) => po.poNumber),
+        orderId,
+        actorEmail: salesSession.email,
+      });
+      // แยกเป็นอีกใบ เพราะ "อนุมัติ" กับ "ออกเลข PO" เป็นคนละข้อมูลที่ร้านใช้คนละเรื่อง
+      // (อันหลังเอาไว้อ้างอิงตอนรับของ) และเวลาแบ่งหลายใบต้องเห็นยอดแยกรายใบ
+      await notifyStore({
+        storeId: order.storeId,
+        kind: "po_issued",
         title:
-          pos.length > 1
-            ? `อนุมัติแล้ว — ออก ${pos.length} PO`
-            : "อนุมัติคำสั่งซื้อแล้ว",
+          pos.length > 1 ? `ออก PO แล้ว ${pos.length} ใบ` : "ออก PO แล้ว",
         detail: pos
-          .map((po) => `${po.poNumber} · ${po.label} · ${po.totalQty} หีบ`)
+          .map(
+            (po) =>
+              `${po.poNumber} · ${po.label} · ${po.itemCount} รายการ ${po.totalQty} หีบ`
+          )
           .join(" | "),
         poNumbers: pos.map((po) => po.poNumber),
         orderId,
@@ -343,6 +413,9 @@ export async function PATCH(request: Request) {
   }
 
   if (action === "updatePrice") {
+    // อ่านค่าเดิมก่อนแก้ เพื่อบอกร้านได้ว่า "รายการไหน จากเท่าไร เป็นเท่าไร"
+    // (เดิมแจ้งแค่ราคาใหม่ ร้านไม่รู้ว่าเป็นสินค้าตัวไหนในออเดอร์)
+    const before = await snapshotOrderItem(orderId, body.itemId);
     try {
       await orders.updateOrderItemPrice(
         orderId,
@@ -360,14 +433,22 @@ export async function PATCH(request: Request) {
       }
       throw err;
     }
+    const priceLabel = before ? `${before.skuCode} ${before.skuName} · ` : "";
+    const oldPrice = before?.effectivePrice ?? null;
     await notifyStore({
       storeId: order.storeId,
       kind: "price_changed",
       title: "พนักงานปรับราคาในคำสั่งซื้อ",
       detail:
         body.unitPriceOverride == null
-          ? "ยกเลิกราคาที่ตั้งไว้ กลับไปใช้ราคาระบบ"
-          : `ตั้งราคาเป็น ${body.unitPriceOverride} บาท/หีบ`,
+          ? `${priceLabel}ยกเลิกราคาที่ตั้งไว้ กลับไปใช้ราคาระบบ${
+              before?.c4UnitPrice != null
+                ? ` (${before.c4UnitPrice} บาท/หีบ)`
+                : ""
+            }`
+          : `${priceLabel}${
+              oldPrice != null ? `${oldPrice} → ` : ""
+            }${body.unitPriceOverride} บาท/หีบ`,
       orderId,
       actorEmail: salesSession.email,
     });
@@ -380,6 +461,7 @@ export async function PATCH(request: Request) {
   }
 
   if (action === "updateQty") {
+    const before = await snapshotOrderItem(orderId, body.itemId);
     try {
       await orders.updateOrderItemQty(orderId, body.itemId, body.finalQty);
     } catch (err) {
@@ -396,7 +478,9 @@ export async function PATCH(request: Request) {
       storeId: order.storeId,
       kind: "qty_changed",
       title: "พนักงานปรับจำนวนในคำสั่งซื้อ",
-      detail: `ปรับเป็น ${body.finalQty} หีบ`,
+      detail: before
+        ? `${before.skuCode} ${before.skuName} · ${before.finalQty} → ${body.finalQty} หีบ`
+        : `ปรับเป็น ${body.finalQty} หีบ`,
       orderId,
       actorEmail: salesSession.email,
     });

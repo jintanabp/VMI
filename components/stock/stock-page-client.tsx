@@ -145,7 +145,9 @@ function isStockPayload(data: unknown): data is StockApiResponse {
 /** ความสูงแถวเริ่มต้น (px) — ต้องตรงกับ --vmi-row-h ใน globals.css */
 const DEFAULT_ROW_PX = 48;
 
-const SORT_STORAGE_KEY = "vmi_stock_sort";
+// v2 = เปลี่ยนค่าเริ่มต้นเป็นรหัสสินค้าน้อยไปมาก — ต้องเปลี่ยนคีย์
+// ไม่งั้นเครื่องที่เคยเปิดหน้านี้จะยังโดน sort เดิม (desc) ที่ค้างใน sessionStorage ทับ
+const SORT_STORAGE_KEY = "vmi_stock_sort_v2";
 const FILTER_STORAGE_KEY = "vmi_stock_filters";
 
 /** query ที่ต้องล้างเมื่อชุดข้อมูลกลางเปลี่ยน — ประกาศนอกคอมโพเนนต์ให้ reference คงที่ */
@@ -1208,7 +1210,6 @@ export function StockPageClient({
                 <SortableTh
                   label="SKU"
                   sortKey="code"
-                  firstDir="desc"
                   sort={sort}
                   onSort={toggleColumnSort}
                   title="เรียงตามรหัสสินค้า"

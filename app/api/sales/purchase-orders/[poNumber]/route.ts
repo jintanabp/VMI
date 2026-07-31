@@ -6,6 +6,8 @@ import { prisma } from "@/lib/prisma";
 import { assertOrderAccess } from "@/lib/orders/access";
 import { VAT_RATE, type PoDocument } from "@/lib/po/po-document";
 import { sanitizePoNumber } from "@/lib/po/po-number";
+import { rebuildPoDocumentFromDb } from "@/lib/po/po-from-db";
+import { collectOwedFreeGoods } from "@/lib/promo/order-free-goods";
 
 const NUM_INT = "#,##0";
 const NUM_MONEY = "#,##0.00";
@@ -33,7 +35,7 @@ export async function GET(
     where: { poNumber },
     select: { orderId: true, exportPath: true, groupKey: true },
   });
-  if (!po?.exportPath) {
+  if (!po) {
     return NextResponse.json({ error: "ไม่พบเอกสาร PO" }, { status: 404 });
   }
 
@@ -44,18 +46,30 @@ export async function GET(
     return NextResponse.json({ error: "ไม่มีสิทธิ์ดู PO นี้" }, { status: 403 });
   }
 
-  let doc: PoDocument;
-  try {
-    doc = JSON.parse(await readFile(po.exportPath, "utf-8")) as PoDocument;
-  } catch {
+  // ไฟล์ที่เขียนตอนอนุมัติคือแหล่งอ้างอิงหลัก — แต่ถ้าไฟล์หาย/ย้าย
+  // ประกอบใหม่จาก DB แทนที่จะคืน 410 แล้วดู PO ไม่ได้เลย
+  let doc: PoDocument | null = null;
+  if (po.exportPath) {
+    try {
+      doc = JSON.parse(await readFile(po.exportPath, "utf-8")) as PoDocument;
+    } catch {
+      doc = null;
+    }
+  }
+  if (!doc) {
+    doc = await rebuildPoDocumentFromDb(poNumber);
+  }
+  if (!doc) {
     return NextResponse.json(
-      { error: "อ่านไฟล์ PO ไม่สำเร็จ — ไฟล์อาจถูกย้ายหรือลบ" },
+      { error: "อ่านเอกสาร PO ไม่สำเร็จ" },
       { status: 410 }
     );
   }
 
   const { searchParams } = new URL(request.url);
-  if (searchParams.get("format") === "json") {
+  const format = searchParams.get("format");
+  // json = ดาวน์โหลดไฟล์ · view = อ่านบนหน้าเว็บ (ไม่ต้องโหลดไฟล์)
+  if (format === "json" || format === "view") {
     return NextResponse.json(doc);
   }
 
@@ -108,6 +122,8 @@ export async function GET(
     { header: "ราคาสุทธิ/หีบ", width: 13, numFmt: NUM_MONEY },
     { header: "มูลค่า", width: 14, numFmt: NUM_MONEY },
     { header: `VAT ${VAT_RATE * 100}%`.replace(".000000000000001", ""), width: 12, numFmt: NUM_MONEY },
+    { header: "โปรที่ได้", width: 24 },
+    { header: "ของแถม", width: 26 },
     { header: "หมายเหตุราคา", width: 22 },
   ];
   cols.forEach((c, i) => {
@@ -141,9 +157,15 @@ export async function GET(
     sheet.getCell(r, 7).value = l.netUnitPrice;
     sheet.getCell(r, 8).value = l.amount;
     sheet.getCell(r, 9).value = l.vatAmount;
+    sheet.getCell(r, 10).value = l.promoLabel ?? "";
+    // ของแถมของโปรกลุ่มติดมาทุกบรรทัด — ตรงนี้แสดงตามบรรทัดได้ (เป็นบริบท)
+    // แต่ยอดที่ต้องส่งจริงอยู่ในบล็อกสรุปด้านล่างที่ dedupe แล้ว
+    sheet.getCell(r, 11).value = l.freeGood
+      ? `${l.freeGood.name} ${l.freeGood.qty}${l.freeGood.unit ? ` ${l.freeGood.unit}` : ""}`
+      : "";
     if (l.priceFlagged) {
-      sheet.getCell(r, 10).value = `ราคาไม่ตรง C4 (${l.priceFlagReason ?? ""})`;
-      sheet.getCell(r, 10).font = { color: { argb: "FFC00000" } };
+      sheet.getCell(r, 12).value = `ราคาไม่ตรง C4 (${l.priceFlagReason ?? ""})`;
+      sheet.getCell(r, 12).font = { color: { argb: "FFC00000" } };
     }
   });
 
@@ -157,6 +179,38 @@ export async function GET(
   for (const r of [totalRow, totalRow + 1]) {
     for (let c = 1; c <= cols.length; c++) {
       sheet.getCell(r, c).font = { bold: true };
+    }
+  }
+
+  // ---- ของแถมที่ต้องส่ง (dedupe โปรกลุ่มแล้ว) ----
+  // นี่คือตัวเลขที่ฝ่ายจัดซื้อใช้จริง — ห้ามอ่านจากคอลัมน์ "ของแถม" รายบรรทัดแล้วบวกเอง
+  const owed = collectOwedFreeGoods(doc.lines);
+  if (owed.length > 0) {
+    let r = totalRow + 3;
+    sheet.getCell(r, 1).value = "ของแถมที่ต้องส่ง";
+    sheet.getCell(r, 1).font = { bold: true, size: 12 };
+    r++;
+    ["รหัสของแถม", "ชื่อของแถม", "จำนวน", "หน่วย", "จากโปร/สินค้า"].forEach(
+      (h, i) => {
+        const cell = sheet.getCell(r, i + 1);
+        cell.value = h;
+        cell.font = { bold: true };
+        cell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FFE2E8F0" },
+        };
+      }
+    );
+    for (const fg of owed) {
+      r++;
+      sheet.getCell(r, 1).value = fg.code;
+      sheet.getCell(r, 2).value = fg.name;
+      sheet.getCell(r, 3).value = fg.qty;
+      sheet.getCell(r, 4).value = fg.unit;
+      sheet.getCell(r, 5).value = fg.promoGroup
+        ? `กลุ่ม ${fg.promoGroup} (${fg.fromSkuCodes.join(", ")})`
+        : fg.fromSkuCodes.join(", ");
     }
   }
 

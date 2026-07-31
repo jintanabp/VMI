@@ -28,6 +28,17 @@ export interface PoDocumentLine {
   amount: number;
   vatAmount: number;
   promoGroup: string | null;
+  /** จำนวนสมาชิกในกลุ่มโปร — ใช้ตัดสินว่าของแถมเป็นของกลุ่ม (ห้ามบวกซ้ำ) */
+  promoGroupMembers: number | null;
+  /** ข้อความขั้นโปรที่ได้ ณ เวลาร้านสั่ง */
+  promoLabel: string | null;
+  /** ของแถมที่ควรได้ — โปรกลุ่มจะซ้ำกันทุกบรรทัด ใช้ collectOwedFreeGoods() รวมยอด */
+  freeGood: {
+    code: string;
+    name: string;
+    qty: number;
+    unit: string;
+  } | null;
   /** ราคาไม่ตรง C4 ณ เวลาออก PO */
   priceFlagged: boolean;
   priceFlagReason: string | null;

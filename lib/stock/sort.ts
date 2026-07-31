@@ -17,8 +17,8 @@ export interface StockSortState {
   dir: StockSortDir;
 }
 
-/** ค่าเริ่มต้น: รหัสสินค้ามากไปน้อย */
-export const DEFAULT_STOCK_SORT: StockSortState = { key: "code", dir: "desc" };
+/** ค่าเริ่มต้น: รหัสสินค้าน้อยไปมาก */
+export const DEFAULT_STOCK_SORT: StockSortState = { key: "code", dir: "asc" };
 
 /** กลุ่มไว้ให้เมนูเรียงลำดับแบ่งหัวข้อได้ */
 export type StockSortGroup = "สินค้า" | "ตัวเลข" | "จัดกลุ่ม";

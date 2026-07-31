@@ -146,7 +146,7 @@ async function buildWorkbook(
       : "all";
   const hideNoSales = params.hideNoSales === "1";
   const sortKey = isStockSortKey(params.sort) ? params.sort : "code";
-  const sortDir: StockSortDir = params.dir === "asc" ? "asc" : "desc";
+  const sortDir: StockSortDir = params.dir === "desc" ? "desc" : "asc";
   const qtyByCode = parseQtyMap(params.qty);
   const selectedCodes = parseSelected(params.selected);
   const onlySelected =

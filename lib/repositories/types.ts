@@ -119,6 +119,16 @@ export interface OrderItemInput {
   c4PriceExpired?: boolean | null;
   priceFlagged?: boolean;
   priceFlagReason?: string | null;
+  /** สแนปช็อตโปร + ของแถม ณ เวลาส่ง — เซิร์ฟเวอร์เติมเอง ไม่รับจาก client */
+  c4PromoLabel?: string | null;
+  c4PromoKind?: string | null;
+  c4PromoGroup?: string | null;
+  c4PromoGroupMembers?: number | null;
+  c4PooledQty?: number | null;
+  c4FreeGoodCode?: string | null;
+  c4FreeGoodName?: string | null;
+  c4FreeGoodQty?: number | null;
+  c4FreeGoodUnit?: string | null;
 }
 
 /** กลุ่ม PO ที่พร้อมบันทึกตอนอนุมัติ */

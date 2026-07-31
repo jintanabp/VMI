@@ -821,3 +821,39 @@ body {
   content-visibility: auto;
   contain-intrinsic-size: auto 140px;
 }
+
+/* พิมพ์ PO — ให้ออกมาเป็นเอกสารใบเดียว ไม่ใช่ภาพหน้าจอที่มีเมนู/ปุ่มติดมา
+   ทำที่ CSS แทนการเปิดหน้าใหม่ เพราะ drawer เรนเดอร์ผ่าน portal อยู่ที่ body อยู่แล้ว */
+@media print {
+  body:has(.vmi-po-detail) > *:not(.vmi-po-overlay) {
+    display: none !important;
+  }
+
+  .vmi-po-overlay {
+    position: static !important;
+    display: block !important;
+    background: none !important;
+  }
+
+  .vmi-po-detail {
+    max-width: none !important;
+    height: auto !important;
+    box-shadow: none !important;
+    color: #000 !important;
+    background: #fff !important;
+  }
+
+  .vmi-po-detail .overflow-y-auto,
+  .vmi-po-detail .overflow-x-auto {
+    overflow: visible !important;
+  }
+
+  .vmi-po-detail table {
+    min-width: 0 !important;
+  }
+
+  /* ปุ่มดาวน์โหลด/พิมพ์/ปิด ไม่ควรอยู่บนกระดาษ */
+  .vmi-po-actions {
+    display: none !important;
+  }
+}

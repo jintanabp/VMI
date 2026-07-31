@@ -84,6 +84,15 @@ export const prismaOrderRepository: OrderRepository = {
             c4PriceExpired: item.c4PriceExpired ?? null,
             priceFlagged: item.priceFlagged ?? false,
             priceFlagReason: item.priceFlagReason ?? null,
+            c4PromoLabel: item.c4PromoLabel ?? null,
+            c4PromoKind: item.c4PromoKind ?? null,
+            c4PromoGroup: item.c4PromoGroup ?? null,
+            c4PromoGroupMembers: item.c4PromoGroupMembers ?? null,
+            c4PooledQty: item.c4PooledQty ?? null,
+            c4FreeGoodCode: item.c4FreeGoodCode ?? null,
+            c4FreeGoodName: item.c4FreeGoodName ?? null,
+            c4FreeGoodQty: item.c4FreeGoodQty ?? null,
+            c4FreeGoodUnit: item.c4FreeGoodUnit ?? null,
           })),
         },
       },
@@ -163,6 +172,7 @@ export const prismaOrderRepository: OrderRepository = {
       data: {
         status: "approved",
         approvedAt: new Date(),
+        decidedAt: new Date(),
         decidedBy: actorEmail,
       },
       include: {
@@ -178,6 +188,8 @@ export const prismaOrderRepository: OrderRepository = {
       data: {
         status: "rejected",
         rejectReason: reason ?? null,
+        // เดิมไม่เขียนเวลาเลย ออเดอร์ที่ถูกปฏิเสธจึงไม่มีวันเวลาให้แสดง
+        decidedAt: new Date(),
         decidedBy: actorEmail,
       },
       include: {

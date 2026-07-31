@@ -1,7 +1,8 @@
 "use client";
 
 import { appPath } from "@/lib/paths";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Bell,
@@ -12,7 +13,10 @@ import {
   ChevronRight,
   Clock,
   FileText,
+  Gift,
   History,
+  RotateCcw,
+  Sparkles,
   Search,
   Trash2,
   Wallet,
@@ -21,8 +25,10 @@ import {
 import { AppHeader } from "@/components/layout/app-header";
 import { PageShell } from "@/components/layout/page-shell";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
-import { formatNumber } from "@/lib/calculations";
+import { useToast } from "@/components/ui/toast";
+import { formatBaht, formatNumber } from "@/lib/calculations";
 import { cn } from "@/lib/utils";
 import type { OrderHistoryEntry } from "@/app/api/store/order-history/route";
 import type { StoreNotificationRow } from "@/lib/orders/store-notify";
@@ -32,6 +38,13 @@ const STATUS_FILTERS = [
   { value: "pending_approval", label: "รออนุมัติ" },
   { value: "approved", label: "อนุมัติแล้ว" },
   { value: "rejected", label: "ปฏิเสธ" },
+] as const;
+
+const DAY_FILTERS = [
+  { value: 7, label: "7 วัน" },
+  { value: 30, label: "30 วัน" },
+  { value: 90, label: "90 วัน" },
+  { value: 0, label: "ทั้งหมด" },
 ] as const;
 
 interface StatusMeta {
@@ -96,6 +109,11 @@ const NOTIF_META: Record<string, { label: string; className: string }> = {
   qty_changed: {
     label: "แก้จำนวน",
     className: "bg-sky-100 text-sky-800 dark:bg-sky-500/15 dark:text-sky-200",
+  },
+  po_issued: {
+    label: "ออก PO",
+    className:
+      "bg-teal-100 text-teal-800 dark:bg-teal-500/15 dark:text-teal-200",
   },
 };
 
@@ -172,6 +190,84 @@ function SummaryTile({
   );
 }
 
+/** เส้นเวลาของออเดอร์ — ตอบคำถาม "ตอนนี้ไปถึงไหนแล้ว" โดยไม่ต้องตีความ badge */
+function OrderTimeline({ order }: { order: OrderHistoryEntry }) {
+  const rejected = order.status === "rejected";
+  const steps = [
+    { label: "ส่งออเดอร์", at: order.createdAt, done: true },
+    {
+      label: rejected ? "ปฏิเสธ" : "อนุมัติ",
+      // decidedAt ครอบทั้งอนุมัติและปฏิเสธ — approvedAt เป็น null เสมอเมื่อถูกปฏิเสธ
+      // (fallback ไว้ให้ออเดอร์ที่ตัดสินไปก่อนจะมีคอลัมน์นี้)
+      at: order.decidedAt ?? order.approvedAt,
+      done: order.status !== "pending_approval",
+    },
+    {
+      label: "ออก PO",
+      at: order.poIssuedAt,
+      done: order.poNumbers.length > 0,
+      // ออเดอร์ที่ถูกปฏิเสธไม่มีทางไปถึงขั้นนี้ — ซ่อนไปเลยดีกว่าค้างเป็นจุดจาง
+      hidden: rejected,
+    },
+  ].filter((s) => !s.hidden);
+
+  return (
+    <ol className="flex flex-wrap items-center gap-x-1 gap-y-2 px-3 py-2.5">
+      {steps.map((s, idx) => (
+        <li key={s.label} className="flex items-center gap-1">
+          <span
+            className={cn(
+              "flex flex-col items-start rounded-lg px-2 py-1",
+              s.done
+                ? rejected && idx === 1
+                  ? "bg-red-50 dark:bg-red-950/30"
+                  : "bg-emerald-50 dark:bg-emerald-950/30"
+                : "bg-slate-50 dark:bg-slate-800/40"
+            )}
+          >
+            <span
+              className={cn(
+                "flex items-center gap-1 text-[11px] font-semibold",
+                s.done
+                  ? rejected && idx === 1
+                    ? "text-red-700 dark:text-red-300"
+                    : "text-emerald-700 dark:text-emerald-300"
+                  : "text-slate-400 dark:text-slate-500"
+              )}
+            >
+              <span
+                className={cn(
+                  "h-1.5 w-1.5 rounded-full",
+                  s.done
+                    ? rejected && idx === 1
+                      ? "bg-red-500"
+                      : "bg-emerald-500"
+                    : "bg-slate-300 dark:bg-slate-600"
+                )}
+              />
+              {s.label}
+            </span>
+            <span className="text-[10px] tabular-nums text-slate-400">
+              {s.at ? fmtDateTime(s.at) : "รอดำเนินการ"}
+            </span>
+          </span>
+          {idx < steps.length - 1 && (
+            <span
+              className={cn(
+                "h-px w-4 shrink-0",
+                steps[idx + 1].done
+                  ? "bg-emerald-300 dark:bg-emerald-700"
+                  : "bg-slate-200 dark:bg-slate-700"
+              )}
+              aria-hidden
+            />
+          )}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 export function OrderHistoryClient({
   storeCode,
   storeName,
@@ -184,10 +280,16 @@ export function OrderHistoryClient({
   isVda?: boolean;
 }) {
   const queryClient = useQueryClient();
+  const router = useRouter();
+  const { toast } = useToast();
   const [statusFilter, setStatusFilter] = useState("");
+  const [dayFilter, setDayFilter] = useState<number>(0);
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [showAllNotif, setShowAllNotif] = useState(false);
+  const [cancelTarget, setCancelTarget] = useState<OrderHistoryEntry | null>(
+    null
+  );
 
   const { data, isLoading, isError, refetch } = useQuery<{
     orders: OrderHistoryEntry[];
@@ -235,6 +337,84 @@ export function OrderHistoryClient({
     },
   });
 
+  // เปิดหน้านี้ = ได้เห็นแจ้งเตือนแล้ว จึงทำเครื่องหมายอ่านให้เอง
+  // หน่วงไว้หน่อยกันเคสกดผ่าน และยังเหลือปุ่ม "อ่านทั้งหมด" ไว้เผื่อพลาด
+  useEffect(() => {
+    if ((notifData?.unread ?? 0) === 0) return;
+    if (markRead.isPending) return;
+    const t = setTimeout(() => markRead.mutate(), 1_500);
+    return () => clearTimeout(t);
+    // ผูกกับจำนวนที่ยังไม่อ่านพอ — ไม่ต้อง re-run ทุกครั้งที่ mutation object เปลี่ยน
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notifData?.unread]);
+
+  const cancelOrder = useMutation({
+    mutationFn: async (orderId: string) => {
+      const res = await fetch(
+        appPath(`/api/store/orders?orderId=${encodeURIComponent(orderId)}`),
+        { method: "DELETE" }
+      );
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as {
+          error?: unknown;
+        } | null;
+        throw new Error(
+          typeof data?.error === "string"
+            ? data.error
+            : `ยกเลิกออเดอร์ไม่สำเร็จ (${res.status})`
+        );
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "ยกเลิกออเดอร์แล้ว", tone: "success" });
+      void queryClient.invalidateQueries({ queryKey: ["order-history"] });
+    },
+    onError: (err) => {
+      toast({
+        title: "ยกเลิกไม่สำเร็จ",
+        detail: err instanceof Error ? err.message : undefined,
+        tone: "error",
+      });
+    },
+  });
+
+  /**
+   * สั่งซ้ำ — เขียน draft ลง sessionStorage คีย์เดียวกับที่หน้า /stock กับ /order ใช้
+   * แล้วพาไปหน้าสต็อกให้ตรวจจำนวนก่อนส่ง (ไม่ส่งออเดอร์ให้เองเพราะสต็อกเปลี่ยนไปแล้ว)
+   */
+  function reorder(order: OrderHistoryEntry) {
+    const qtyMap: Record<string, number> = {};
+    for (const item of order.items) {
+      if (item.finalQty > 0) qtyMap[item.skuCode] = item.finalQty;
+    }
+    if (Object.keys(qtyMap).length === 0) {
+      toast({ title: "ออเดอร์นี้ไม่มีรายการให้สั่งซ้ำ", tone: "warn" });
+      return;
+    }
+    try {
+      sessionStorage.setItem("vmi_order_qty", JSON.stringify(qtyMap));
+      // draft ใส่แค่ skuId เพราะหน้า /stock ใช้แค่ฟิลด์นี้ตอนคืนค่าการเลือก
+      // (แล้วมันเขียนทับด้วย draft เต็มจากข้อมูลสต็อกวันนี้ภายในเสี้ยววินาที
+      //  — ยัด row เก่ากลับไปจะได้ราคา/CVD ของวันที่สั่ง ซึ่งไม่จริงแล้ว)
+      sessionStorage.setItem(
+        "vmi_order_draft",
+        JSON.stringify(order.items.map((i) => ({ skuId: i.skuId })))
+      );
+      // ราคาที่เคยแก้ไว้ผูกกับ draft เดิม ต้องไม่ติดมากับออเดอร์ใหม่
+      sessionStorage.removeItem("vmi_order_price");
+    } catch {
+      toast({ title: "เบราว์เซอร์ปิด sessionStorage อยู่", tone: "warn" });
+      return;
+    }
+    toast({
+      title: `เตรียมสั่งซ้ำ ${Object.keys(qtyMap).length} รายการ`,
+      detail: "สินค้าที่ไม่มีในสต็อกวันนี้จะไม่ถูกเลือก — ตรวจอีกครั้งก่อนส่ง",
+      tone: "info",
+    });
+    router.push("/stock");
+  }
+
   const notifications = notifData?.items ?? [];
   const unread = notifData?.unread ?? 0;
   const visibleNotifications = showAllNotif
@@ -245,8 +425,10 @@ export function OrderHistoryClient({
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
+    const cutoff = dayFilter > 0 ? Date.now() - dayFilter * 86_400_000 : null;
     return orders.filter((o) => {
       if (statusFilter && o.status !== statusFilter) return false;
+      if (cutoff != null && Date.parse(o.createdAt) < cutoff) return false;
       if (!q) return true;
       return (
         o.poNumbers?.some((po) => po.toLowerCase().includes(q)) ||
@@ -257,19 +439,32 @@ export function OrderHistoryClient({
         )
       );
     });
-  }, [orders, statusFilter, search]);
+  }, [orders, statusFilter, search, dayFilter]);
 
+  // สรุปตามผลกรองที่เห็นอยู่ — ไม่งั้นเลือก "7 วัน" แล้วตัวเลขบนสุดยังเป็นทั้งหมด
   const stats = useMemo(() => {
     let totalQty = 0;
     let pending = 0;
     let approved = 0;
-    for (const o of orders) {
+    let totalValue = 0;
+    let hasValue = false;
+    for (const o of filtered) {
       totalQty += o.totalQty;
       if (o.status === "pending_approval") pending++;
       if (o.status === "approved") approved++;
+      if (o.orderTotal != null) {
+        totalValue += o.orderTotal;
+        hasValue = true;
+      }
     }
-    return { count: orders.length, totalQty, pending, approved };
-  }, [orders]);
+    return {
+      count: filtered.length,
+      totalQty,
+      pending,
+      approved,
+      totalValue: hasValue ? totalValue : null,
+    };
+  }, [filtered]);
 
   function toggle(id: string) {
     setExpanded((prev) => {
@@ -446,6 +641,14 @@ export function OrderHistoryClient({
             unit="หีบ"
             tone="teal"
           />
+          {stats.totalValue != null && (
+            <SummaryTile
+              icon={<Wallet className="h-4 w-4" />}
+              label="มูลค่ารวม"
+              value={formatBaht(stats.totalValue) ?? "-"}
+              tone="teal"
+            />
+          )}
         </div>
 
         {/* ---- ตัวกรอง ---- */}
@@ -469,6 +672,23 @@ export function OrderHistoryClient({
                   "rounded-lg px-2.5 py-1.5 text-xs font-semibold whitespace-nowrap transition-colors",
                   statusFilter === f.value
                     ? "bg-[#0f4c75] text-white shadow-sm dark:bg-[#1a6b9a]"
+                    : "text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+                )}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex shrink-0 rounded-xl border border-slate-200 p-1 dark:border-slate-700">
+            {DAY_FILTERS.map((f) => (
+              <button
+                key={f.value}
+                type="button"
+                onClick={() => setDayFilter(f.value)}
+                className={cn(
+                  "rounded-lg px-2.5 py-1.5 text-xs font-semibold whitespace-nowrap transition-colors",
+                  dayFilter === f.value
+                    ? "bg-teal-600 text-white shadow-sm"
                     : "text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
                 )}
               >
@@ -568,6 +788,12 @@ export function OrderHistoryClient({
                           <Boxes className="h-3 w-3" />
                           {formatNumber(order.totalQty, 0)} หีบ
                         </span>
+                        {order.orderTotal != null && (
+                          <span className="inline-flex items-center gap-1 font-semibold text-teal-700 dark:text-teal-400">
+                            <Wallet className="h-3 w-3" />
+                            {formatBaht(order.orderTotal)}
+                          </span>
+                        )}
                         {order.approvedAt && (
                           <span className="inline-flex items-center gap-1">
                             <Check className="h-3 w-3" />
@@ -604,8 +830,41 @@ export function OrderHistoryClient({
 
                   {open && (
                     <div className="border-t border-slate-100 dark:border-slate-800">
+                      <OrderTimeline order={order} />
+
+                      <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 px-3 py-2 dark:border-slate-800">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => reorder(order)}
+                          title="ตั้งจำนวนเดิมไว้ที่หน้าสต็อกเพื่อสั่งอีกครั้ง"
+                        >
+                          <RotateCcw className="h-4 w-4" />
+                          สั่งซ้ำ
+                        </Button>
+                        {/* ยกเลิกได้เฉพาะที่พนักงานยังไม่แตะ — ตรงกับเงื่อนไขฝั่ง API */}
+                        {order.status === "pending_approval" &&
+                          order.poNumbers.length === 0 && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="border-red-200 text-red-700 hover:bg-red-50 dark:border-red-900/60 dark:text-red-300 dark:hover:bg-red-950/30"
+                              onClick={() => setCancelTarget(order)}
+                              disabled={cancelOrder.isPending}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                              ยกเลิกออเดอร์
+                            </Button>
+                          )}
+                        {order.decidedBy && (
+                          <span className="text-[11px] text-slate-400">
+                            ดำเนินการโดย {order.decidedBy}
+                          </span>
+                        )}
+                      </div>
+
                       <div className="overflow-x-auto">
-                        <table className="w-full min-w-[26rem] text-left text-xs">
+                        <table className="w-full min-w-[34rem] text-left text-xs">
                           <thead className="bg-slate-50 text-slate-500 dark:bg-slate-800/50 dark:text-slate-400">
                             <tr>
                               <th className="px-3 py-1.5 font-medium">รหัส</th>
@@ -617,6 +876,15 @@ export function OrderHistoryClient({
                               </th>
                               <th className="px-3 py-1.5 text-right font-medium">
                                 สั่งจริง (หีบ)
+                              </th>
+                              <th className="px-3 py-1.5 font-medium">
+                                โปรที่ได้
+                              </th>
+                              <th className="px-3 py-1.5 text-right font-medium">
+                                ราคา/หีบ
+                              </th>
+                              <th className="px-3 py-1.5 text-right font-medium">
+                                มูลค่า
                               </th>
                             </tr>
                           </thead>
@@ -653,12 +921,110 @@ export function OrderHistoryClient({
                                   >
                                     {formatNumber(item.finalQty, 0)}
                                   </td>
+                                  <td className="px-3 py-1.5">
+                                    {item.promoLabel ? (
+                                      <span
+                                        className="inline-flex items-center gap-1 rounded bg-violet-50 px-1.5 py-0.5 text-[11px] font-medium text-violet-700 dark:bg-violet-950/40 dark:text-violet-300"
+                                        title={
+                                          item.pooledQty &&
+                                          item.pooledQty > item.finalQty
+                                            ? `นับรวมกลุ่มโปร ${formatNumber(item.pooledQty, 0)} หีบ`
+                                            : undefined
+                                        }
+                                      >
+                                        <Sparkles className="h-3 w-3" />
+                                        {item.promoLabel}
+                                      </span>
+                                    ) : (
+                                      <span className="text-slate-300 dark:text-slate-600">
+                                        —
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td
+                                    className={cn(
+                                      "px-3 py-1.5 text-right tabular-nums",
+                                      item.priceFlagged
+                                        ? "font-semibold text-amber-700 dark:text-amber-400"
+                                        : "text-slate-600 dark:text-slate-300"
+                                    )}
+                                    title={
+                                      item.priceSetBySales
+                                        ? `พนักงานตั้งราคานี้ (ราคาระบบ ${
+                                            formatBaht(item.c4UnitPrice) ?? "-"
+                                          })`
+                                        : item.priceFlagged
+                                          ? `ราคาไม่ตรงระบบ (${
+                                              formatBaht(item.c4UnitPrice) ?? "-"
+                                            })`
+                                          : undefined
+                                    }
+                                  >
+                                    {formatBaht(item.netUnitPrice) ?? "-"}
+                                    {item.priceSetBySales && (
+                                      <span className="ml-1 text-[10px] font-normal text-amber-600 dark:text-amber-400">
+                                        (พนักงาน)
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-1.5 text-right font-semibold tabular-nums text-slate-800 dark:text-slate-100">
+                                    {formatBaht(item.lineTotal) ?? "-"}
+                                  </td>
                                 </tr>
                               );
                             })}
                           </tbody>
+                          {order.orderTotal != null && (
+                            <tfoot>
+                              <tr className="border-t border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/50">
+                                <td
+                                  colSpan={6}
+                                  className="px-3 py-1.5 text-right font-medium text-slate-500 dark:text-slate-400"
+                                >
+                                  รวมทั้งออเดอร์
+                                </td>
+                                <td className="px-3 py-1.5 text-right font-bold tabular-nums text-teal-700 dark:text-teal-400">
+                                  {formatBaht(order.orderTotal)}
+                                </td>
+                              </tr>
+                            </tfoot>
+                          )}
                         </table>
                       </div>
+
+                      {/* dedupe มาจาก API แล้ว — โปรกลุ่มติดของแถมมาทุกบรรทัด ห้ามบวกจากตารางเอง */}
+                      {order.freeGoods.length > 0 && (
+                        <div className="border-t border-slate-100 bg-violet-50/40 px-3 py-2.5 dark:border-slate-800 dark:bg-violet-950/20">
+                          <p className="flex items-center gap-1.5 text-xs font-bold text-violet-900 dark:text-violet-200">
+                            <Gift className="h-3.5 w-3.5" />
+                            ของแถมที่ควรได้
+                          </p>
+                          <ul className="mt-1 space-y-0.5">
+                            {order.freeGoods.map((fg) => (
+                              <li
+                                key={`${fg.promoGroup ?? ""}-${fg.code}`}
+                                className="flex items-baseline justify-between gap-2 text-[11px]"
+                              >
+                                <span className="min-w-0 truncate text-slate-700 dark:text-slate-200">
+                                  <span className="font-mono text-violet-700 dark:text-violet-300">
+                                    {fg.code}
+                                  </span>{" "}
+                                  {fg.name}
+                                  {fg.promoGroup && (
+                                    <span className="ml-1 text-slate-400">
+                                      · กลุ่ม {fg.promoGroup}
+                                    </span>
+                                  )}
+                                </span>
+                                <span className="shrink-0 font-bold tabular-nums text-violet-800 dark:text-violet-200">
+                                  {formatNumber(fg.qty, 0)}
+                                  {fg.unit ? ` ${fg.unit}` : ""}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
                     </div>
                   )}
                 </li>
@@ -679,6 +1045,31 @@ export function OrderHistoryClient({
           ตัวเลขอาจดูสูงกว่าปกติ
         </p>
       </main>
+
+      <ConfirmDialog
+        open={cancelTarget != null}
+        title="ยกเลิกออเดอร์นี้?"
+        body={
+          cancelTarget ? (
+            <>
+              ออเดอร์ {formatNumber(cancelTarget.itemCount, 0)} รายการ ·{" "}
+              {formatNumber(cancelTarget.totalQty, 0)} หีบ ที่ส่งเมื่อ{" "}
+              {fmtDateTime(cancelTarget.createdAt)}
+              <br />
+              ลบแล้วกู้คืนไม่ได้ และพนักงานขายจะได้รับแจ้ง
+            </>
+          ) : null
+        }
+        confirmLabel="ยกเลิกออเดอร์"
+        cancelLabel="ไม่ใช่ตอนนี้"
+        onConfirm={async () => {
+          if (!cancelTarget) return;
+          // error แจ้งผ่าน toast ใน onError อยู่แล้ว — ต้อง catch ไม่งั้น
+          // ConfirmDialog จะค้างเปิดพร้อม unhandled rejection
+          await cancelOrder.mutateAsync(cancelTarget.id).catch(() => {});
+        }}
+        onClose={() => setCancelTarget(null)}
+      />
     </PageShell>
   );
 }

@@ -138,7 +138,18 @@ export async function approveWithPoSplit(
               item.c4DiscountBaht,
               item.c4DiscountPct
             ) ?? unitPrice,
-          promoGroup: null,
+          // เดิม hardcode null ทั้งบล็อก — เอกสารที่ส่งฝ่ายจัดซื้อจึงไม่มีข้อมูลโปร/ของแถมเลย
+          promoGroup: item.c4PromoGroup,
+          promoGroupMembers: item.c4PromoGroupMembers,
+          promoLabel: item.c4PromoLabel,
+          freeGood: item.c4FreeGoodCode
+            ? {
+                code: item.c4FreeGoodCode,
+                name: item.c4FreeGoodName || item.c4FreeGoodCode,
+                qty: item.c4FreeGoodQty ?? 0,
+                unit: item.c4FreeGoodUnit ?? "",
+              }
+            : null,
           priceFlagged: item.priceFlagged,
           priceFlagReason: item.priceFlagReason,
         };

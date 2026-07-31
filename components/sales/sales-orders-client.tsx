@@ -6,11 +6,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Trash2 } from "lucide-react";
 import { useSalesSession } from "@/hooks/use-sales-session";
 import { useSalesPreview } from "@/hooks/use-sales-preview";
+import { useVdaOptions } from "@/hooks/use-vda-options";
 import { AppHeader } from "@/components/layout/app-header";
 import { PageShell } from "@/components/layout/page-shell";
 import { SalesNav } from "./sales-nav";
 import { StatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { SalesRepFilter } from "@/components/sales/sales-rep-filter";
 import {
   PoSplitPanel,
@@ -49,6 +51,15 @@ interface Order {
   items: OrderItem[];
 }
 
+/** จำนวนรายการธงแดงในออเดอร์ — ใช้ทั้งตอนเลือก bulk และในกล่องปฏิเสธ */
+function orderRedFlagCount(order: Order): number {
+  return order.items.filter(
+    (i) =>
+      getCvdFlag(i.cvdEstimate, i.minDays ?? undefined, i.maxDays ?? undefined) ===
+      "red"
+  ).length;
+}
+
 export function SalesOrdersClient() {
   const { session } = useSalesSession();
   const salesPreview = useSalesPreview();
@@ -67,32 +78,24 @@ export function SalesOrdersClient() {
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
   const [rejectOpen, setRejectOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  /** ออเดอร์ที่ติ๊กไว้เพื่ออนุมัติรวดเดียว (คนละชุดกับ selectedItemIds ที่ใช้ย้ายกลุ่ม PO) */
+  const [bulkIds, setBulkIds] = useState<Set<string>>(new Set());
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
+  const [bulkResult, setBulkResult] = useState<{
+    ok: string[];
+    failed: { label: string; error: string }[];
+  } | null>(null);
   /** เลข PO ที่ออกหลังอนุมัติ — เดิม route คืน poExportPath มาแล้วถูกทิ้ง */
   const [issuedPos, setIssuedPos] = useState<
     { poNumber: string; label: string; itemCount: number; totalQty: number }[]
   >([]);
 
-  const { data: vdaAccess } = useQuery<{
-    hasVdaAccess: boolean;
-    vdas: string[];
-    allPersonVdas?: string[];
-    hasAnyPersonVda?: boolean;
-    salesmanCode?: string;
-    salesmanName?: string;
-    isAdmin?: boolean;
-    vdaRegistryLoaded?: boolean;
-    multipleCodes?: boolean;
-    codes?: Array<{
-      code: string;
-      name: string;
-      vdas: string[];
-      hasVdaAccess: boolean;
-    }>;
-  }>({
-    queryKey: ["sales-vda-access"],
-    queryFn: () => fetch(appPath("/api/sales/vda-access")).then((r) => r.json()),
-    enabled: !!session && session.role !== "admin",
-  });
+  // รายชื่อ VDA + สถานะพร้อมใช้ ใช้ร่วมกับหน้า PO ผ่าน hook เดียวกัน (แชร์ react-query cache)
+  const { availableVdas, vdaAccess, ready: ordersReady } = useVdaOptions();
 
   const noVdaAccess =
     !isAdmin &&
@@ -114,19 +117,6 @@ export function SalesOrdersClient() {
     enabled: isAdmin,
   });
 
-  const { data: vdaSources = [] } = useQuery<string[]>({
-    queryKey: ["vda-sources"],
-    queryFn: () =>
-      fetch(appPath("/api/vda"))
-        .then((r) => r.json())
-        .then((d) => (Array.isArray(d.sources) ? d.sources : [])),
-    enabled: isAdmin,
-  });
-
-  const availableVdas = useMemo(() => {
-    if (isAdmin) return vdaSources;
-    return vdaAccess?.vdas ?? [];
-  }, [isAdmin, vdaSources, vdaAccess?.vdas]);
 
   useEffect(() => {
     if (isAdmin || availableVdas.length === 0 || vdaFilter) return;
@@ -173,11 +163,8 @@ export function SalesOrdersClient() {
     return `${appPath("/api/orders")}${qs ? `?${qs}` : ""}`;
   }, [statusFilter, salesRepFilter, vdaFilter, allPersonVdas, isAdmin]);
 
-  // isAdmin อยู่ใน queryKey และมาจาก session แบบ async — ถ้าไม่รอ session
-  // จะยิงสองครั้งทุกครั้งที่ mount (ครั้งแรก isAdmin=false แล้วยิงซ้ำเมื่อ session มา)
-  const ordersReady =
-    !!session && (session.role === "admin" || vdaAccess !== undefined);
-
+  // ordersReady มาจาก useVdaOptions — isAdmin อยู่ใน queryKey และมาจาก session แบบ async
+  // ถ้าไม่รอ session จะยิงสองครั้งทุกครั้งที่ mount
   const {
     data: orders = [],
     isLoading,
@@ -199,6 +186,103 @@ export function SalesOrdersClient() {
   // query ที่ disabled จะรายงาน isLoading = false — ถ้าใช้ค่านั้นตรง ๆ
   // จะโชว์ "ไม่มีออเดอร์" แวบหนึ่งก่อน session มาถึง
   const showLoading = !ordersReady || isLoading;
+
+  /**
+   * ออเดอร์ที่ติ๊กเพื่ออนุมัติรวดได้ — ต้องยังรออนุมัติ และแบ่ง PO ผ่าน
+   * (ปุ่มอนุมัติเดี่ยวก็กั้นด้วย poSplitIssues เหมือนกัน ถ้าไม่กรองตรงนี้
+   *  bulk จะพังกลางคันโดยผู้ใช้ไม่รู้ว่าทำไม)
+   */
+  const bulkEligible = useMemo(
+    () =>
+      orders.filter(
+        (o) =>
+          o.status === "pending_approval" && poSplitIssues(o.items).length === 0
+      ),
+    [orders]
+  );
+
+  const bulkSelectedOrders = useMemo(
+    () => bulkEligible.filter((o) => bulkIds.has(o.id)),
+    [bulkEligible, bulkIds]
+  );
+
+  function toggleBulk(orderId: string) {
+    setBulkIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(orderId)) next.delete(orderId);
+      else next.add(orderId);
+      return next;
+    });
+  }
+
+  function selectAllGreen() {
+    setBulkIds(
+      new Set(
+        bulkEligible.filter((o) => orderRedFlagCount(o) === 0).map((o) => o.id)
+      )
+    );
+  }
+
+  /**
+   * อนุมัติทีละใบตามลำดับ — ห้ามยิงพร้อมกัน
+   * ทุกใบ mint เลข PO จาก PoSequence ตัวเดียวกัน ยิงขนานกันเสี่ยงได้เลขชนกัน
+   * และไม่หยุดที่ error แรก เพราะใบที่เหลือยังอนุมัติได้ — เก็บผลไปสรุปตอนจบ
+   */
+  async function runBulkApprove() {
+    const targets = bulkSelectedOrders;
+    if (targets.length === 0) return;
+    setBulkResult(null);
+    setActionError(null);
+    setBulkProgress({ done: 0, total: targets.length });
+
+    const ok: string[] = [];
+    const failed: { label: string; error: string }[] = [];
+
+    for (const [i, order] of targets.entries()) {
+      const label = formatStoreLabel(order.store.code, order.store.name);
+      try {
+        const res = await fetch(appPath("/api/orders"), {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orderId: order.id, action: "approve" }),
+        });
+        if (!res.ok) {
+          const data = (await res.json().catch(() => null)) as {
+            error?: unknown;
+            issues?: unknown;
+          } | null;
+          const issues = Array.isArray(data?.issues)
+            ? ` — ${data.issues.join(" · ")}`
+            : "";
+          throw new Error(
+            (typeof data?.error === "string"
+              ? data.error
+              : `ไม่สำเร็จ (${res.status})`) + issues
+          );
+        }
+        const body = (await res.json()) as {
+          purchaseOrders?: { poNumber: string }[];
+        };
+        const pos = (body.purchaseOrders ?? []).map((p) => p.poNumber);
+        ok.push(pos.length > 0 ? `${label} → ${pos.join(", ")}` : label);
+      } catch (err) {
+        failed.push({
+          label,
+          error: err instanceof Error ? err.message : "ไม่สำเร็จ",
+        });
+      }
+      setBulkProgress({ done: i + 1, total: targets.length });
+    }
+
+    setBulkProgress(null);
+    setBulkResult({ ok, failed });
+    setBulkIds(new Set());
+    // invalidate ครั้งเดียวตอนจบ ไม่ใช่ทุกใบ
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["orders"] }),
+      queryClient.invalidateQueries({ queryKey: ["sales-pending-count"] }),
+    ]);
+  }
 
   const sorted = useMemo(() => {
     const copy = [...orders];
@@ -452,6 +536,89 @@ export function SalesOrdersClient() {
           </div>
           </div>
 
+          {/* อนุมัติหลายใบรวดเดียว — เฉพาะตอนดูรายการที่รออนุมัติ */}
+          {statusFilter === "pending_approval" && bulkEligible.length > 0 && (
+            <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2 dark:border-slate-700 dark:bg-slate-800/40">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs"
+                  onClick={selectAllGreen}
+                  disabled={bulkProgress != null}
+                  title="ติ๊กเฉพาะออเดอร์ที่ไม่มีรายการธงแดง"
+                >
+                  เลือกทั้งหมดที่ไม่มีธงแดง
+                </Button>
+                {bulkIds.size > 0 && (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 text-xs"
+                      onClick={() => setBulkIds(new Set())}
+                      disabled={bulkProgress != null}
+                    >
+                      ล้าง
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => setBulkOpen(true)}
+                      disabled={bulkProgress != null}
+                    >
+                      อนุมัติ {bulkIds.size} ใบ
+                    </Button>
+                  </>
+                )}
+              </div>
+              {bulkProgress && (
+                <p className="mt-1.5 text-xs font-medium text-slate-600 dark:text-slate-300">
+                  กำลังอนุมัติ {bulkProgress.done}/{bulkProgress.total} ใบ...
+                </p>
+              )}
+              {bulkResult && (
+                <div className="mt-1.5 space-y-1 text-xs">
+                  {bulkResult.ok.length > 0 && (
+                    <div className="rounded bg-emerald-50 px-2 py-1 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200">
+                      <p className="font-semibold">
+                        สำเร็จ {bulkResult.ok.length} ใบ
+                      </p>
+                      <ul className="mt-0.5 space-y-0.5">
+                        {bulkResult.ok.map((line) => (
+                          <li key={line} className="truncate font-mono text-[11px]">
+                            {line}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {bulkResult.failed.length > 0 && (
+                    <div className="rounded bg-red-50 px-2 py-1 text-red-800 dark:bg-red-950/40 dark:text-red-200">
+                      <p className="font-semibold">
+                        ไม่สำเร็จ {bulkResult.failed.length} ใบ
+                      </p>
+                      <ul className="mt-0.5 space-y-0.5">
+                        {bulkResult.failed.map((f) => (
+                          <li key={f.label} className="text-[11px]">
+                            {f.label} — {f.error}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setBulkResult(null)}
+                    className="text-[11px] text-slate-400 underline underline-offset-2"
+                  >
+                    ปิดสรุป
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="vmi-sales-orders-sidebar-scroll mt-3 space-y-2">
             {showLoading && (
               <p className="text-sm text-slate-500 dark:text-slate-400">กำลังโหลด...</p>
@@ -484,21 +651,39 @@ export function SalesOrdersClient() {
               const skuCount = order.items?.length ?? 0;
               const priceFlagged =
                 order.items?.filter((i) => i.priceFlagged).length ?? 0;
+              const canBulk = bulkEligible.some((o) => o.id === order.id);
+              const redCount = orderRedFlagCount(order);
               return (
-              <button
+              <div
                 key={order.id}
-                onClick={() => setSelectedId(order.id)}
-                className={`w-full rounded-xl border p-3 text-left transition-all ${
+                className={`relative w-full rounded-xl border p-3 text-left transition-all ${
                   selected?.id === order.id
                     ? "border-teal-300 bg-teal-50/50 shadow-sm dark:border-teal-600 dark:bg-teal-950/35"
                     : "border-slate-200 hover:border-slate-300 dark:border-slate-700 dark:hover:border-slate-600"
                 }`}
               >
+                {/* checkbox แยกจากปุ่มเลือกดู ไม่งั้นติ๊กแล้วเปลี่ยนออเดอร์ที่กำลังดูไปด้วย */}
+                {canBulk && (
+                  <div className="absolute right-2.5 top-2.5 z-10">
+                    <Checkbox
+                      checked={bulkIds.has(order.id)}
+                      onCheckedChange={() => toggleBulk(order.id)}
+                      aria-label={`เลือก ${label} เพื่ออนุมัติ`}
+                    />
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setSelectedId(order.id)}
+                  className="w-full text-left"
+                >
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-semibold text-slate-900 dark:text-slate-100">
                     {label}
                   </span>
-                  <StatusBadge status={order.status} />
+                  <span className={canBulk ? "mr-7" : undefined}>
+                    <StatusBadge status={order.status} />
+                  </span>
                 </div>
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                   {skuCount > 0 ? `${skuCount} SKU · ` : ""}
@@ -513,12 +698,18 @@ export function SalesOrdersClient() {
                     {priceFlagged}
                   </span>
                 )}
+                {redCount > 0 && order.status === "pending_approval" && (
+                  <span className="mt-1 ml-1 inline-flex items-center gap-1 rounded-full bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 ring-1 ring-red-200 dark:bg-red-950/40 dark:text-red-400 dark:ring-red-800">
+                    ธงแดง {redCount}
+                  </span>
+                )}
                 {isAdmin && order.store.salesRep && (
                   <p className="mt-0.5 truncate text-[11px] text-slate-400">
                     {order.store.salesRep.name}
                   </p>
                 )}
-              </button>
+                </button>
+              </div>
             );
             })}
           </div>
@@ -718,16 +909,7 @@ export function SalesOrdersClient() {
                   selected.store.name
                 )}
                 itemCount={selected.items.length}
-                redFlagCount={
-                  selected.items.filter(
-                    (i) =>
-                      getCvdFlag(
-                        i.cvdEstimate,
-                        i.minDays ?? undefined,
-                        i.maxDays ?? undefined
-                      ) === "red"
-                  ).length
-                }
+                redFlagCount={orderRedFlagCount(selected)}
                 pending={actionMutation.isPending}
                 onClose={() => setRejectOpen(false)}
                 onConfirm={(reason) => {
@@ -750,6 +932,37 @@ export function SalesOrdersClient() {
         </section>
         </div>
       </main>
+
+      <ConfirmDialog
+        open={bulkOpen}
+        tone="default"
+        title={`อนุมัติ ${bulkSelectedOrders.length} ออเดอร์?`}
+        body={
+          <>
+            ระบบจะออก PO ให้ทุกใบตามที่แบ่งกลุ่มไว้ และแจ้งร้านทีละใบ
+            {bulkSelectedOrders.some((o) => orderRedFlagCount(o) > 0) && (
+              <>
+                <br />
+                <span className="font-semibold text-amber-700 dark:text-amber-400">
+                  มี{" "}
+                  {
+                    bulkSelectedOrders.filter((o) => orderRedFlagCount(o) > 0)
+                      .length
+                  }{" "}
+                  ใบที่ยังมีรายการธงแดง
+                </span>
+              </>
+            )}
+            <br />
+            อนุมัติแล้วย้อนกลับไม่ได้
+          </>
+        }
+        confirmLabel="อนุมัติทั้งหมด"
+        onConfirm={async () => {
+          await runBulkApprove();
+        }}
+        onClose={() => setBulkOpen(false)}
+      />
     </PageShell>
   );
 }

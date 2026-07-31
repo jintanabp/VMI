@@ -14,7 +14,8 @@ export type StoreNotificationKind =
   | "rejected"
   | "deleted"
   | "price_changed"
-  | "qty_changed";
+  | "qty_changed"
+  | "po_issued";
 
 export async function notifyStore(args: {
   storeId: string;

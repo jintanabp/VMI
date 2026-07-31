@@ -1,14 +1,24 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Download, FileText, Search } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  FileText,
+  Loader2,
+  Search,
+} from "lucide-react";
 import { appPath } from "@/lib/paths";
-import { useSalesSession } from "@/hooks/use-sales-session";
+import { useAsyncAction } from "@/hooks/use-async-action";
+import { useVdaOptions } from "@/hooks/use-vda-options";
 import { AppHeader } from "@/components/layout/app-header";
 import { PageShell } from "@/components/layout/page-shell";
 import { SalesNav } from "@/components/sales/sales-nav";
+import { PoDetailPanel } from "@/components/sales/po-detail-panel";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { StatCard } from "@/components/ui/stat-card";
 import {
@@ -43,6 +53,25 @@ const PRICE_KIND_TABS = [
   { value: "override", label: "ไม่ตรง C4" },
 ] as const;
 
+type PoSortKey = "issuedAt" | "amount" | "poNumber";
+
+const PAGE_SIZE = 50;
+/** ขีดเดียวกับฝั่ง API — กันเลือกเกินแล้วเจอ 400 ตอนกดโหลด */
+const MAX_BULK_EXPORT = 50;
+
+interface PoListResponse {
+  items: PurchaseOrderRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+  summary: {
+    count: number;
+    totalQty: number;
+    totalAmount: number;
+    nonC4Count: number;
+  };
+}
+
 function fmtDateTime(iso: string): string {
   return new Date(iso).toLocaleString("th-TH", {
     day: "2-digit",
@@ -67,51 +96,129 @@ function downloadPo(poNumber: string, format: "xlsx" | "json") {
  * และ "ใบไหนที่ราคาไม่ตรง C4 ต้องตามเรื่องกับจัดซื้อ"
  */
 export function SalesPoClient() {
-  const { session } = useSalesSession();
+  // useVdaOptions ดู session ให้แล้ว — vdaReady ครอบทั้ง "มี session" และ "สิทธิ์ VDA มาถึง"
+  const { availableVdas, isAdmin, ready: vdaReady } = useVdaOptions();
+  const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [priceKind, setPriceKind] = useState<string>("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [sortKey, setSortKey] = useState<PoSortKey>("issuedAt");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [vda, setVda] = useState("");
+  const [page, setPage] = useState(1);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [detailPo, setDetailPo] = useState<string | null>(null);
+  const [exportError, setExportError] = useState("");
 
-  const { data, isLoading, isError, refetch } = useQuery<{
-    items: PurchaseOrderRow[];
-    truncated: boolean;
-  }>({
-    queryKey: ["sales-purchase-orders", priceKind],
+  // ค้นหายิงไป server แล้ว (ครอบทุกหน้า ไม่ใช่แค่แถวที่โหลดมา) — หน่วงกันยิงทุกตัวอักษร
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchInput.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  // เปลี่ยนตัวกรองแล้วต้องกลับหน้า 1 ไม่งั้นค้างอยู่หน้าที่ไม่มีข้อมูลแล้ว
+  useEffect(() => {
+    setPage(1);
+  }, [search, priceKind, dateFrom, dateTo, sortKey, sortDir, vda]);
+
+  const { data, isLoading, isError, refetch } = useQuery<PoListResponse>({
+    queryKey: [
+      "sales-purchase-orders",
+      { priceKind, search, dateFrom, dateTo, sortKey, sortDir, page, vda },
+    ],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (priceKind !== "all") params.set("priceKind", priceKind);
-      const qs = params.toString();
+      if (search) params.set("search", search);
+      if (dateFrom) params.set("dateFrom", dateFrom);
+      if (dateTo) params.set("dateTo", dateTo);
+      if (vda) params.set("vdaCode", vda);
+      params.set("sort", sortKey);
+      params.set("dir", sortDir);
+      params.set("page", String(page));
+      params.set("pageSize", String(PAGE_SIZE));
       const res = await fetch(
-        `${appPath("/api/sales/purchase-orders")}${qs ? `?${qs}` : ""}`
+        `${appPath("/api/sales/purchase-orders")}?${params.toString()}`
       );
       if (!res.ok) throw new Error(`โหลด PO ไม่สำเร็จ (${res.status})`);
       return res.json();
     },
-    enabled: Boolean(session),
+    // รอสิทธิ์ VDA ให้พร้อมก่อน ไม่งั้นยิงซ้ำเมื่อ session/scope มาถึงทีหลัง
+    enabled: vdaReady,
+    placeholderData: (prev) => prev,
   });
 
-  const items = useMemo(() => {
-    const all = data?.items ?? [];
-    const q = search.trim().toLowerCase();
-    if (!q) return all;
-    return all.filter(
-      (po) =>
-        po.poNumber.toLowerCase().includes(q) ||
-        po.storeCode.toLowerCase().includes(q) ||
-        po.storeName.toLowerCase().includes(q)
-    );
-  }, [data?.items, search]);
+  const items = useMemo(() => data?.items ?? [], [data?.items]);
+  const summary = data?.summary;
+  const total = data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  const stats = useMemo(() => {
-    let qty = 0;
-    let amount = 0;
-    let flagged = 0;
-    for (const po of items) {
-      qty += po.totalQty;
-      amount += po.totalAmount;
-      if (po.priceKind !== "c4") flagged++;
+  const pageAllSelected =
+    items.length > 0 && items.every((po) => selected.has(po.poNumber));
+
+  function toggleOne(poNumber: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(poNumber)) next.delete(poNumber);
+      else next.add(poNumber);
+      return next;
+    });
+  }
+
+  function toggleAllOnPage() {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (pageAllSelected) {
+        for (const po of items) next.delete(po.poNumber);
+      } else {
+        for (const po of items) next.add(po.poNumber);
+      }
+      return next;
+    });
+  }
+
+  function toggleSort(key: PoSortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("desc");
     }
-    return { count: items.length, qty, amount, flagged };
-  }, [items]);
+  }
+
+  /** โหลดหลายใบเป็นไฟล์เดียว — ใช้ blob เพื่อให้เห็นสถานะและ error เป็นข้อความ */
+  const bulkExport = useAsyncAction(async () => {
+    setExportError("");
+    const poNumbers = [...selected].slice(0, MAX_BULK_EXPORT);
+    if (poNumbers.length === 0) return;
+    const res = await fetch(appPath("/api/sales/purchase-orders/export"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ poNumbers }),
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as {
+        error?: unknown;
+      } | null;
+      setExportError(
+        typeof body?.error === "string"
+          ? body.error
+          : `ดาวน์โหลดไม่สำเร็จ (${res.status})`
+      );
+      return;
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `PO-${poNumbers.length}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  const sortIndicator = (key: PoSortKey) =>
+    sortKey === key ? (sortDir === "asc" ? " ▲" : " ▼") : "";
 
   return (
     <PageShell>
@@ -125,27 +232,28 @@ export function SalesPoClient() {
       <main className="mx-auto w-full max-w-6xl space-y-3 px-3 py-3 sm:px-4">
         <SalesNav />
 
+        {/* สรุปคิดจากผลกรองทั้งหมด ไม่ใช่แค่หน้าที่เปิดอยู่ */}
         <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
           <StatCard
             icon={<FileText className="h-4 w-4" />}
             label="PO ทั้งหมด"
-            value={formatNumber(stats.count, 0)}
+            value={formatNumber(summary?.count ?? 0, 0)}
           />
           <StatCard
             icon={<FileText className="h-4 w-4" />}
             label="รวม (หีบ)"
-            value={formatNumber(stats.qty, 0)}
+            value={formatNumber(summary?.totalQty ?? 0, 0)}
           />
           <StatCard
             icon={<FileText className="h-4 w-4" />}
             label="มูลค่ารวม"
-            value={formatBaht(stats.amount)}
+            value={formatBaht(summary?.totalAmount ?? 0)}
           />
           <StatCard
             icon={<FileText className="h-4 w-4" />}
             label="ราคาไม่ตรง C4"
-            value={formatNumber(stats.flagged, 0)}
-            tone={stats.flagged > 0 ? "amber" : "default"}
+            value={formatNumber(summary?.nonC4Count ?? 0, 0)}
+            tone={(summary?.nonC4Count ?? 0) > 0 ? "amber" : "default"}
           />
         </div>
 
@@ -155,8 +263,8 @@ export function SalesPoClient() {
             <Input
               className="pl-9"
               placeholder="ค้นหาเลข PO / รหัสคลัง / ชื่อร้าน..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
             />
           </div>
           <div
@@ -182,6 +290,99 @@ export function SalesPoClient() {
           </div>
         </div>
 
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          {availableVdas.length > 0 && (
+            <label className="flex items-center gap-1.5 text-slate-500">
+              คลัง
+              <select
+                value={vda}
+                onChange={(e) => setVda(e.target.value)}
+                className="h-8 rounded-lg border border-slate-300 bg-white px-2 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+              >
+                <option value="">
+                  {isAdmin ? "ทุก VDA" : "ทุก VDA ที่ดูแล"}
+                </option>
+                {availableVdas.map((v) => (
+                  <option key={v} value={v}>
+                    {v.toUpperCase()}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <label className="flex items-center gap-1.5 text-slate-500">
+            ออกเมื่อ
+            <Input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="h-8 w-auto py-1 text-xs"
+            />
+          </label>
+          <label className="flex items-center gap-1.5 text-slate-500">
+            ถึง
+            <Input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="h-8 w-auto py-1 text-xs"
+            />
+          </label>
+          {(dateFrom || dateTo || vda) && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 text-xs"
+              onClick={() => {
+                setDateFrom("");
+                setDateTo("");
+                setVda("");
+              }}
+            >
+              ล้างตัวกรอง
+            </Button>
+          )}
+
+          {selected.size > 0 && (
+            <div className="ml-auto flex items-center gap-2">
+              <span className="text-slate-500">เลือก {selected.size} ใบ</span>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 text-xs"
+                onClick={() => setSelected(new Set())}
+              >
+                ล้าง
+              </Button>
+              <Button
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() => bulkExport.run()}
+                disabled={bulkExport.pending}
+              >
+                {bulkExport.pending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Download className="h-3.5 w-3.5" />
+                )}
+                ดาวน์โหลด Excel รวม
+              </Button>
+            </div>
+          )}
+        </div>
+
+        {selected.size > MAX_BULK_EXPORT && (
+          <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+            เลือกไว้ {selected.size} ใบ — ดาวน์โหลดรวมได้ครั้งละ{" "}
+            {MAX_BULK_EXPORT} ใบ ระบบจะเอา {MAX_BULK_EXPORT} ใบแรกเท่านั้น
+          </p>
+        )}
+        {(exportError || bulkExport.error) && (
+          <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-950/30 dark:text-red-300">
+            {exportError || bulkExport.error}
+          </p>
+        )}
+
         {isLoading && (
           <p className="py-10 text-center text-sm text-slate-500">กำลังโหลด...</p>
         )}
@@ -196,7 +397,9 @@ export function SalesPoClient() {
         {!isLoading && !isError && items.length === 0 && (
           <div className="rounded-xl border border-dashed border-slate-200 px-4 py-12 text-center dark:border-slate-700">
             <p className="text-sm font-medium text-slate-600 dark:text-slate-400">
-              ยังไม่มี PO ที่ออก
+              {search || dateFrom || dateTo || priceKind !== "all"
+                ? "ไม่พบ PO ตามตัวกรอง"
+                : "ยังไม่มี PO ที่ออก"}
             </p>
             <p className="mt-1 text-xs text-slate-500">
               PO จะถูกสร้างเมื่ออนุมัติออเดอร์ที่หน้า &quot;ตรวจออเดอร์&quot;
@@ -211,13 +414,38 @@ export function SalesPoClient() {
               <table className="vmi-data-table w-full text-left">
                 <thead>
                   <tr>
-                    <th className="px-3 py-2">เลข PO</th>
+                    <th className="w-8 px-2 py-2">
+                      <Checkbox
+                        checked={pageAllSelected}
+                        onCheckedChange={toggleAllOnPage}
+                        aria-label="เลือก PO ทั้งหน้า"
+                      />
+                    </th>
+                    <th
+                      className="cursor-pointer px-3 py-2 select-none"
+                      onClick={() => toggleSort("poNumber")}
+                      title="เรียงตามเลข PO"
+                    >
+                      เลข PO{sortIndicator("poNumber")}
+                    </th>
                     <th className="px-3 py-2">ร้าน / คลัง</th>
                     <th className="px-3 py-2">ประเภทราคา</th>
                     <th className="px-3 py-2 text-right">รายการ</th>
                     <th className="px-3 py-2 text-right">หีบ</th>
-                    <th className="px-3 py-2 text-right">มูลค่า</th>
-                    <th className="px-3 py-2">ออกเมื่อ</th>
+                    <th
+                      className="cursor-pointer px-3 py-2 text-right select-none"
+                      onClick={() => toggleSort("amount")}
+                      title="เรียงตามมูลค่า"
+                    >
+                      มูลค่า{sortIndicator("amount")}
+                    </th>
+                    <th
+                      className="cursor-pointer px-3 py-2 select-none"
+                      onClick={() => toggleSort("issuedAt")}
+                      title="เรียงตามวันที่ออก"
+                    >
+                      ออกเมื่อ{sortIndicator("issuedAt")}
+                    </th>
                     <th className="px-3 py-2">โดย</th>
                     <th className="px-3 py-2" />
                   </tr>
@@ -226,8 +454,19 @@ export function SalesPoClient() {
                   {items.map((po) => (
                     <tr
                       key={po.id}
-                      className="border-t border-slate-100 dark:border-slate-800"
+                      className="cursor-pointer border-t border-slate-100 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/40"
+                      onClick={() => setDetailPo(po.poNumber)}
                     >
+                      <td
+                        className="px-2 py-2"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Checkbox
+                          checked={selected.has(po.poNumber)}
+                          onCheckedChange={() => toggleOne(po.poNumber)}
+                          aria-label={`เลือก ${po.poNumber}`}
+                        />
+                      </td>
                       <td className="px-3 py-2">
                         <span className="font-mono font-bold text-slate-900 dark:text-slate-100">
                           {po.poNumber}
@@ -269,7 +508,10 @@ export function SalesPoClient() {
                       <td className="px-3 py-2 truncate text-slate-500">
                         {po.issuedBy || "—"}
                       </td>
-                      <td className="px-3 py-2 text-right">
+                      <td
+                        className="px-3 py-2 text-right"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <div className="flex justify-end gap-1">
                           <Button
                             size="sm"
@@ -302,13 +544,20 @@ export function SalesPoClient() {
               {items.map((po) => (
                 <MobileRow key={po.id} warn={po.priceKind !== "c4"}>
                   <MobileRowTop>
-                    <div className="min-w-0">
-                      <p className="truncate font-mono text-sm font-bold text-slate-900 dark:text-slate-100">
-                        {po.poNumber}
-                      </p>
-                      <p className="truncate text-[11px] text-slate-500">
-                        {formatStoreLabel(po.storeCode, po.storeName)}
-                      </p>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <Checkbox
+                        checked={selected.has(po.poNumber)}
+                        onCheckedChange={() => toggleOne(po.poNumber)}
+                        aria-label={`เลือก ${po.poNumber}`}
+                      />
+                      <div className="min-w-0">
+                        <p className="truncate font-mono text-sm font-bold text-slate-900 dark:text-slate-100">
+                          {po.poNumber}
+                        </p>
+                        <p className="truncate text-[11px] text-slate-500">
+                          {formatStoreLabel(po.storeCode, po.storeName)}
+                        </p>
+                      </div>
                     </div>
                     <span
                       className={cn(
@@ -337,24 +586,72 @@ export function SalesPoClient() {
                       size="sm"
                       variant="outline"
                       className="h-8 flex-1 text-xs"
+                      onClick={() => setDetailPo(po.poNumber)}
+                    >
+                      <FileText className="h-3.5 w-3.5" />
+                      ดูรายละเอียด
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 flex-1 text-xs"
                       onClick={() => downloadPo(po.poNumber, "xlsx")}
                     >
                       <Download className="h-3.5 w-3.5" />
-                      ดาวน์โหลด Excel
+                      Excel
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-8 px-2 text-xs"
+                      onClick={() => downloadPo(po.poNumber, "json")}
+                    >
+                      JSON
                     </Button>
                   </div>
                 </MobileRow>
               ))}
             </MobileRowList>
+
+            <div className="flex items-center justify-between gap-2 text-xs text-slate-500">
+              <span>
+                แสดง {(page - 1) * PAGE_SIZE + 1}–
+                {Math.min(page * PAGE_SIZE, total)} จาก{" "}
+                {formatNumber(total, 0)} รายการ
+              </span>
+              <div className="flex items-center gap-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  ก่อนหน้า
+                </Button>
+                <span className="px-2 tabular-nums">
+                  {page} / {totalPages}
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  ถัดไป
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
           </>
         )}
-
-        {data?.truncated && (
-          <p className="text-center text-xs text-slate-400">
-            แสดง 200 รายการล่าสุด — ใช้ช่องค้นหาเพื่อหาเลข PO ที่ต้องการ
-          </p>
-        )}
       </main>
+
+      {detailPo && (
+        <PoDetailPanel poNumber={detailPo} onClose={() => setDetailPo(null)} />
+      )}
     </PageShell>
   );
 }

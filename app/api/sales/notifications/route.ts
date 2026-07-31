@@ -43,15 +43,37 @@ export async function GET() {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const blocks = await prisma.storeSkuBlock.findMany({
-    where: { store: { is: scope } },
-    include: {
-      store: { select: { code: true, name: true } },
-      sku: { select: { code: true, name: true } },
-    },
-    orderBy: { createdAt: "desc" },
-    take: 200,
-  });
+  const [blocks, orderNotifs] = await Promise.all([
+    prisma.storeSkuBlock.findMany({
+      where: { store: { is: scope } },
+      include: {
+        store: { select: { code: true, name: true } },
+        sku: { select: { code: true, name: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 200,
+    }),
+    prisma.salesNotification.findMany({
+      where: { store: { is: scope } },
+      include: { store: { select: { code: true, name: true } } },
+      orderBy: { createdAt: "desc" },
+      take: 200,
+    }),
+  ]);
+
+  const orderItems = orderNotifs
+    .map((n) => ({
+      id: n.id,
+      kind: n.kind,
+      title: n.title,
+      detail: n.detail,
+      orderId: n.orderId,
+      storeCode: n.store.code,
+      storeName: n.store.name,
+      createdAt: n.createdAt.toISOString(),
+      acknowledged: n.acknowledgedAt != null,
+    }))
+    .sort((a, b) => Number(a.acknowledged) - Number(b.acknowledged));
 
   const items = blocks
     .map((b) => ({
@@ -68,9 +90,16 @@ export async function GET() {
     // ที่ยังไม่รับทราบขึ้นก่อน, ที่รับทราบแล้วไปอยู่ล่างสุด (คงลำดับ createdAt ในแต่ละกลุ่ม)
     .sort((a, b) => Number(a.acknowledged) - Number(b.acknowledged));
 
+  const blockUnseen = items.filter((i) => !i.acknowledged).length;
+  const orderUnseen = orderItems.filter((i) => !i.acknowledged).length;
+
   return NextResponse.json({
     items,
-    unseenCount: items.filter((i) => !i.acknowledged).length,
+    orderItems,
+    blockUnseenCount: blockUnseen,
+    orderUnseenCount: orderUnseen,
+    // unseenCount = รวมทั้งสองแหล่ง ให้ badge บนเมนูใช้ค่าเดียวจบ
+    unseenCount: blockUnseen + orderUnseen,
   });
 }
 
@@ -85,15 +114,20 @@ export async function POST(request: Request) {
   const ids: string[] = Array.isArray(body.ids)
     ? body.ids.map((v: unknown) => String(v)).filter(Boolean)
     : [];
+  // ไม่ส่ง type = "block" เพื่อให้ client เดิมที่ยิงมาแบบเก่ายังทำงานเหมือนเดิม
+  const type = body.type === "order" ? "order" : "block";
 
-  const result = await prisma.storeSkuBlock.updateMany({
-    where: {
-      store: { is: scope },
-      acknowledgedAt: null,
-      ...(ids.length > 0 ? { id: { in: ids } } : {}),
-    },
-    data: { acknowledgedAt: new Date() },
-  });
+  const where = {
+    store: { is: scope },
+    acknowledgedAt: null,
+    ...(ids.length > 0 ? { id: { in: ids } } : {}),
+  };
+  const data = { acknowledgedAt: new Date() };
+
+  const result =
+    type === "order"
+      ? await prisma.salesNotification.updateMany({ where, data })
+      : await prisma.storeSkuBlock.updateMany({ where, data });
 
   return NextResponse.json({ success: true, count: result.count });
 }

@@ -31,6 +31,7 @@ import {
   StockNetPriceCell,
 } from "@/components/stock/stock-price-cells";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { CvdFlagCell } from "@/components/ui/cvd-flag-cell";
 import {
   MobileRow,
@@ -41,19 +42,21 @@ import {
 } from "@/components/ui/mobile-row";
 import type { StockRowComputed } from "@/lib/repositories/types";
 import {
-  calcCvdEstimate,
   calcLineAmount,
   calcNetUnitPrice,
   formatBaht,
   formatDays,
   formatNumber,
-  getCvdFlag,
+  getOrderCvdFlag,
   getPromoForQty,
   evaluatePriceOverride,
   resolveEffectivePrice,
   roundBaht,
+  type CvdFlag,
+  type CvdFlagReason,
   type PromoResult,
 } from "@/lib/calculations";
+import { cvdFlagHint } from "@/lib/stock/cvd-hint";
 import { StorePriceInput } from "@/components/order/store-price-input";
 import { cn } from "@/lib/utils";
 import {
@@ -110,7 +113,11 @@ interface EnrichedLine {
   row: StockRowComputed;
   qty: number;
   cvdEst: number | null;
-  flag: ReturnType<typeof getCvdFlag> | null;
+  flag: CvdFlag | null;
+  /** เหตุผลของธง — ใช้เลือกข้อความอธิบาย และแยก "เตือน" ออกจาก "ควรยืนยันก่อนส่ง" */
+  cvdReason: CvdFlagReason;
+  /** true = ควรให้ยืนยันอีกครั้งก่อนส่ง (ไม่ใช่ห้ามส่ง) */
+  cvdBlocking: boolean;
   promo: PromoResult;
   unitPrice: number | null;
   /** ราคาระบบก่อนร้านแก้ */
@@ -144,6 +151,8 @@ export function OrderPageClient({
   const [ready, setReady] = useState(false);
   const [success, setSuccess] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  /** ยืนยันอีกครั้งเมื่อมีรายการที่จำนวนไม่เข้าเป้าหมาย — เตือน ไม่ใช่ห้ามส่ง */
+  const [confirmRiskyOpen, setConfirmRiskyOpen] = useState(false);
   /** skuCode → ราคา/หีบ ที่ร้านพิมพ์เอง */
   const [priceOverrides, setPriceOverrides] = useState<Record<string, number>>(
     {}
@@ -268,14 +277,17 @@ export function OrderPageClient({
 
   const enriched = useMemo(() => {
     return lines.map((line) => {
-      const cvdEst =
-        line.row.avgSales > 0
-          ? calcCvdEstimate(line.row.stock, line.qty, line.row.avgSales)
-          : null;
-      const flag =
-        line.row.avgSales <= 0
-          ? null
-          : getCvdFlag(cvdEst, line.row.minDays, line.row.maxDays);
+      // ใช้ตัวเดียวกับหน้า /stock — getOrderCvdFlag ยกเว้นเคส "ของหมด" และ "1 หีบคือขั้นต่ำ"
+      // ให้ไม่ต้องกั้นการส่ง (เดิมหน้านี้เรียก getCvdFlag ดิบ จึงติดแดงแล้วส่งไม่ได้เลย)
+      const cvd = getOrderCvdFlag(
+        line.row.stock,
+        line.qty,
+        line.row.avgSales,
+        line.row.minDays,
+        line.row.maxDays
+      );
+      const cvdEst = cvd.cvdEst;
+      const flag = cvd.flag;
       const api = promoApi?.lines[line.row.skuCode];
       const fallbackPromo = getPromoForQty(line.qty, line.row.promoTiers ?? []);
       const promo: PromoResult = api
@@ -329,6 +341,8 @@ export function OrderPageClient({
         qty: line.qty,
         cvdEst,
         flag,
+        cvdReason: cvd.reason,
+        cvdBlocking: cvd.blocking,
         promo,
         unitPrice,
         c4UnitPrice,
@@ -351,7 +365,11 @@ export function OrderPageClient({
 
   const stats = useMemo(() => {
     const totalQty = enriched.reduce((s, l) => s + l.qty, 0);
-    const redCount = enriched.filter((l) => l.flag === "red").length;
+    // blockingCount = ควรยืนยันก่อนส่ง / warnCount = เตือนเฉยๆ (ของหมด, 1 หีบขั้นต่ำ, เกินเพดานนิดหน่อย)
+    const blockingCount = enriched.filter((l) => l.cvdBlocking).length;
+    const warnCount = enriched.filter(
+      (l) => !l.cvdBlocking && (l.flag === "red" || l.flag === "yellow")
+    ).length;
     const withPromo = enriched.filter((l) => l.promo.currentPromo).length;
     const overriddenCount = enriched.filter(
       (l) => l.unitPriceOverride != null
@@ -365,7 +383,8 @@ export function OrderPageClient({
           enriched.reduce((s, l) => s + (l.lineTotal ?? 0), 0));
     return {
       totalQty,
-      redCount,
+      blockingCount,
+      warnCount,
       withPromo,
       overriddenCount,
       mismatchCount,
@@ -398,7 +417,19 @@ export function OrderPageClient({
     [displayLines]
   );
 
-  const hasRedFlag = stats.redCount > 0;
+  /** รายการที่ธง CVD ผิดปกติ พร้อมคำอธิบายว่าทำไม — ใช้ในแบนเนอร์แทนข้อความรวมๆ เดิม */
+  const cvdNotices = useMemo(
+    () =>
+      enriched
+        .filter((l) => l.flag === "red" || l.cvdReason != null)
+        .map((l) => ({
+          skuCode: l.row.skuCode,
+          skuName: l.row.skuName,
+          blocking: l.cvdBlocking,
+          hint: cvdFlagHint(l.flag ?? "red", l.cvdReason, l.row),
+        })),
+    [enriched]
+  );
 
   function resetAllToSuggested() {
     // ไม่กรองแถวที่ได้ 0 ทิ้ง — ปุ่มนี้ "รีเซ็ตจำนวน" ไม่ใช่ "ลบรายการ"
@@ -516,6 +547,19 @@ export function OrderPageClient({
     submitMutation.mutate();
   }
 
+  /**
+   * จำนวนที่ไม่เข้าเป้าหมายเป็น "คำแนะนำ" ไม่ใช่ข้อห้าม — ให้ยืนยันอีกครั้งแล้วส่งได้
+   * (เดิมปิดปุ่มทิ้งไว้ ทำให้ร้านที่ของหมดแล้วสั่ง 1 หีบ ส่งออเดอร์ไม่ได้เลย
+   *  ทั้งที่หน้านี้ไม่มีช่องแก้จำนวนให้ปรับด้วยซ้ำ)
+   */
+  function requestSubmit() {
+    if (stats.blockingCount > 0) {
+      setConfirmRiskyOpen(true);
+      return;
+    }
+    submitOrder();
+  }
+
   if (success) {
     return (
       <PageShell>
@@ -607,9 +651,15 @@ export function OrderPageClient({
             icon={<Sparkles className="h-4 w-4" />}
           />
           <SummaryChip
-            label="ต้องแก้"
-            value={stats.redCount > 0 ? `${stats.redCount} รายการ` : "ไม่มี"}
-            warn={stats.redCount > 0}
+            label="ควรตรวจ"
+            value={
+              stats.blockingCount > 0
+                ? `${stats.blockingCount} รายการ`
+                : stats.warnCount > 0
+                  ? `เตือน ${stats.warnCount} รายการ`
+                  : "ไม่มี"
+            }
+            warn={stats.blockingCount > 0}
           />
         </div>
 
@@ -627,9 +677,33 @@ export function OrderPageClient({
           </div>
         )}
 
-        {hasRedFlag && (
-          <div className="mb-2 shrink-0 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
-            มีรายการ CVD ไม่เหมาะสม (สีแดง) — กด «แก้ที่สต็อก» เพื่อกลับไปปรับจำนวน
+        {cvdNotices.length > 0 && (
+          <div
+            className={cn(
+              "mb-2 shrink-0 rounded-xl border px-4 py-3 text-sm",
+              stats.blockingCount > 0
+                ? "border-red-200 bg-red-50 text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300"
+                : "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200"
+            )}
+          >
+            <p className="flex items-center gap-1.5 font-semibold">
+              <AlertTriangle className="h-4 w-4" />
+              {cvdNotices.length} รายการจำนวนไม่เข้าเป้าหมาย —{" "}
+              {stats.blockingCount > 0
+                ? "ส่งได้ แต่จะให้ยืนยันอีกครั้ง"
+                : "ส่งได้ตามปกติ"}
+            </p>
+            <ul className="mt-1 space-y-0.5 text-xs">
+              {cvdNotices.map((n) => (
+                <li key={n.skuCode} className="truncate">
+                  <span className="font-mono font-semibold">{n.skuCode}</span>{" "}
+                  {n.skuName} · {n.hint}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-1.5 text-xs">
+              ต้องการปรับจำนวน — กด «แก้ที่สต็อก» ที่ท้ายแถว หรือ «กลับหน้าสต็อก»
+            </p>
           </div>
         )}
 
@@ -721,22 +795,38 @@ export function OrderPageClient({
             size="sm"
             className="shrink-0"
             disabled={
-              hasRedFlag ||
-              submittableLines.length === 0 ||
-              submitMutation.isPending
+              submittableLines.length === 0 || submitMutation.isPending
             }
             title={
               submittableLines.length === 0
                 ? "ยังไม่มีรายการที่จำนวนมากกว่า 0"
-                : undefined
+                : stats.blockingCount > 0
+                  ? "มีรายการจำนวนไม่เข้าเป้าหมาย — กดแล้วจะให้ยืนยันก่อนส่ง"
+                  : undefined
             }
-            onClick={submitOrder}
+            onClick={requestSubmit}
           >
             <Send className="h-4 w-4" />
             {submitMutation.isPending ? "กำลังส่ง..." : "ยืนยันส่ง"}
           </Button>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmRiskyOpen}
+        tone="default"
+        title="ยืนยันจำนวนที่สั่ง"
+        body={
+          <>
+            มี {stats.blockingCount} รายการที่จำนวนยังไม่เข้าเป้าหมาย MIN/MAX
+            <br />
+            ส่งต่อไปให้พนักงานตรวจได้ — พนักงานจะเห็นธงเตือนนี้ด้วย
+          </>
+        }
+        confirmLabel="ส่งคำสั่งซื้อ"
+        onConfirm={() => submitOrder()}
+        onClose={() => setConfirmRiskyOpen(false)}
+      />
     </PageShell>
   );
 }

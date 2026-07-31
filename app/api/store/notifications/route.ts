@@ -26,8 +26,18 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   if (searchParams.get("count") === "1") {
+    // `?since=` ให้ badge poll เดิมได้รายการใหม่มาเด้ง toast ในคำขอเดียว
+    // (ไม่ส่ง since = พฤติกรรมเดิมทุกประการ)
+    const sinceRaw = searchParams.get("since");
+    const since = sinceRaw ? new Date(sinceRaw) : null;
+    const unread = await countUnreadStoreNotifications(storeId);
+    if (!since || Number.isNaN(since.getTime())) {
+      return NextResponse.json({ unread });
+    }
+    const all = await listStoreNotifications(storeId);
     return NextResponse.json({
-      unread: await countUnreadStoreNotifications(storeId),
+      unread,
+      fresh: all.filter((n) => Date.parse(n.createdAt) > since.getTime()),
     });
   }
 
