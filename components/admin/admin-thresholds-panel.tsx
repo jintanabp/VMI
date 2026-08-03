@@ -333,61 +333,65 @@ export function AdminThresholdsPanel() {
               const dirty =
                 Number(d.min) !== g.minDays || Number(d.max) !== g.maxDays;
               return (
+                // ชื่อกลุ่มบรรทัดบน ช่องกรอก+ปุ่มเป็นก้อนเดียว — เดิมทุกอย่างอยู่
+                // flex-wrap ระดับเดียวกัน ชื่อกลุ่มยาวสั้นไม่เท่ากันเลยตัดบรรทัดคนละแบบ
                 <div
                   key={g.section}
-                  className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900"
+                  className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 sm:flex-row sm:items-center dark:border-slate-700 dark:bg-slate-900"
                 >
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800 dark:text-slate-200">
+                  <span className="min-w-0 truncate text-sm font-medium text-slate-800 sm:flex-1 dark:text-slate-200">
                     {g.section}
                   </span>
-                  <label className="flex items-center gap-1 text-xs text-slate-500">
-                    MIN
-                    <Input
-                      className="h-8 w-16 text-center"
-                      inputMode="numeric"
-                      value={d.min}
-                      onChange={(e) =>
-                        setDraft((prev) => ({
-                          ...prev,
-                          [g.section]: { ...d, min: e.target.value },
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="flex items-center gap-1 text-xs text-slate-500">
-                    MAX
-                    <Input
-                      className="h-8 w-16 text-center"
-                      inputMode="numeric"
-                      value={d.max}
-                      onChange={(e) =>
-                        setDraft((prev) => ({
-                          ...prev,
-                          [g.section]: { ...d, max: e.target.value },
-                        }))
-                      }
-                    />
-                  </label>
-                  <Button
-                    size="sm"
-                    className="h-8 px-2 text-xs"
-                    disabled={!dirty}
-                    pending={busy === g.section}
-                    onClick={() => void saveSection(g.section)}
-                  >
-                    <Save className="h-3.5 w-3.5" />
-                    บันทึก
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8 px-2 text-xs"
-                    pending={busy === `all:${g.section}`}
-                    title="ใช้ค่านี้กับทุกคลัง VDA"
-                    onClick={() => void applyToAllVdas(g.section)}
-                  >
-                    ทุกคลัง
-                  </Button>
+                  <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
+                    <label className="flex items-center gap-1 text-xs text-slate-500">
+                      MIN
+                      <Input
+                        className="h-8 w-16 text-center"
+                        inputMode="numeric"
+                        value={d.min}
+                        onChange={(e) =>
+                          setDraft((prev) => ({
+                            ...prev,
+                            [g.section]: { ...d, min: e.target.value },
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="flex items-center gap-1 text-xs text-slate-500">
+                      MAX
+                      <Input
+                        className="h-8 w-16 text-center"
+                        inputMode="numeric"
+                        value={d.max}
+                        onChange={(e) =>
+                          setDraft((prev) => ({
+                            ...prev,
+                            [g.section]: { ...d, max: e.target.value },
+                          }))
+                        }
+                      />
+                    </label>
+                    <Button
+                      size="sm"
+                      className="h-8 px-2 text-xs"
+                      disabled={!dirty}
+                      pending={busy === g.section}
+                      onClick={() => void saveSection(g.section)}
+                    >
+                      <Save className="h-3.5 w-3.5" />
+                      บันทึก
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 px-2 text-xs"
+                      pending={busy === `all:${g.section}`}
+                      title="ใช้ค่านี้กับทุกคลัง VDA"
+                      onClick={() => void applyToAllVdas(g.section)}
+                    >
+                      ทุกคลัง
+                    </Button>
+                  </div>
                 </div>
               );
             })}

@@ -52,9 +52,11 @@ export function AdminTabsNav() {
   }, []);
 
   return (
+    // 6 แท็บ ชื่อไทยยาว ๆ — เดิมเป็นแถวเดียว overflow-x-auto ทำให้บนมือถือ/iPad
+    // แท็บท้าย ๆ โดนตัดครึ่งและไม่มีอะไรบอกว่าเลื่อนได้ ใช้ grid แทนจะเห็นครบทุกอัน
     <nav
       aria-label="เมนู Admin"
-      className="vmi-scroll flex gap-1 overflow-x-auto rounded-xl border border-slate-200 bg-slate-100/80 p-1 dark:border-slate-700 dark:bg-slate-800/60"
+      className="grid grid-cols-2 gap-1 rounded-xl border border-slate-200 bg-slate-100/80 p-1 sm:grid-cols-3 lg:flex dark:border-slate-700 dark:bg-slate-800/60"
     >
       {ADMIN_TABS.map(({ href, label, icon: Icon }) => {
         const active = pathname?.startsWith(href) ?? false;
@@ -66,7 +68,8 @@ export function AdminTabsNav() {
             href={href}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "flex min-w-0 shrink-0 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold whitespace-nowrap transition-colors sm:px-4",
+              // lg:flex-1 = แท็บกางเต็มความกว้างแถบ ไม่กองอยู่ซ้ายแล้วเหลือที่ว่างยาว ๆ
+              "flex min-w-0 items-center justify-center gap-1.5 rounded-lg px-2 py-2.5 text-sm font-semibold transition-colors sm:gap-2 sm:px-3 lg:flex-1",
               active
                 ? "bg-white text-slate-900 shadow-sm dark:bg-slate-900 dark:text-slate-50"
                 : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"

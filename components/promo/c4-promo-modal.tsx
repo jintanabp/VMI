@@ -148,7 +148,9 @@ export function C4PromoModal({
       }}
     >
       <div
-        className="flex max-h-[88vh] w-full flex-col overflow-hidden rounded-t-2xl border border-slate-200 bg-white shadow-2xl sm:max-w-2xl sm:rounded-2xl dark:border-slate-700 dark:bg-slate-900"
+        // dvh ไม่ใช่ vh — บนมือถือ vh ไม่หดตามแถบ URL/คีย์บอร์ด ทำให้ท้ายกล่อง
+        // (ปุ่ม "ใช้จำนวนนี้") มุดใต้ browser chrome
+        className="flex max-h-[88dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-slate-200 bg-white shadow-2xl sm:max-w-2xl sm:rounded-2xl dark:border-slate-700 dark:bg-slate-900"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-700">

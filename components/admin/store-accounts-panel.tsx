@@ -289,34 +289,38 @@ export function StoreAccountsPanel({
             </p>
           ) : (
             pending.map((a) => (
+              // อีเมลเป็นบล็อกบนสุด ปุ่มรวมเป็นก้อนเดียว — เดิมทุกอย่างเป็น flex-wrap
+              // ระดับเดียวกัน พอจอแคบลงปุ่มจะแตกคนละบรรทัดไม่เหมือนกันในแต่ละแถว
               <div
                 key={a.id}
-                className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700"
+                className="flex flex-col gap-2 rounded-lg border border-slate-200 px-3 py-2.5 sm:flex-row sm:items-center dark:border-slate-700"
               >
-                <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                <span className="min-w-0 truncate text-sm font-medium sm:flex-1">
                   {a.email}
                 </span>
-                {vdaSelect(a)}
-                <Button
-                  size="sm"
-                  disabled={busy === a.email}
-                  onClick={() =>
-                    act(a.email, {
-                      action: "approve",
-                      vdaCode: vdaDraft[a.email] ?? a.vdaCode,
-                    })
-                  }
-                >
-                  อนุมัติ
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={busy === a.email}
-                  onClick={() => act(a.email, { action: "reject" })}
-                >
-                  ปฏิเสธ
-                </Button>
+                <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
+                  {vdaSelect(a)}
+                  <Button
+                    size="sm"
+                    disabled={busy === a.email}
+                    onClick={() =>
+                      act(a.email, {
+                        action: "approve",
+                        vdaCode: vdaDraft[a.email] ?? a.vdaCode,
+                      })
+                    }
+                  >
+                    อนุมัติ
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy === a.email}
+                    onClick={() => act(a.email, { action: "reject" })}
+                  >
+                    ปฏิเสธ
+                  </Button>
+                </div>
               </div>
             ))
           )}
@@ -362,7 +366,7 @@ export function StoreAccountsPanel({
                 <Input
                   type="email"
                   autoComplete="off"
-                  className="h-8 min-w-0 flex-1 text-sm"
+                  className="h-8 w-full min-w-0 text-sm sm:w-auto sm:flex-1"
                   placeholder="อีเมลร้านค้า เช่น store@example.com"
                   value={addForm.email}
                   onChange={(e) =>
@@ -420,11 +424,14 @@ export function StoreAccountsPanel({
             </p>
           ) : (
             approved.map((a) => (
+              // โครง 2 ชั้น: ข้อมูลร้าน / กลุ่มปุ่ม — เดิมอีเมล(flex-1)กับปุ่มอีก 6 ตัว
+              // อยู่ระดับ flex-wrap เดียวกัน ทำให้แต่ละแถวตัดบรรทัดไม่เหมือนกัน
+              // (ยาวสั้นตามอีเมล) ปุ่มเลยเยื้องกันมั่วทั้งการ์ด
               <div
                 key={a.id}
-                className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700"
+                className="flex flex-col gap-2.5 rounded-lg border border-slate-200 px-3 py-2.5 xl:flex-row xl:items-center dark:border-slate-700"
               >
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0 xl:flex-1">
                   {editingEmail === a.email ? (
                     <div className="flex flex-wrap items-center gap-1.5">
                       <Input
@@ -464,66 +471,68 @@ export function StoreAccountsPanel({
                     </>
                   )}
                 </div>
-                {editingEmail === a.email ? null : (
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 xl:shrink-0">
+                  {editingEmail === a.email ? null : (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={busy === a.email}
+                      title="เปลี่ยนอีเมลที่ใช้ล็อกอิน (รหัสผ่านและสิทธิเดิมคงอยู่)"
+                      onClick={() => {
+                        setEditingEmail(a.email);
+                        setEmailDraft(a.email);
+                      }}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                      แก้อีเมล
+                    </Button>
+                  )}
+                  {vdaSelect(a)}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy === a.email}
+                    onClick={() =>
+                      act(a.email, {
+                        action: "set-vda",
+                        vdaCode: vdaDraft[a.email] ?? a.vdaCode,
+                      })
+                    }
+                  >
+                    บันทึก VDA
+                  </Button>
+                  <label className="flex shrink-0 items-center gap-1.5 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={a.canManageMinMax}
+                      disabled={busy === a.email}
+                      onChange={(e) =>
+                        act(a.email, {
+                          action: "set-can-manage",
+                          canManageMinMax: e.target.checked,
+                        })
+                      }
+                    />
+                    จัดการ min/max
+                  </label>
                   <Button
                     size="sm"
                     variant="ghost"
                     disabled={busy === a.email}
-                    title="เปลี่ยนอีเมลที่ใช้ล็อกอิน (รหัสผ่านและสิทธิเดิมคงอยู่)"
-                    onClick={() => {
-                      setEditingEmail(a.email);
-                      setEmailDraft(a.email);
-                    }}
+                    onClick={() => act(a.email, { action: "reset-password" })}
                   >
-                    <Pencil className="h-3.5 w-3.5" />
-                    แก้อีเมล
+                    รีเซ็ตรหัส
                   </Button>
-                )}
-                {vdaSelect(a)}
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={busy === a.email}
-                  onClick={() =>
-                    act(a.email, {
-                      action: "set-vda",
-                      vdaCode: vdaDraft[a.email] ?? a.vdaCode,
-                    })
-                  }
-                >
-                  บันทึก VDA
-                </Button>
-                <label className="flex items-center gap-1.5 text-xs">
-                  <input
-                    type="checkbox"
-                    checked={a.canManageMinMax}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-red-600"
                     disabled={busy === a.email}
-                    onChange={(e) =>
-                      act(a.email, {
-                        action: "set-can-manage",
-                        canManageMinMax: e.target.checked,
-                      })
-                    }
-                  />
-                  จัดการ min/max
-                </label>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={busy === a.email}
-                  onClick={() => act(a.email, { action: "reset-password" })}
-                >
-                  รีเซ็ตรหัส
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="text-red-600"
-                  disabled={busy === a.email}
-                  onClick={() => setConfirmDelete(a.email)}
-                >
-                  ลบ
-                </Button>
+                    onClick={() => setConfirmDelete(a.email)}
+                  >
+                    ลบ
+                  </Button>
+                </div>
               </div>
             ))
           )}
@@ -539,28 +548,30 @@ export function StoreAccountsPanel({
             {rejected.map((a) => (
               <div
                 key={a.id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700"
+                className="flex flex-col gap-2 rounded-lg border border-slate-200 px-3 py-2.5 text-sm sm:flex-row sm:items-center dark:border-slate-700"
               >
-                <span className="min-w-0 flex-1 truncate text-slate-500">
+                <span className="min-w-0 truncate text-slate-500 sm:flex-1">
                   {a.email}
                 </span>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={busy === a.email}
-                  onClick={() => act(a.email, { action: "approve" })}
-                >
-                  อนุมัติใหม่
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="text-red-600"
-                  disabled={busy === a.email}
-                  onClick={() => setConfirmDelete(a.email)}
-                >
-                  ลบ
-                </Button>
+                <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy === a.email}
+                    onClick={() => act(a.email, { action: "approve" })}
+                  >
+                    อนุมัติใหม่
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-red-600"
+                    disabled={busy === a.email}
+                    onClick={() => setConfirmDelete(a.email)}
+                  >
+                    ลบ
+                  </Button>
+                </div>
               </div>
             ))}
           </CardContent>

@@ -44,7 +44,9 @@ export function AdminShell({
         role="admin"
       />
 
-      <main className="mx-auto max-w-6xl space-y-4 px-3 py-4 sm:px-4 sm:py-6">
+      {/* max-w ต้องตรงกับ AppHeader (max-w-7xl) ไม่งั้นขอบซ้าย/ขวาของหัวเพจ
+          กับเนื้อหาไม่ตรงกัน และเนื้อหาดูลอย ๆ ไม่เต็มจอบนจอกว้าง */}
+      <main className="mx-auto w-full min-w-0 max-w-7xl space-y-4 px-3 py-4 sm:px-4 sm:py-6">
         <AdminTabsNav />
 
         {(adminPreview || salesPreview) && (

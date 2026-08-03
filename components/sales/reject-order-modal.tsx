@@ -1,16 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
 import { XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Modal, ModalBody, ModalFooter } from "@/components/ui/modal";
 import { cn } from "@/lib/utils";
 
 /**
  * ปฏิเสธออเดอร์ — แทน window.prompt()
  *
  * `prompt()` บล็อก main thread, ก็อปข้อความไม่ได้, และบน webview ดูเหมือนแอปค้าง
- * (โครงเดียวกับ components/stock/stop-order-modal.tsx ที่ใช้อยู่แล้ว)
+ * โครง (portal / Esc / คุมความสูง) อยู่ใน components/ui/modal.tsx แล้ว
  */
 const QUICK_REASONS = [
   "สต็อกยังพอ",
@@ -42,30 +42,20 @@ export function RejectOrderModal({
     if (open) setReason("");
   }, [open]);
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !pending) onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, pending, onClose]);
-
-  if (!open || typeof document === "undefined") return null;
-
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4"
-      onClick={() => !pending && onClose()}
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      busy={pending}
+      size="md"
+      labelledBy="reject-order-title"
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-700 dark:bg-slate-900"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3 className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-slate-100">
-          <XCircle className="h-4 w-4 text-red-500" />
+      <ModalBody className="pt-4 sm:pt-5">
+        <h3
+          id="reject-order-title"
+          className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-slate-100"
+        >
+          <XCircle className="h-4 w-4 shrink-0 text-red-500" />
           ปฏิเสธออเดอร์
         </h3>
         {/* บอกบริบทให้ครบ เพื่อให้เหตุผลที่พิมพ์ตรงกับใบที่กำลังปฏิเสธจริง */}
@@ -102,22 +92,21 @@ export function RejectOrderModal({
           placeholder="พิมพ์เหตุผลเพิ่มเติม (ไม่บังคับ)"
           className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none ring-red-500/30 focus:ring-2 dark:border-slate-700 dark:bg-slate-900"
         />
+      </ModalBody>
 
-        <div className="mt-4 flex justify-end gap-2">
-          <Button size="sm" variant="outline" disabled={pending} onClick={onClose}>
-            ยกเลิก
-          </Button>
-          <Button
-            size="sm"
-            variant="destructive"
-            pending={pending}
-            onClick={() => onConfirm(reason.trim())}
-          >
-            ยืนยันปฏิเสธ
-          </Button>
-        </div>
-      </div>
-    </div>,
-    document.body
+      <ModalFooter>
+        <Button size="sm" variant="outline" disabled={pending} onClick={onClose}>
+          ยกเลิก
+        </Button>
+        <Button
+          size="sm"
+          variant="destructive"
+          pending={pending}
+          onClick={() => onConfirm(reason.trim())}
+        >
+          ยืนยันปฏิเสธ
+        </Button>
+      </ModalFooter>
+    </Modal>
   );
 }

@@ -2,10 +2,10 @@
 
 import { appPath } from "@/lib/paths";
 import { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
 import { Ban } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Modal, ModalBody, ModalFooter } from "@/components/ui/modal";
 import { cn } from "@/lib/utils";
 
 export function StopOrderModal({
@@ -37,8 +37,6 @@ export function StopOrderModal({
     setError("");
     setSaving(false);
   }, [open]);
-
-  if (!open || typeof document === "undefined") return null;
 
   async function submit() {
     if (skuIds.length === 0) return;
@@ -77,17 +75,20 @@ export function StopOrderModal({
     }
   }
 
-  return createPortal(
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      onClick={() => !saving && onClose()}
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      busy={saving}
+      size="md"
+      labelledBy="stop-order-title"
     >
-      <div
-        className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-700 dark:bg-slate-900"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3 className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-slate-100">
-          <Ban className="h-4 w-4 text-red-500" />
+      <ModalBody className="pt-4 sm:pt-5">
+        <h3
+          id="stop-order-title"
+          className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-slate-100"
+        >
+          <Ban className="h-4 w-4 shrink-0 text-red-500" />
           หยุดสั่ง {selectedCount} รายการ
         </h3>
         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
@@ -106,7 +107,8 @@ export function StopOrderModal({
           className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none ring-teal-500/30 focus:ring-2 dark:border-slate-700 dark:bg-slate-900"
         />
 
-        <div className="mt-3 grid grid-cols-2 gap-2">
+        {/* datetime-local เป็นคอนโทรลเนทีฟที่กว้าง — สองคอลัมน์บนจอ ~360px จะโดนตัด */}
+        <div className="mt-3 grid grid-cols-1 gap-2 min-[420px]:grid-cols-2">
           <div>
             <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
               ตั้งแต่วันที่
@@ -155,27 +157,21 @@ export function StopOrderModal({
         </label>
 
         {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+      </ModalBody>
 
-        <div className="mt-5 flex justify-end gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onClose}
-            disabled={saving}
-          >
-            ยกเลิก
-          </Button>
-          <Button
-            size="sm"
-            variant="destructive"
-            onClick={() => void submit()}
-            disabled={saving || !reason.trim()}
-          >
-            {saving ? "กำลังบันทึก..." : "ยืนยันหยุดสั่ง"}
-          </Button>
-        </div>
-      </div>
-    </div>,
-    document.body
+      <ModalFooter>
+        <Button variant="ghost" size="sm" onClick={onClose} disabled={saving}>
+          ยกเลิก
+        </Button>
+        <Button
+          size="sm"
+          variant="destructive"
+          onClick={() => void submit()}
+          disabled={saving || !reason.trim()}
+        >
+          {saving ? "กำลังบันทึก..." : "ยืนยันหยุดสั่ง"}
+        </Button>
+      </ModalFooter>
+    </Modal>
   );
 }

@@ -134,8 +134,12 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {mounted &&
         rows.length > 0 &&
         createPortal(
+          // ยกให้พ้นแถบปุ่มล่างจอ (.vmi-action-bar z-55 บนหน้า stock/order,
+          // .vmi-sales-action-bar บนหน้าเซลล์) — toast เป็น z-60 เลยลอยทับปุ่ม
+          // "ตรวจสอบคำสั่ง" อยู่ 8 วิ ซึ่งบนมือถือคือปุ่มหลักของหน้าเลย
+          // หน้าที่ไม่มีแถบล่างก็แค่ลอยสูงขึ้นนิดเดียว ไม่เสียหาย
           <div
-            className="pointer-events-none fixed inset-x-3 bottom-3 z-[60] flex flex-col items-end gap-2 sm:inset-x-auto sm:right-4 sm:bottom-4 sm:w-80"
+            className="pointer-events-none fixed inset-x-3 bottom-[calc(4.25rem+env(safe-area-inset-bottom))] z-[60] flex flex-col items-end gap-2 sm:inset-x-auto sm:right-4 sm:w-80"
             role="status"
             aria-live="polite"
           >
