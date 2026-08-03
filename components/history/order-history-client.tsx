@@ -1,12 +1,10 @@
 "use client";
 
 import { appPath } from "@/lib/paths";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Bell,
-  BellOff,
   Boxes,
   Check,
   ChevronDown,
@@ -31,7 +29,7 @@ import { useToast } from "@/components/ui/toast";
 import { formatBaht, formatNumber } from "@/lib/calculations";
 import { cn } from "@/lib/utils";
 import type { OrderHistoryEntry } from "@/app/api/store/order-history/route";
-import type { StoreNotificationRow } from "@/lib/orders/store-notify";
+import { fmtDateTime, relativeTime } from "@/lib/orders/store-notify-display";
 
 const STATUS_FILTERS = [
   { value: "", label: "ทั้งหมด" },
@@ -86,56 +84,6 @@ const FALLBACK_META: StatusMeta = {
   accent: "border-l-slate-300 dark:border-l-slate-600",
   icon: Clock,
 };
-
-const NOTIF_META: Record<string, { label: string; className: string }> = {
-  approved: {
-    label: "อนุมัติ",
-    className:
-      "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-200",
-  },
-  rejected: {
-    label: "ปฏิเสธ",
-    className: "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-200",
-  },
-  deleted: {
-    label: "ลบออเดอร์",
-    className: "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-200",
-  },
-  price_changed: {
-    label: "แก้ราคา",
-    className:
-      "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200",
-  },
-  qty_changed: {
-    label: "แก้จำนวน",
-    className: "bg-sky-100 text-sky-800 dark:bg-sky-500/15 dark:text-sky-200",
-  },
-  po_issued: {
-    label: "ออก PO",
-    className:
-      "bg-teal-100 text-teal-800 dark:bg-teal-500/15 dark:text-teal-200",
-  },
-};
-
-function fmtDateTime(iso: string): string {
-  return new Date(iso).toLocaleString("th-TH", {
-    day: "2-digit",
-    month: "short",
-    year: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function relativeTime(iso: string): string {
-  const diffMin = Math.round((Date.now() - Date.parse(iso)) / 60_000);
-  if (diffMin < 1) return "เมื่อสักครู่";
-  if (diffMin < 60) return `${diffMin} นาทีก่อน`;
-  const h = Math.round(diffMin / 60);
-  if (h < 24) return `${h} ชม.ก่อน`;
-  const d = Math.round(h / 24);
-  return d <= 30 ? `${d} วันก่อน` : fmtDateTime(iso);
-}
 
 function SummaryTile({
   icon,
@@ -286,7 +234,6 @@ export function OrderHistoryClient({
   const [dayFilter, setDayFilter] = useState<number>(0);
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [showAllNotif, setShowAllNotif] = useState(false);
   const [cancelTarget, setCancelTarget] = useState<OrderHistoryEntry | null>(
     null
   );
@@ -305,48 +252,6 @@ export function OrderHistoryClient({
     },
     staleTime: 30_000,
   });
-
-  const { data: notifData } = useQuery<{
-    items: StoreNotificationRow[];
-    unread: number;
-  }>({
-    queryKey: ["store-notifications"],
-    queryFn: async () => {
-      const res = await fetch(appPath("/api/store/notifications"), {
-        cache: "no-store",
-      });
-      if (!res.ok) return { items: [], unread: 0 };
-      return res.json();
-    },
-    refetchInterval: 60_000,
-  });
-
-  const markRead = useMutation({
-    mutationFn: async () => {
-      await fetch(appPath("/api/store/notifications"), {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["store-notifications"] });
-      void queryClient.invalidateQueries({
-        queryKey: ["store-notifications-count"],
-      });
-    },
-  });
-
-  // เปิดหน้านี้ = ได้เห็นแจ้งเตือนแล้ว จึงทำเครื่องหมายอ่านให้เอง
-  // หน่วงไว้หน่อยกันเคสกดผ่าน และยังเหลือปุ่ม "อ่านทั้งหมด" ไว้เผื่อพลาด
-  useEffect(() => {
-    if ((notifData?.unread ?? 0) === 0) return;
-    if (markRead.isPending) return;
-    const t = setTimeout(() => markRead.mutate(), 1_500);
-    return () => clearTimeout(t);
-    // ผูกกับจำนวนที่ยังไม่อ่านพอ — ไม่ต้อง re-run ทุกครั้งที่ mutation object เปลี่ยน
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notifData?.unread]);
 
   const cancelOrder = useMutation({
     mutationFn: async (orderId: string) => {
@@ -414,12 +319,6 @@ export function OrderHistoryClient({
     });
     router.push("/stock");
   }
-
-  const notifications = notifData?.items ?? [];
-  const unread = notifData?.unread ?? 0;
-  const visibleNotifications = showAllNotif
-    ? notifications
-    : notifications.slice(0, 4);
 
   const orders = useMemo(() => data?.orders ?? [], [data?.orders]);
 
@@ -497,122 +396,6 @@ export function OrderHistoryClient({
 
       {/* การ์ดที่กางออกมีตาราง 6 คอลัมน์ + timeline — 1024px เดิมแคบไปบนจอ 1536px */}
       <main className="mx-auto w-full min-w-0 max-w-7xl space-y-3 px-3 py-3 sm:px-4">
-        {/* ---- แจ้งเตือนจากพนักงาน ---- */}
-        {notifications.length > 0 && (
-          <section
-            className={cn(
-              "overflow-hidden rounded-2xl border shadow-sm",
-              unread > 0
-                ? "border-teal-200 bg-teal-50/60 dark:border-teal-900/60 dark:bg-teal-950/25"
-                : "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/60"
-            )}
-          >
-            <header className="flex items-center gap-2 px-3 py-2">
-              <span
-                className={cn(
-                  "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg",
-                  unread > 0
-                    ? "bg-teal-100 text-teal-700 dark:bg-teal-500/20 dark:text-teal-300"
-                    : "bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500"
-                )}
-              >
-                {unread > 0 ? (
-                  <Bell className="h-4 w-4" />
-                ) : (
-                  <BellOff className="h-4 w-4" />
-                )}
-              </span>
-              <p className="min-w-0 flex-1 text-sm font-bold text-slate-800 dark:text-slate-100">
-                การแจ้งเตือนจากพนักงาน
-                {unread > 0 && (
-                  <span className="ml-1.5 rounded-full bg-red-500 px-1.5 py-0.5 text-[11px] font-bold text-white">
-                    ใหม่ {unread}
-                  </span>
-                )}
-              </p>
-              {unread > 0 && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 shrink-0 px-2 text-xs"
-                  pending={markRead.isPending}
-                  onClick={() => markRead.mutate()}
-                >
-                  อ่านทั้งหมด
-                </Button>
-              )}
-            </header>
-            <ul className="divide-y divide-slate-200/70 border-t border-slate-200/70 dark:divide-slate-800 dark:border-slate-800">
-              {visibleNotifications.map((n) => {
-                const meta = NOTIF_META[n.kind] ?? {
-                  label: n.kind,
-                  className: "bg-slate-100 text-slate-700",
-                };
-                return (
-                  <li
-                    key={n.id}
-                    className={cn(
-                      "flex flex-wrap items-start gap-x-2 gap-y-1 px-3 py-2",
-                      !n.readAt && "bg-white/70 dark:bg-slate-900/40"
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "shrink-0 rounded px-1.5 py-0.5 text-[11px] font-bold",
-                        meta.className
-                      )}
-                    >
-                      {meta.label}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[13px] font-semibold text-slate-800 dark:text-slate-100">
-                        {!n.readAt && (
-                          <span
-                            className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-red-500 align-middle"
-                            aria-label="ยังไม่อ่าน"
-                          />
-                        )}
-                        {n.title}
-                      </p>
-                      {n.detail && (
-                        <p className="mt-0.5 break-words text-xs text-slate-500 dark:text-slate-400">
-                          {n.detail}
-                        </p>
-                      )}
-                      {n.poNumbers.length > 0 && (
-                        <p className="mt-1 flex flex-wrap gap-1">
-                          {n.poNumbers.map((po) => (
-                            <span
-                              key={po}
-                              className="rounded bg-emerald-100 px-1.5 py-0.5 font-mono text-[11px] font-bold text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300"
-                            >
-                              {po}
-                            </span>
-                          ))}
-                        </p>
-                      )}
-                    </div>
-                    <span className="shrink-0 text-[11px] text-slate-400">
-                      {relativeTime(n.createdAt)}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-            {notifications.length > 4 && (
-              <button
-                type="button"
-                onClick={() => setShowAllNotif((v) => !v)}
-                className="w-full border-t border-slate-200/70 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/40"
-              >
-                {showAllNotif
-                  ? "ย่อ"
-                  : `ดูทั้งหมด ${notifications.length} รายการ`}
-              </button>
-            )}
-          </section>
-        )}
-
         {/* ---- สรุป ---- */}
         {/* 5 ช่องเสมอ — เดิมเป็น 4 ช่องแล้วการ์ด "มูลค่ารวม" ตกไปอยู่บรรทัดใหม่ลำพัง */}
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
