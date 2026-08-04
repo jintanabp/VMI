@@ -14,6 +14,7 @@
 | `cross_sold_history_2y_qu.csv` | ยอดขายย้อนหลัง 2 ปี | สำรอง |
 | `cft_promotion_cash.csv` | โปรโมชัน C4 (เงินสด) | ขั้นโปร ส่วนลด ของแถม |
 | `cft_promotion_credit.csv` | โปรโมชัน C4 (เครดิต) | สำรอง/rollback |
+| `cft_assorted_mapping.csv` | ชื่อกลุ่มโปร (`ASSORTEDPRODUCTGROUP` → `DESCRIPTIONASSORTED`) | แสดงชื่อกลุ่มโปรแทนรหัส |
 | `cross_salesman_reference_email.csv` | ทะเบียนพนักงานขาย | บทบาท ลูกทีม สิทธิ์ |
 | `dim_customer.csv` | ทะเบียนลูกค้า/ร้าน | ชื่อร้าน เขต |
 

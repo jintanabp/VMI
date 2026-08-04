@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
+import { usePromoGroupNames } from "@/hooks/use-promo-group-names";
 import { formatBaht, formatNumber } from "@/lib/calculations";
 import { cn } from "@/lib/utils";
 import type { OrderHistoryEntry } from "@/app/api/store/order-history/route";
@@ -230,6 +231,7 @@ export function OrderHistoryClient({
   const queryClient = useQueryClient();
   const router = useRouter();
   const { toast } = useToast();
+  const { label: groupLabel, tooltip: groupTooltip } = usePromoGroupNames();
   const [statusFilter, setStatusFilter] = useState("");
   const [dayFilter, setDayFilter] = useState<number>(0);
   const [search, setSearch] = useState("");
@@ -800,8 +802,11 @@ export function OrderHistoryClient({
                                   </span>{" "}
                                   {fg.name}
                                   {fg.promoGroup && (
-                                    <span className="ml-1 text-slate-400">
-                                      · กลุ่ม {fg.promoGroup}
+                                    <span
+                                      className="ml-1 text-slate-400"
+                                      title={groupTooltip(fg.promoGroup)}
+                                    >
+                                      · {groupLabel(fg.promoGroup)}
                                     </span>
                                   )}
                                 </span>

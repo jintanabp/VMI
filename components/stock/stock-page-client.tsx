@@ -155,6 +155,7 @@ const STOCK_INVALIDATE_KEYS = [
   ["stock"],
   ["sales-daily"],
   ["order-history-recent"],
+  ["promo-assorted-names"],
 ] as const;
 
 type DisplayRow = StockRowComputed & {

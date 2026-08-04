@@ -13,6 +13,7 @@ import {
   seedModalStaged,
 } from "@/lib/promo/stock-pooled-promo";
 import { plannerView, blendedNetForStep } from "@/lib/promo/planner-utils";
+import { usePromoGroupNames } from "@/hooks/use-promo-group-names";
 
 function fmt(n: number | null | undefined) {
   if (n == null || Number.isNaN(n)) return "—";
@@ -51,6 +52,7 @@ export function C4PromoModal({
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [staged, setStaged] = useState<Record<string, number>>({});
+  const { label: groupLabel } = usePromoGroupNames();
   const stagedQtyRef = useRef(stagedQty);
   stagedQtyRef.current = stagedQty;
   const stockMemberSkusRef = useRef(stockMemberSkus);
@@ -136,8 +138,9 @@ export function C4PromoModal({
     onClose();
   }
 
+  // ชื่อกลุ่มจาก cft_assorted_mapping — ถอยไปใช้รหัสกลุ่มเมื่อยังไม่มีชื่อ
   const title = data?.group
-    ? `โปร C4 · กลุ่ม ${data.group}`
+    ? `โปร C4 · ${groupLabel(data.group)}`
     : `โปร C4 · ${data?.skuName ?? skuCode}`;
 
   return createPortal(
@@ -155,13 +158,17 @@ export function C4PromoModal({
       >
         <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-700">
           <div className="min-w-0">
-            <h2 className="truncate text-sm font-bold text-slate-900 dark:text-slate-50">
+            <h2 className="line-clamp-2 break-words text-sm font-bold text-slate-900 dark:text-slate-50">
               {title}
             </h2>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
               {isGroupView
                 ? "ซื้อสินค้าใดก็ได้ในกลุ่มเดียวกัน รวมจำนวนแล้วได้โปรเดียวกัน"
                 : "รายละเอียดบันไดโปร C4 รายสินค้า"}
+              {/* หัวข้อโชว์ชื่อกลุ่มแล้ว — คงรหัสไว้ตรงนี้ให้เทียบกับ C4 ได้ */}
+              {data?.group && groupLabel(data.group) !== data.group
+                ? ` · รหัสกลุ่ม ${data.group}`
+                : ""}
               {data?.context?.date ? ` · วันนี้ ${data.context.date}` : ""}
             </p>
           </div>

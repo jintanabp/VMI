@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { formatBaht, formatNumber } from "@/lib/calculations";
 import { formatStoreLabel } from "@/lib/format-store-label";
 import { collectOwedFreeGoods } from "@/lib/promo/order-free-goods";
+import { usePromoGroupNames } from "@/hooks/use-promo-group-names";
 import { cn } from "@/lib/utils";
 import type { PoDocument } from "@/lib/po/po-document";
 
@@ -61,6 +62,8 @@ export function PoDetailPanel({
       return res.json();
     },
   });
+
+  const { label: groupLabel, tooltip: groupTooltip } = usePromoGroupNames();
 
   const owedFreeGoods = useMemo(
     () => (data ? collectOwedFreeGoods(data.lines) : []),
@@ -298,9 +301,16 @@ export function PoDetailPanel({
                             {fg.code}
                           </span>{" "}
                           {fg.name}
-                          <span className="ml-1 text-slate-400">
+                          <span
+                            className="ml-1 text-slate-400"
+                            title={
+                              fg.promoGroup
+                                ? groupTooltip(fg.promoGroup)
+                                : undefined
+                            }
+                          >
                             {fg.promoGroup
-                              ? `· กลุ่ม ${fg.promoGroup} (${fg.fromSkuCodes.join(", ")})`
+                              ? `· ${groupLabel(fg.promoGroup)} (${fg.fromSkuCodes.join(", ")})`
                               : `· ${fg.fromSkuCodes.join(", ")}`}
                           </span>
                         </span>

@@ -33,6 +33,14 @@ export function getPromotionCsvPath() {
   );
 }
 
+/** ชื่อกลุ่มโปร (ASSORTEDPRODUCTGROUP → DESCRIPTIONASSORTED) — อยู่ lakehouse เดียวกับ C4 */
+export function getAssortedMappingCsvPath() {
+  return (
+    process.env.ASSORTED_MAPPING_CSV ??
+    path.join(getFabricCacheDir(), "cft_assorted_mapping.csv")
+  );
+}
+
 export function getSkuMasterCsvPath() {
   return (
     process.env.SKU_MASTER_CSV ??

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { z } from "zod";
 import { getSalesSession } from "@/lib/auth/sales-session";
+import { getAssortedMapping } from "@/lib/fabric";
 import { prisma } from "@/lib/prisma";
 import { assertOrderAccess } from "@/lib/orders/access";
 import { VAT_RATE, type PoDocument } from "@/lib/po/po-document";
@@ -89,6 +90,8 @@ export async function POST(request: Request) {
       { status: 403 }
     );
   }
+
+  const assorted = getAssortedMapping();
 
   const wb = new ExcelJS.Workbook();
   wb.creator = "VMI";
@@ -249,8 +252,9 @@ export async function POST(request: Request) {
         sheet.getCell(r, 2).value = fg.name;
         sheet.getCell(r, 3).value = fg.qty;
         sheet.getCell(r, 4).value = fg.unit;
+        // ชื่อกลุ่มโปรอ่านรู้เรื่องกว่ารหัส — คงรหัสต่อท้ายไว้ให้เทียบกับ C4 ได้
         sheet.getCell(r, 5).value = fg.promoGroup
-          ? `กลุ่ม ${fg.promoGroup} (${fg.fromSkuCodes.join(", ")})`
+          ? `${assorted.labelFor(fg.promoGroup)} [${fg.promoGroup}] (${fg.fromSkuCodes.join(", ")})`
           : fg.fromSkuCodes.join(", ");
       }
     }

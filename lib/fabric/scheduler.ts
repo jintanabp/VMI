@@ -96,6 +96,7 @@ const EMPTY_FLAGS: Omit<RefreshAllResult, "datasets"> = {
   skuMaster: false,
   vdaAos: false,
   soldHistory: false,
+  assortedMapping: false,
 };
 
 async function doRefresh(

@@ -13,6 +13,7 @@ import {
   promoGroupDotClass,
   promoGroupStripeFor,
 } from "@/lib/promo/promo-group-display";
+import { usePromoGroupNames } from "@/hooks/use-promo-group-names";
 import { cn } from "@/lib/utils";
 
 export interface PromoFreeGoodDetail {
@@ -127,6 +128,8 @@ export function PromoDetailCell({
   inspector,
 }: PromoDetailCellProps) {
   const [skuModalOpen, setSkuModalOpen] = useState(false);
+  const { label: groupLabel, shortLabel: groupShortLabel } =
+    usePromoGroupNames();
 
   const showFreeGood = Boolean(freeGood && freeGood.qty > 0);
   const renderFreeGoodChip = showFreeGood && showFreeGoodChip;
@@ -235,17 +238,21 @@ export function PromoDetailCell({
     metaItems.push({
       key: "group",
       node: (
+        // คอลัมน์โปรกว้าง ~220px — ใช้ชื่อแบบสั้น (ตัดวงเล็บไล่รสออก) แล้วยอมให้ตกบรรทัดได้ 2 บรรทัด
+        // ชื่อเต็มอยู่ใน tooltip และแถวหัวกลุ่ม ที่นี่ต้องการแค่ "ตัวไหนรวมยอดกับตัวไหนได้"
         <span
-          className="inline-flex items-center gap-1 font-medium text-slate-600 dark:text-slate-300"
-          title={`อยู่ในกลุ่มโปร ${groupCode} — ยอดสั่งของสินค้าในกลุ่มนี้รวมกันเพื่อไต่ขั้นโปรได้`}
+          className="inline-flex min-w-0 items-start gap-1 font-medium text-slate-600 dark:text-slate-300"
+          title={`อยู่ในกลุ่มโปร ${groupLabel(groupCode)} (รหัส ${groupCode}) — ยอดสั่งของสินค้าในกลุ่มนี้รวมกันเพื่อไต่ขั้นโปรได้`}
         >
           <span
             className={cn(
-              "h-1.5 w-1.5 shrink-0 rounded-full",
+              "mt-[0.3em] h-1.5 w-1.5 shrink-0 rounded-full",
               promoGroupDotClass(promoGroupStripeFor(groupCode))
             )}
           />
-          {groupCode}
+          <span className="line-clamp-2 break-words">
+            {groupShortLabel(groupCode)}
+          </span>
         </span>
       ),
     });

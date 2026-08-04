@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import ExcelJS from "exceljs";
-import { fabricStockReady } from "@/lib/fabric";
+import { fabricStockReady, getAssortedMapping } from "@/lib/fabric";
 import { bangkokDateStr } from "@/lib/fabric/bkk-date";
 import { buildFabricStockPayload } from "@/lib/fabric/stock-rows";
 import { resolveVdaStoreName } from "@/lib/fabric/vda-store-name";
@@ -173,6 +173,9 @@ async function buildWorkbook(
   wb.creator = "VMI";
   wb.created = new Date();
 
+  // ชื่อกลุ่มโปร — คงคอลัมน์รหัสกลุ่มไว้ด้วยเพื่อให้ pivot/vlookup ข้ามชีตได้เหมือนเดิม
+  const assorted = getAssortedMapping();
+
   // ---- ชีต 1: ฟอร์มสั่ง (หน้าตาตามตัวอย่างฟอร์มสั่งสินค้า) ----
   const storeName =
     resolveVdaStoreName(fromDb) ||
@@ -210,6 +213,7 @@ async function buildWorkbook(
     { header: "ราคาสุทธิ/หีบ", key: "net", width: 13, numFmt: NUM_BAHT },
     { header: "มูลค่าคงเหลือ", key: "stockValue", width: 15, numFmt: NUM_BAHT },
     { header: "กลุ่มโปร", key: "promoGroup", width: 14 },
+    { header: "ชื่อกลุ่มโปร", key: "promoGroupName", width: 34 },
     { header: "โปรปัจจุบัน", key: "currentPromo", width: 26 },
     { header: "โปรขั้นถัดไป", key: "nextPromo", width: 26 },
     { header: "ของแถม", key: "freeGood", width: 26 },
@@ -241,6 +245,7 @@ async function buildWorkbook(
       net: r.netUnitPrice ?? r.unitPrice,
       stockValue: r.unitPrice != null ? r.stock * r.unitPrice : null,
       promoGroup: r.promoGroup ?? "",
+      promoGroupName: assorted.nameFor(r.promoGroup),
       currentPromo: r.currentPromo ?? "",
       nextPromo: r.nextPromo
         ? `${r.nextPromo}${r.nextPromoQty != null ? ` (ที่ ${r.nextPromoQty} หีบ)` : ""}`
@@ -256,6 +261,7 @@ async function buildWorkbook(
     { header: "รหัสสินค้า", key: "code", width: 12 },
     { header: "ชื่อสินค้า", key: "name", width: 38 },
     { header: "กลุ่มโปร", key: "group", width: 14 },
+    { header: "ชื่อกลุ่มโปร", key: "groupName", width: 34 },
     { header: "ตั้งแต่จำนวน (หีบ)", key: "fromQty", width: 16, numFmt: NUM_INT },
     { header: "ส่วนลด (บาท/หีบ)", key: "discBaht", width: 16, numFmt: NUM_BAHT },
     { header: "ส่วนลด (%)", key: "discPct", width: 11, numFmt: NUM_1DP },
@@ -271,6 +277,7 @@ async function buildWorkbook(
         code: r.skuCode,
         name: r.skuName,
         group: r.promoGroup ?? "",
+        groupName: assorted.nameFor(r.promoGroup),
         fromQty: t.minQty,
         discBaht: t.discBaht ?? null,
         discPct: t.discPct ?? null,
@@ -285,6 +292,7 @@ async function buildWorkbook(
   // ---- ชีต 4: โปรกลุ่ม (1 แถว = 1 ASSORTEDPRODUCTGROUP) ----
   const groupSheet = wb.addWorksheet("โปรกลุ่ม");
   applySheet(groupSheet, [
+    { header: "ชื่อกลุ่มโปร", key: "groupName", width: 40 },
     { header: "ชื่อโปร", key: "promoName", width: 40 },
     { header: "กลุ่มโปร", key: "group", width: 14 },
     { header: "SKU ในกลุ่ม (C4)", key: "members", width: 15, numFmt: NUM_INT },
@@ -334,6 +342,8 @@ async function buildWorkbook(
     }
 
     groupSheet.addRow({
+      // ชื่อจริงจาก cft_assorted_mapping — ว่างได้ (บางกลุ่มไม่มีคำอธิบาย)
+      groupName: assorted.nameFor(group),
       // C4 ไม่มีคอลัมน์ชื่อโปร — สังเคราะห์จากเงื่อนไขเหมือนที่หน้าเว็บแสดง
       promoName: buildPromoTitle({
         group,

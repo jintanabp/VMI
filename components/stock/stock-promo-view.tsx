@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/mobile-row";
 import { promoGroupBadgeClass } from "@/lib/promo/promo-group-display";
 import { buildPromoTitle } from "@/lib/promo/promo-title";
+import { usePromoGroupNames } from "@/hooks/use-promo-group-names";
 import { isBenefitTier } from "@/lib/calculations";
 import {
   activeTierAt,
@@ -152,15 +153,24 @@ function PromoBucketCard({
   const rows = showAll ? bucket.rows : bucket.rows.slice(0, ROWS_PER_BUCKET);
   const truncated = bucket.rows.length - rows.length;
 
+  const { names: groupNames, tooltip: groupTooltip } = usePromoGroupNames();
+
   const promoTitle = useMemo(
     () =>
       buildPromoTitle({
         group: bucket.promoGroup,
+        groupName: groupNames[bucket.promoGroup?.trim() ?? ""],
         tiers: bucket.tiers,
         memberCount: bucket.memberSkus.length,
         endsInDays: bucket.hostRow?.currentPromoEndsInDays ?? null,
       }),
-    [bucket.promoGroup, bucket.tiers, bucket.memberSkus.length, bucket.hostRow]
+    [
+      bucket.promoGroup,
+      bucket.tiers,
+      bucket.memberSkus.length,
+      bucket.hostRow,
+      groupNames,
+    ]
   );
 
   // อีกกี่หีบถึงขั้นถัดไป (ระดับกลุ่ม) — ขั้นที่ยังไม่ถึงตัวแรกหลังยอดรวมปัจจุบัน
@@ -208,7 +218,10 @@ function PromoBucketCard({
         {isGroup ? (
           // C4 ไม่มีคอลัมน์ชื่อโปร — สังเคราะห์จากเงื่อนไขที่ได้จริง
           // เดิมโชว์แค่รหัสกลุ่มดิบ ("กลุ่ม AP50K") ซึ่งร้านค้าอ่านไม่ออก
-          <span className="flex min-w-0 flex-col leading-tight">
+          <span
+            className="flex min-w-0 flex-col leading-tight"
+            title={groupTooltip(bucket.promoGroup)}
+          >
             <span className="flex items-center gap-1.5">
               <span
                 className={cn(
@@ -222,7 +235,8 @@ function PromoBucketCard({
               </span>
             </span>
             {promoTitle.meta && (
-              <span className="truncate text-[11px] text-slate-500 dark:text-slate-400">
+              // ชื่อกลุ่มอยู่ในบรรทัดนี้และยาวได้มาก — การ์ดกว้างพอ ปล่อยให้ตกบรรทัด
+              <span className="break-words text-[11px] text-slate-500 dark:text-slate-400">
                 {promoTitle.meta}
               </span>
             )}

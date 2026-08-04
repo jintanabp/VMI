@@ -4,6 +4,7 @@ import { countCsvRows } from "./csv";
 import { getMinRows } from "./env";
 import {
   bootstrapIfMissing,
+  buildAssortedMappingSpec,
   buildCustomerSpec,
   buildPromotionCreditSpec,
   buildSalesmanSpec,
@@ -15,6 +16,7 @@ import {
   type RefreshSpec,
 } from "./onelake-refresh";
 import {
+  getAssortedMappingCsvPath,
   getCustomerCsvPath,
   getPromotionCsvPath,
   getSalesmanCsvPath,
@@ -40,6 +42,7 @@ export const CORE_DATASET_IDS = [
   "salesman_registry",
   "stock_cover_day",
   "promotion_c4",
+  "assorted_mapping",
   "sku_master",
   "factsales_odoo",
 ] as const;
@@ -109,6 +112,16 @@ export function datasetMeta(id: DatasetId): DatasetMeta | null {
         minRowsEnv: "CFT_MIN_ROWS",
         required: true,
       };
+    case "assorted_mapping":
+      return {
+        id,
+        label: "ชื่อกลุ่มโปรโมชั่น (cft_assorted_mapping)",
+        localPath: getAssortedMappingCsvPath(),
+        minRows: Number(process.env.ASSORTED_MIN_ROWS ?? "50"),
+        minRowsEnv: "ASSORTED_MIN_ROWS",
+        // ขาดได้ — UI ถอยไปแสดงรหัสกลุ่มแทนชื่อ ไม่ทำให้โปรพัง
+        required: false,
+      };
     case "sku_master":
       return {
         id,
@@ -154,6 +167,8 @@ export function buildSpecFor(id: DatasetId): RefreshSpec | null {
       return buildStockCoverSpec(meta.localPath);
     case "promotion_c4":
       return buildPromotionCreditSpec(meta.localPath);
+    case "assorted_mapping":
+      return buildAssortedMappingSpec(meta.localPath);
     case "sku_master":
       return buildSkuMasterSpec(meta.localPath);
     case "factsales_odoo":

@@ -10,7 +10,8 @@ import {
  * ตาราง C4 (`cft_promotion_*.csv`) **ไม่มีคอลัมน์ชื่อโปรเลย** — มีแค่
  * `ASSORTEDPRODUCTGROUP` (รหัสกลุ่ม เช่น AP50K), `MARKETINGUSER`, `USERCODE`
  * ที่ผ่านมา UI จึงโชว์รหัสกลุ่มดิบ ๆ ซึ่งร้านค้าอ่านไม่ออก
- * ที่นี่จึงสังเคราะห์ชื่อจาก "เงื่อนไขที่ได้จริง" ของขั้นบันไดแทน
+ * ที่นี่จึงสังเคราะห์ headline จาก "เงื่อนไขที่ได้จริง" ของขั้นบันได
+ * ส่วนบรรทัด meta ใช้ชื่อกลุ่มจาก `cft_assorted_mapping.csv` ถ้ามี (ส่งมาทาง groupName)
  */
 export interface PromoTitle {
   /** บรรทัดหลัก — "ซื้อ 10+ หีบ ลด 600" */
@@ -21,6 +22,8 @@ export interface PromoTitle {
 
 export function buildPromoTitle(args: {
   group?: string | null;
+  /** ชื่อกลุ่มจาก cft_assorted_mapping — ว่างได้ (ถอยไปใช้รหัสกลุ่ม) */
+  groupName?: string | null;
   tiers?: PromoTierInput[] | null;
   memberCount?: number;
   endsInDays?: number | null;
@@ -44,7 +47,10 @@ export function buildPromoTitle(args: {
 
   const metaParts: string[] = [];
   const group = args.group?.trim();
-  if (group) metaParts.push(`กลุ่ม ${group}`);
+  const groupName = args.groupName?.trim();
+  // ชื่อกลุ่มบอกได้ว่า "โปรของสินค้าอะไร" ซึ่งรหัสกลุ่มบอกไม่ได้
+  if (groupName) metaParts.push(groupName);
+  else if (group) metaParts.push(`กลุ่ม ${group}`);
   if (args.memberCount != null && args.memberCount > 1) {
     metaParts.push(`${args.memberCount} สินค้า`);
   }

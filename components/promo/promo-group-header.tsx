@@ -7,6 +7,7 @@ import {
   type PromoGroupStripe,
 } from "@/lib/promo/promo-group-display";
 import { buildPromoTitle } from "@/lib/promo/promo-title";
+import { usePromoGroupNames } from "@/hooks/use-promo-group-names";
 import type { PromoTierInput } from "@/lib/calculations";
 import { cn } from "@/lib/utils";
 
@@ -82,12 +83,14 @@ export function PromoGroupHeader({
   endsInDays,
   className,
 }: PromoGroupHeaderProps) {
+  const { names, tooltip } = usePromoGroupNames();
   const pooledQty = sumGroupStagedQty(memberSkus, stagedQty);
   const showButton = showPromoButton && pooledQty > 0 && Boolean(storeCode);
   const title =
     tiers && tiers.length > 0
       ? buildPromoTitle({
           group: promoGroup,
+          groupName: names[promoGroup.trim()],
           tiers,
           memberCount: memberSkus.length,
           endsInDays,
@@ -102,29 +105,35 @@ export function PromoGroupHeader({
       )}
     >
       {title ? (
-        <span className="inline-flex min-w-0 items-center gap-1.5">
+        // แถวหัวกลุ่มกินความกว้างทั้งตาราง — ให้ตัดบรรทัดแทนตัดคำด้วย "..."
+        // ชื่อกลุ่มจาก C4 ยาวได้ถึง ~80 ตัวอักษร (ไล่รสในวงเล็บ) ถ้า truncate จะเหลือแค่คำแรก
+        <span
+          className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5"
+          title={tooltip(promoGroup)}
+        >
           <span
             className={cn(
-              "inline-block h-2 w-2 shrink-0 rounded-full ring-1",
+              "inline-block h-2 w-2 shrink-0 self-center rounded-full ring-1",
               promoGroupBadgeClass(stripe)
             )}
             aria-hidden
           />
-          <span className="truncate text-[11px] font-semibold text-slate-800 dark:text-slate-200">
+          <span className="text-[11px] font-semibold text-slate-800 dark:text-slate-200">
             {title.headline}
           </span>
-          <span className="truncate text-[10px] text-slate-500 dark:text-slate-400">
+          <span className="min-w-0 break-words text-[10px] text-slate-500 dark:text-slate-400">
             {title.meta}
           </span>
         </span>
       ) : (
         <span
           className={cn(
-            "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-semibold ring-1",
+            "inline-flex min-w-0 items-center gap-1 break-words rounded-md px-2 py-0.5 text-[10px] font-semibold ring-1",
             promoGroupBadgeClass(stripe)
           )}
+          title={tooltip(promoGroup)}
         >
-          กลุ่ม {promoGroup}
+          {names[promoGroup.trim()] ?? `กลุ่ม ${promoGroup}`}
         </span>
       )}
       {pooledQty > 0 && (

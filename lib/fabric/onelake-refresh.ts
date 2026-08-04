@@ -418,6 +418,28 @@ export function buildPromotionCreditSpec(localPath: string): RefreshSpec | null 
   };
 }
 
+/** ชื่อกลุ่มโปร — อยู่ lakehouse เดียวกับตาราง C4 จึงใช้ config/profile ชุดเดียวกัน */
+export function buildAssortedMappingSpec(localPath: string): RefreshSpec | null {
+  const cfg = getPromotionOnelakeConfig();
+  if (!cfg) return null;
+
+  return {
+    name: "assorted_mapping",
+    localPath,
+    workspaceId: cfg.workspaceId,
+    onelakeItemId: cfg.lakehouseId,
+    scanDir: cfg.scanDir,
+    onelakePath:
+      process.env.ASSORTED_ONELAKE_PATH?.trim() ||
+      `${cfg.scanDir.replace(/\/$/, "")}/cft_assorted_mapping.csv`,
+    columnSignature: ["ASSORTEDPRODUCTGROUP", "DESCRIPTIONASSORTED"],
+    requiredColumns: ["ASSORTEDPRODUCTGROUP", "DESCRIPTIONASSORTED"],
+    minRows: Number(process.env.ASSORTED_MIN_ROWS ?? "50"),
+    authProfile:
+      (process.env.CFT_AUTH_PROFILE as OnelakeAuthProfile) ?? "masters",
+  };
+}
+
 export function buildSkuMasterSpec(localPath: string): RefreshSpec | null {
   const cfg = getMastersOnelakeConfig();
   if (!cfg) return null;
@@ -500,6 +522,8 @@ export interface RefreshAllResult {
   vdaAos: boolean;
   /** เดิมผลของ factsales_odoo ถูกทิ้งเงียบ ๆ ไม่ถึงไฟล์ status เลย */
   soldHistory: boolean;
+  /** ชื่อกลุ่มโปร — ล้มได้โดยไม่กระทบโปร (UI ถอยไปแสดงรหัสกลุ่ม) */
+  assortedMapping: boolean;
   /** ผลละเอียดต่อชุดข้อมูล — ใช้เขียน status รายตารางและแสดงในหน้าแอดมิน */
   datasets: DatasetRefreshResult[];
 }
@@ -509,6 +533,7 @@ export async function refreshAllMasters(
   only?: ReadonlySet<string>
 ): Promise<RefreshAllResult> {
   const {
+    getAssortedMappingCsvPath,
     getCustomerCsvPath,
     getSalesmanCsvPath,
     getStockCoverCsvPath,
@@ -542,6 +567,9 @@ export async function refreshAllMasters(
   const customer = await run(buildCustomerSpec(getCustomerCsvPath()));
   const salesman = await run(buildSalesmanSpec(getSalesmanCsvPath()));
   const promotion = await run(buildPromotionCreditSpec(getPromotionCsvPath()));
+  const assortedMapping = await run(
+    buildAssortedMappingSpec(getAssortedMappingCsvPath())
+  );
   const skuMaster = await run(buildSkuMasterSpec(getSkuMasterCsvPath()));
   // ประวัติยอดขายรายวัน (ไม่บล็อก master อื่น ถ้า config/ไฟล์ไม่พร้อม)
   const soldHistory = await run(buildSoldHistorySpec(getSoldHistoryCsvPath()));
@@ -573,6 +601,7 @@ export async function refreshAllMasters(
     skuMaster,
     vdaAos,
     soldHistory,
+    assortedMapping,
     datasets,
   };
 }

@@ -1,9 +1,11 @@
 import fs from "fs";
 import { createHash } from "crypto";
+import { AssortedMapping } from "./assorted-mapping";
 import { CustomerDirectory } from "./customer-directory";
 import { globalDataVersion } from "./data-version";
 import { reloadStockCover } from "./stock-cover";
 import {
+  getAssortedMappingCsvPath,
   getCustomerCsvPath,
   getPromotionCsvPath,
   getSalesmanCsvPath,
@@ -23,6 +25,7 @@ let salesmanReg: SalesmanRegistry | null = null;
 let promoCredit: PromotionCredit | null = null;
 let skuMaster: SkuMasterDirectory | null = null;
 let soldHistory: SoldHistoryDirectory | null = null;
+let assortedMapping: AssortedMapping | null = null;
 
 const fabricCacheMtimes = new Map<string, number>();
 
@@ -39,6 +42,7 @@ function trackedFabricPaths(): string[] {
     getCustomerCsvPath(),
     getSalesmanCsvPath(),
     getPromotionCsvPath(),
+    getAssortedMappingCsvPath(),
     getSkuMasterCsvPath(),
     getSoldHistoryCsvPath(),
     getStockCoverCsvPath(),
@@ -54,7 +58,7 @@ export function fabricMastersMtimeSignature(): string {
 
 /**
  * ลายเซ็นสั้นสำหรับส่งให้ client ตรวจว่ามีข้อมูลใหม่หรือยัง
- * ต้นทุน = fs.statSync 6 ครั้ง ไม่แตะ DB ไม่ parse CSV จึง poll ได้ถี่
+ * ต้นทุน = fs.statSync ไฟล์ละครั้ง ไม่แตะ DB ไม่ parse CSV จึง poll ได้ถี่
  * รวม globalDataVersion เข้าไปด้วย เพื่อครอบเคสที่ mtime เท่าเดิมแต่ reload แล้ว
  */
 export function datasetVersion(): string {
@@ -131,6 +135,28 @@ function shouldLoadPromotion() {
   return fs.existsSync(path) && fs.statSync(path).size > 100;
 }
 
+function shouldLoadAssortedMapping() {
+  if (!fabricMastersEnabled()) return false;
+  const path = getAssortedMappingCsvPath();
+  return fs.existsSync(path) && fs.statSync(path).size > 100;
+}
+
+/**
+ * ชื่อกลุ่มโปรจาก cft_assorted_mapping.csv
+ *
+ * ไม่มีไฟล์ = คืน mapping ว่าง ไม่ throw — ทุกจุดที่ใช้ต้อง fallback เป็นรหัสกลุ่มเดิม
+ * เพราะไฟล์นี้เป็นแค่ "ชื่อสวย" ไม่ใช่ข้อมูลที่โปรทำงานได้หรือไม่ได้
+ */
+export function getAssortedMapping(): AssortedMapping {
+  if (!assortedMapping) {
+    assortedMapping = new AssortedMapping();
+    if (shouldLoadAssortedMapping()) {
+      assortedMapping.load(getAssortedMappingCsvPath());
+    }
+  }
+  return assortedMapping;
+}
+
 export function getCustomerDirectory(): CustomerDirectory {
   if (!customerDir) {
     customerDir = new CustomerDirectory();
@@ -192,6 +218,10 @@ export function reloadFabricMasters(): void {
   promoCredit = new PromotionCredit();
   skuMaster = new SkuMasterDirectory();
   soldHistory = new SoldHistoryDirectory();
+  assortedMapping = new AssortedMapping();
+  if (shouldLoadAssortedMapping()) {
+    assortedMapping.load(getAssortedMappingCsvPath());
+  }
   if (shouldLoadMasters()) {
     customerDir.load(getCustomerCsvPath());
   }
@@ -251,6 +281,7 @@ export function fabricSkuMasterReady(): boolean {
   return shouldLoadSkuMaster() && getSkuMasterDirectory().isLoaded;
 }
 
+export * from "./assorted-mapping";
 export * from "./customer-directory";
 export * from "./salesman-registry";
 export * from "./env";
