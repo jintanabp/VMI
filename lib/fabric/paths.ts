@@ -61,3 +61,11 @@ export function getVdaAosCsvPath(vdaKey: string) {
   if (fromEnv) return fromEnv;
   return path.join(getFabricCacheDir(), `${key}_aos_bill.csv`);
 }
+
+/** product.product ต่อ VDA — มูลค่าสต็อกจริง (bi_stock_value) ที่ร้านซื้อไป */
+export function getVdaProductCsvPath(vdaKey: string) {
+  const key = vdaKey.trim().toLowerCase();
+  const fromEnv = process.env[`VDA_PRODUCT_CSV_${key.toUpperCase()}`]?.trim();
+  if (fromEnv) return fromEnv;
+  return path.join(getFabricCacheDir(), `${key}_product_product.csv`);
+}

@@ -65,6 +65,12 @@ export interface StockRowComputed {
   /** ของแถมที่ได้รับจากโปรปัจจุบัน (null = ไม่ได้แถม) */
   freeGood?: StockFreeGood | null;
   unitPrice?: number | null;
+  /**
+   * มูลค่าสต็อกจริงของสินค้านี้ (บาท) จาก vda*_product_product.bi_stock_value
+   * เป็นยอดรวมมาแล้ว — ห้ามคูณ stock ซ้ำ
+   * null = คลังนี้ยังไม่มีข้อมูลต้นทุน → ผู้เรียกถอยไปคิดจาก stock × unitPrice
+   */
+  stockValue?: number | null;
   /** ส่วนลด C4 ต่อหีบ (บาท) ตามจำนวนแนะนำ */
   discountBahtPerCase?: number | null;
   /** ส่วนลด C4 ต่อหีบ (%) ตามจำนวนแนะนำ */

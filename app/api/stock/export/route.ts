@@ -243,7 +243,10 @@ async function buildWorkbook(
       discBaht: r.discountBahtPerCase,
       discPct: r.discountPctPerCase,
       net: r.netUnitPrice ?? r.unitPrice,
-      stockValue: r.unitPrice != null ? r.stock * r.unitPrice : null,
+      // ต้นทุนจริงที่คลังซื้อมาก่อน — ไม่มีค่อยประมาณจากราคาขาย (กติกาเดียวกับสรุปหน้าสต็อก)
+      stockValue:
+        r.stockValue ??
+        (r.unitPrice != null ? r.stock * r.unitPrice : null),
       promoGroup: r.promoGroup ?? "",
       promoGroupName: assorted.nameFor(r.promoGroup),
       currentPromo: r.currentPromo ?? "",

@@ -12,6 +12,7 @@ import {
   buildSoldHistorySpec,
   buildStockCoverSpec,
   buildVdaAosSpec,
+  buildVdaProductSpec,
   type DatasetRefreshResult,
   type RefreshSpec,
 } from "./onelake-refresh";
@@ -24,6 +25,7 @@ import {
   getSoldHistoryCsvPath,
   getStockCoverCsvPath,
   getVdaAosCsvPath,
+  getVdaProductCsvPath,
 } from "./paths";
 import { getVdaKeys } from "./vda-aos-bill";
 
@@ -65,8 +67,16 @@ function vdaDatasetId(vdaKey: string): string {
   return `${vdaKey.trim().toLowerCase()}_aos_bill`;
 }
 
+function vdaProductDatasetId(vdaKey: string): string {
+  return `${vdaKey.trim().toLowerCase()}_product_product`;
+}
+
 export function getDatasetIds(): DatasetId[] {
-  return [...CORE_DATASET_IDS, ...getVdaKeys().map(vdaDatasetId)];
+  return [
+    ...CORE_DATASET_IDS,
+    ...getVdaKeys().map(vdaDatasetId),
+    ...getVdaKeys().map(vdaProductDatasetId),
+  ];
 }
 
 export function isDatasetId(v: unknown): v is DatasetId {
@@ -141,16 +151,30 @@ export function datasetMeta(id: DatasetId): DatasetMeta | null {
         required: false,
       };
     default: {
-      const vda = getVdaKeys().find((k) => vdaDatasetId(k) === id);
-      if (!vda) return null;
-      return {
-        id,
-        label: `บิล AOS ${vda.toUpperCase()} (${id})`,
-        localPath: getVdaAosCsvPath(vda),
-        minRows: Number(process.env.VDA_AOS_MIN_ROWS ?? "1"),
-        minRowsEnv: "VDA_AOS_MIN_ROWS",
-        required: false,
-      };
+      const aosVda = getVdaKeys().find((k) => vdaDatasetId(k) === id);
+      if (aosVda) {
+        return {
+          id,
+          label: `บิล AOS ${aosVda.toUpperCase()} (${id})`,
+          localPath: getVdaAosCsvPath(aosVda),
+          minRows: Number(process.env.VDA_AOS_MIN_ROWS ?? "1"),
+          minRowsEnv: "VDA_AOS_MIN_ROWS",
+          required: false,
+        };
+      }
+      const productVda = getVdaKeys().find((k) => vdaProductDatasetId(k) === id);
+      if (productVda) {
+        return {
+          id,
+          label: `มูลค่าสต็อก ${productVda.toUpperCase()} (${id})`,
+          localPath: getVdaProductCsvPath(productVda),
+          minRows: Number(process.env.VDA_PRODUCT_MIN_ROWS ?? "1"),
+          minRowsEnv: "VDA_PRODUCT_MIN_ROWS",
+          // ขาดได้ — หน้าสต็อกถอยไปคิดมูลค่าจากราคาขายเหมือนเดิม
+          required: false,
+        };
+      }
+      return null;
     }
   }
 }
@@ -174,8 +198,11 @@ export function buildSpecFor(id: DatasetId): RefreshSpec | null {
     case "factsales_odoo":
       return buildSoldHistorySpec(meta.localPath);
     default: {
-      const vda = getVdaKeys().find((k) => vdaDatasetId(k) === id);
-      return vda ? buildVdaAosSpec(vda, meta.localPath) : null;
+      const aosVda = getVdaKeys().find((k) => vdaDatasetId(k) === id);
+      if (aosVda) return buildVdaAosSpec(aosVda, meta.localPath);
+      const productVda = getVdaKeys().find((k) => vdaProductDatasetId(k) === id);
+      if (productVda) return buildVdaProductSpec(productVda, meta.localPath);
+      return null;
     }
   }
 }

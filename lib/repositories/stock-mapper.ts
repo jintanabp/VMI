@@ -32,6 +32,8 @@ export function mapStockRow(
     thresholdSource?: "sku" | "section" | "default";
     fromDb?: string;
     unitPrice?: number | null;
+    /** มูลค่าสต็อกจริงจาก product.product (รวมมาแล้ว — ห้ามคูณ stock ซ้ำ) */
+    stockValue?: number | null;
     priceExpired?: boolean;
     c4PromoRows?: PromoRow[];
     promoGroup?: string | null;
@@ -155,6 +157,7 @@ export function mapStockRow(
     promoGroupMembers: item.promoGroupMembers ?? 0,
     promoTiers: item.sku.promoTiers,
     unitPrice: item.unitPrice ?? null,
+    stockValue: item.stockValue ?? null,
     discountBahtPerCase: showPromo ? discountBaht : null,
     discountPctPerCase: showPromo ? discountPct : null,
     netUnitPrice: showPromo ? netUnitPrice : item.unitPrice ?? null,

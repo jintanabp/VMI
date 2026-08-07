@@ -25,8 +25,37 @@ export interface StockSummary {
   total: number;
   totalStock: number;
   totalValue: number;
+  /** กี่รายการที่มูลค่ามาจากต้นทุนจริง (bi_stock_value) — ที่เหลือถอยไปใช้ราคาขาย */
+  valueFromCost: number;
   cvdAll: number | null;
   promoGroups: number;
+}
+
+/**
+ * ที่มาของ "มูลค่ารวม" — ต้นทุนที่คลังซื้อมา ไม่ใช่ราคาขาย
+ *
+ * คลังที่ export ยังไม่มีคอลัมน์ bi_stock_value จะถอยไปคิดจาก คงเหลือ × ราคาขาย
+ * แบบเดิม ซึ่งเป็นคนละความหมาย — ต้องบอกไว้ ไม่งั้นเอาตัวเลขสองคลังไปเทียบกันผิด
+ */
+function valueSourceNote(summary: StockSummary): { title: string; approx: boolean } {
+  const { valueFromCost, total } = summary;
+  const amount = `${formatNumber(summary.totalValue, 2)} บาท`;
+  if (total > 0 && valueFromCost === total) {
+    return {
+      title: `ต้นทุนจริงที่คลังซื้อมา (bi_stock_value) รวม ${amount}`,
+      approx: false,
+    };
+  }
+  if (valueFromCost === 0) {
+    return {
+      title: `ยังไม่มีต้นทุนของคลังนี้ — ประมาณจาก คงเหลือ × ราคาขาย = ${amount}`,
+      approx: true,
+    };
+  }
+  return {
+    title: `ต้นทุนจริง ${formatNumber(valueFromCost, 0)} รายการ · อีก ${formatNumber(total - valueFromCost, 0)} รายการยังไม่มีต้นทุน จึงประมาณจากราคาขาย — รวม ${amount}`,
+    approx: true,
+  };
 }
 
 type Tone = "teal" | "indigo" | "amber" | "violet";
@@ -79,6 +108,7 @@ export function StockSummaryInline({
   statusMsg?: { text: string; tone: "info" | "warn" } | null;
   onRefresh: () => void;
 }) {
+  const valueSource = valueSourceNote(summary);
   const metrics: Metric[] = [
     {
       key: "sku",
@@ -112,8 +142,9 @@ export function StockSummaryInline({
       // ซึ่งอ่านแล้วเทียบตัวเลขจริงไม่ได้
       value: formatNumber(summary.totalValue, 0),
       shortValue: formatNumber(summary.totalValue, 0),
-      unit: "บาท",
-      title: `คงเหลือ (หีบ) × ราคา/หีบ = ${formatNumber(summary.totalValue, 2)} บาท`,
+      // ดอกจัน = ยังมีรายการที่ประมาณจากราคาขาย ไม่ใช่ต้นทุนจริงทั้งก้อน
+      unit: valueSource.approx ? "บาท*" : "บาท",
+      title: valueSource.title,
     },
     mode === "promo"
       ? {

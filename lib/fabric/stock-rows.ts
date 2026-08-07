@@ -26,6 +26,7 @@ import {
   type StockFilterConfig,
 } from "./stock-filter-config";
 import { fabricStockReady, getStockCoverDirectory } from "./stock-cover";
+import { getVdaProductValueRegistry } from "./vda-product-value";
 import {
   backdatedSkuCreatedAt,
   getNewProductDays,
@@ -226,6 +227,10 @@ export async function buildFabricStockPayload(
   const promoCtx = resolvePromoContext(storeCode);
   const promoDir = fabricPromoReady() ? getPromotionCreditDirectory() : null;
   const skuDir = fabricSkuMasterReady() ? getSkuMasterDirectory() : null;
+  // มูลค่าสต็อกจริงที่คลังนี้ซื้อมา — null ทั้งคลังเมื่อยังไม่มีไฟล์/คอลัมน์
+  // (ปลายทางถอยไปคิดจากราคาขายและบอกผู้ใช้ว่าถอย)
+  const valueReg = getVdaProductValueRegistry();
+  const hasStockValues = valueReg.hasValuesFor(storeCode);
 
   const skus = await ensureSkus(coverRows);
   const skuByCode = new Map(skus.map((s) => [s.code, s]));
@@ -413,6 +418,9 @@ export async function buildFabricStockPayload(
         thresholdSource: item.thresholdSource,
         fromDb: item.cover.fromDb,
         unitPrice: item.priceLookup?.price ?? null,
+        stockValue: hasStockValues
+          ? valueReg.getStockValue(storeCode, item.cover.productCode)
+          : null,
         priceExpired: item.priceLookup?.expired ?? false,
         c4PromoRows: item.c4PromoRows,
         promoGroup: item.promoGroup,

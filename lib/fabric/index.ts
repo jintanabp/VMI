@@ -12,12 +12,14 @@ import {
   getSkuMasterCsvPath,
   getSoldHistoryCsvPath,
   getStockCoverCsvPath,
+  getVdaProductCsvPath,
 } from "./paths";
 import { PromotionCredit } from "./promotion-credit";
 import { SalesmanRegistry } from "./salesman-registry";
 import { SkuMasterDirectory } from "./sku-master";
 import { SoldHistoryDirectory } from "./sold-history";
-import { reloadVdaAosBillRegistry } from "./vda-aos-bill";
+import { getVdaKeys, reloadVdaAosBillRegistry } from "./vda-aos-bill";
+import { reloadVdaProductValueRegistry } from "./vda-product-value";
 import { fabricMastersEnabled } from "./env";
 
 let customerDir: CustomerDirectory | null = null;
@@ -46,6 +48,9 @@ function trackedFabricPaths(): string[] {
     getSkuMasterCsvPath(),
     getSoldHistoryCsvPath(),
     getStockCoverCsvPath(),
+    // มูลค่าสต็อกต่อ VDA — อยู่ในลายเซ็นด้วย ไม่งั้น sync ไฟล์นี้แล้วหน้าสต็อก
+    // ยังเสิร์ฟ payload cache เดิมที่คิดมูลค่าจากราคาขาย
+    ...getVdaKeys().map(getVdaProductCsvPath),
   ];
 }
 
@@ -240,6 +245,7 @@ export function reloadFabricMasters(): void {
   }
   reloadStockCover();
   reloadVdaAosBillRegistry();
+  reloadVdaProductValueRegistry();
   fabricCacheMtimes.clear();
   for (const p of trackedFabricPaths()) {
     const mtime = csvMtime(p);
@@ -295,4 +301,5 @@ export * from "./promotion-context";
 export * from "./sku-master";
 export * from "./sold-history";
 export * from "./vda-aos-bill";
+export * from "./vda-product-value";
 export * from "./ensure-vda-sales-rep";

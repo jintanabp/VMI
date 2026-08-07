@@ -920,11 +920,20 @@ export function StockPageClient({
     let totalValue = 0;
     let totalAvg = 0;
     let needsOrder = 0;
+    /** แถวที่ได้มูลค่าจากต้นทุนจริง (bi_stock_value) — ที่เหลือถอยไปใช้ราคาขาย */
+    let valueFromCost = 0;
     for (const r of rows) {
       // หน่วยหีบทั้งหมด — stockCases (หีบเต็ม) สำหรับแสดง, stock (ทศนิยม) สำหรับมูลค่า/CVD
       totalStock += r.stockCases;
       totalStockExact += r.stock;
-      totalValue += r.stock * (r.unitPrice ?? 0);
+      // stockValue เป็นยอดรวมของสินค้านั้นมาแล้ว ห้ามคูณ stock ซ้ำ
+      // 0 ที่มีจริงในไฟล์ก็คือ 0 — ต้องเช็ค null ไม่ใช่ falsy
+      if (r.stockValue != null) {
+        totalValue += r.stockValue;
+        valueFromCost++;
+      } else {
+        totalValue += r.stock * (r.unitPrice ?? 0);
+      }
       totalAvg += r.avgSales;
       if (r.needsOrder) needsOrder++;
     }
@@ -933,6 +942,7 @@ export function StockPageClient({
       total: rows.length,
       totalStock,
       totalValue,
+      valueFromCost,
       cvdAll,
       needsOrder,
     };
@@ -1051,6 +1061,7 @@ export function StockPageClient({
             total: stats.total,
             totalStock: stats.totalStock,
             totalValue: stats.totalValue,
+            valueFromCost: stats.valueFromCost,
             cvdAll: stats.cvdAll,
             promoGroups: promoBuckets.filter((b) => b.kind === "group").length,
           }}

@@ -502,6 +502,41 @@ export function buildVdaAosSpec(
   };
 }
 
+/**
+ * product.product ต่อ VDA — มูลค่าสต็อกจริง (bi_stock_value)
+ *
+ * อยู่ lakehouse เดียวกับ stock_cover_day (ตรวจกับ OneLake จริงแล้ว) ไม่ใช่ตัวที่
+ * vda*_aos_bill ใช้ ซึ่ง 404 มาตลอด
+ *
+ * requiredColumns มีแค่ default_code ตั้งใจ — ตอนนี้มีแต่ vda1 ที่ export
+ * bi_stock_value ออกมา ถ้าบังคับคอลัมน์นั้น validation จะตีตกไฟล์ vda อื่นทั้งใบ
+ * แล้วหน้าแอดมินจะดูเหมือน sync พังทั้งที่ต้นทางแค่ยังไม่เพิ่มคอลัมน์
+ */
+export function buildVdaProductSpec(
+  vdaKey: string,
+  localPath: string
+): RefreshSpec | null {
+  const cfg = getStockOnelakeConfig();
+  if (!cfg) return null;
+
+  const key = vdaKey.trim().toLowerCase();
+  const envPath = process.env[`VDA_PRODUCT_ONELAKE_${key.toUpperCase()}`]?.trim();
+  const defaultPath = `${cfg.scanDir.replace(/\/$/, "")}/${key}_product_product.csv`;
+
+  return {
+    name: `${key}_product_product`,
+    localPath,
+    workspaceId: cfg.workspaceId,
+    onelakeItemId: cfg.exportItemId,
+    scanDir: cfg.scanDir,
+    onelakePath: envPath || defaultPath,
+    columnSignature: ["default_code"],
+    requiredColumns: ["default_code"],
+    minRows: Number(process.env.VDA_PRODUCT_MIN_ROWS ?? "1"),
+    authProfile: "stock",
+  };
+}
+
 export async function bootstrapIfMissing(
   spec: RefreshSpec | null
 ): Promise<DatasetRefreshResult | null> {
@@ -520,6 +555,8 @@ export interface RefreshAllResult {
   promotion: boolean;
   skuMaster: boolean;
   vdaAos: boolean;
+  /** มูลค่าสต็อกต่อ VDA (vda*_product_product) — ขาดได้ หน้าสต็อกถอยไปใช้ราคาขาย */
+  vdaProduct: boolean;
   /** เดิมผลของ factsales_odoo ถูกทิ้งเงียบ ๆ ไม่ถึงไฟล์ status เลย */
   soldHistory: boolean;
   /** ชื่อกลุ่มโปร — ล้มได้โดยไม่กระทบโปร (UI ถอยไปแสดงรหัสกลุ่ม) */
@@ -593,6 +630,14 @@ export async function refreshAllMasters(
     datasets.push(...vda.results);
   }
 
+  let vdaProduct = false;
+  if (!only || [...only].some((n) => n.endsWith("_product_product"))) {
+    const { syncVdaProductValues } = await import("./sync-vda-product-values");
+    const vda = await syncVdaProductValues(options, only);
+    vdaProduct = vda.any;
+    datasets.push(...vda.results);
+  }
+
   return {
     customer,
     salesman,
@@ -600,6 +645,7 @@ export async function refreshAllMasters(
     promotion,
     skuMaster,
     vdaAos,
+    vdaProduct,
     soldHistory,
     assortedMapping,
     datasets,
