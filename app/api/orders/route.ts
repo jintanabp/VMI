@@ -25,6 +25,10 @@ import {
   resolveSalesmanCodesForFilter,
   resolveVdaCodesForSalesmanCodes,
 } from "@/lib/orders/access";
+import {
+  deleteOrdersForSession,
+  MAX_DELETE_BATCH,
+} from "@/lib/orders/delete-orders";
 
 const orderItemSchema = z.object({
   skuId: z.string(),
@@ -491,11 +495,13 @@ export async function PATCH(request: Request) {
 }
 
 /**
- * พนักงานลบคำสั่งซื้อ
+ * พนักงานลบคำสั่งซื้อ — ทีละใบ (`?orderId=`) หรือหลายใบ (`?orderIds=a,b,c`)
  *
- * ลบได้เฉพาะที่ยังไม่ออก PO (`pending_approval` / `rejected`)
- * ออเดอร์ที่อนุมัติแล้วมีเลข PO ออกไปแล้ว — ลบทิ้งจะทำให้เลข PO ลอย
- * และกระทบเอกสารที่ส่งต่อไปฝ่ายจัดซื้อ จึงต้องปฏิเสธ
+ * ค่าเริ่มต้นยังลบได้เฉพาะที่ยังไม่ออก PO เพื่อกันเผลอลบใบที่ส่งต่อฝ่ายจัดซื้อไปแล้ว
+ * ต้องส่ง `?withPo=1` มาด้วยถึงจะลบใบที่ออก PO แล้ว — ฝั่ง UI ใช้ตอนล้างประวัติ
+ * ก่อนส่งให้ผู้ใช้ทดสอบ และต้องบอกในกล่องยืนยันว่า PO จะหายไปกี่ใบ
+ *
+ * `?notify=0` = ลบเงียบ ๆ ไม่เขียนแจ้งเตือนใบใหม่ให้ร้าน (โหมดล้างประวัติ)
  */
 export async function DELETE(request: Request) {
   const salesSession = await getSalesSession();
@@ -504,17 +510,42 @@ export async function DELETE(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
-  const orderId = searchParams.get("orderId")?.trim();
-  if (!orderId) {
+  const single = searchParams.get("orderId")?.trim() ?? "";
+  const many = (searchParams.get("orderIds") ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const orderIds = [...new Set(single ? [single, ...many] : many)];
+
+  if (orderIds.length === 0) {
     return NextResponse.json({ error: "ต้องระบุ orderId" }, { status: 400 });
   }
+  if (orderIds.length > MAX_DELETE_BATCH) {
+    return NextResponse.json(
+      { error: `ลบได้ครั้งละไม่เกิน ${MAX_DELETE_BATCH} ใบ` },
+      { status: 400 }
+    );
+  }
 
-  try {
-    await assertOrderAccess(orderId, salesSession);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "Forbidden";
-    if (msg === "ORDER_NOT_FOUND") {
+  const result = await deleteOrdersForSession(orderIds, salesSession, {
+    allowIssuedPo: searchParams.get("withPo") === "1",
+    notifyStores: searchParams.get("notify") !== "0",
+  });
+
+  // ใบเดียวแล้วลบไม่ได้ → ตอบเป็น error ตรง ๆ ให้ UI เดิมโชว์ข้อความได้เหมือนก่อน
+  if (orderIds.length === 1 && result.deletedOrderIds.length === 0) {
+    const reason = result.skipped[0]?.reason;
+    if (reason === "not_found") {
       return NextResponse.json({ error: "ไม่พบออเดอร์" }, { status: 404 });
+    }
+    if (reason === "has_po") {
+      return NextResponse.json(
+        {
+          error:
+            "ออเดอร์นี้ออก PO ไปแล้ว — ถ้าต้องลบจริง ให้ยืนยันลบพร้อม PO อีกครั้ง",
+        },
+        { status: 409 }
+      );
     }
     return NextResponse.json(
       { error: "ไม่มีสิทธิ์จัดการออเดอร์นี้" },
@@ -522,39 +553,11 @@ export async function DELETE(request: Request) {
     );
   }
 
-  const order = await prisma.order.findUnique({
-    where: { id: orderId },
-    select: {
-      status: true,
-      storeId: true,
-      createdAt: true,
-      _count: { select: { items: true, purchaseOrders: true } },
-    },
+  return NextResponse.json({
+    success: true,
+    deletedId: result.deletedOrderIds[0] ?? null,
+    deletedIds: result.deletedOrderIds,
+    deletedPoNumbers: result.deletedPoNumbers,
+    skipped: result.skipped,
   });
-  if (!order) {
-    return NextResponse.json({ error: "ไม่พบออเดอร์" }, { status: 404 });
-  }
-  if (order.status === "approved" || order._count.purchaseOrders > 0) {
-    return NextResponse.json(
-      {
-        error:
-          "ออเดอร์นี้อนุมัติและออก PO แล้ว ลบไม่ได้ — ถ้าต้องยกเลิก ให้ทำที่ฝ่ายจัดซื้อ",
-      },
-      { status: 409 }
-    );
-  }
-
-  // OrderItem มี onDelete: Cascade อยู่แล้ว
-  await prisma.order.delete({ where: { id: orderId } });
-
-  await notifyStore({
-    storeId: order.storeId,
-    kind: "deleted",
-    title: "คำสั่งซื้อถูกลบโดยพนักงาน",
-    detail: `ออเดอร์ ${order._count.items} รายการ ที่ส่งเมื่อ ${order.createdAt.toLocaleDateString("th-TH")} ถูกลบออกจากระบบ`,
-    orderId,
-    actorEmail: salesSession.email,
-  });
-
-  return NextResponse.json({ success: true, deletedId: orderId });
 }

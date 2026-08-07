@@ -20,6 +20,7 @@ import {
   poSplitIssues,
 } from "@/components/sales/po-split-panel";
 import { RejectOrderModal } from "@/components/sales/reject-order-modal";
+import { NotifyStoreCheckbox } from "@/components/sales/notify-store-checkbox";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   OrderReviewTable,
@@ -78,7 +79,10 @@ export function SalesOrdersClient() {
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
   const [rejectOpen, setRejectOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  /** ออเดอร์ที่ติ๊กไว้เพื่ออนุมัติรวดเดียว (คนละชุดกับ selectedItemIds ที่ใช้ย้ายกลุ่ม PO) */
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  /** แจ้งร้านว่าถูกลบหรือไม่ — ลบทีละใบระหว่างทำงานปกติควรแจ้ง จึงตั้งต้นเป็น true */
+  const [notifyStores, setNotifyStores] = useState(true);
+  /** ออเดอร์ที่ติ๊กไว้เพื่ออนุมัติ/ลบรวดเดียว (คนละชุดกับ selectedItemIds ที่ใช้ย้ายกลุ่ม PO) */
   const [bulkIds, setBulkIds] = useState<Set<string>>(new Set());
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkProgress, setBulkProgress] = useState<{
@@ -206,6 +210,19 @@ export function SalesOrdersClient() {
     [bulkEligible, bulkIds]
   );
 
+  /** ทุกใบที่ติ๊กไว้ในรายการที่เห็นอยู่ — ลบได้ทุกสถานะ ไม่เหมือนอนุมัติ
+   *  (นับจากรายการจริง ไม่ใช่ bulkIds.size — id ที่ตกค้างจากตัวกรองก่อนหน้าจะไม่ถูกนับ) */
+  const deleteSelectedOrders = useMemo(
+    () => orders.filter((o) => bulkIds.has(o.id)),
+    [orders, bulkIds]
+  );
+
+  /** จำนวน PO ที่จะหายไปพร้อมกับออเดอร์ที่เลือก — ใช้เตือนในกล่องยืนยัน */
+  const deleteSelectedApproved = useMemo(
+    () => deleteSelectedOrders.filter((o) => o.status === "approved").length,
+    [deleteSelectedOrders]
+  );
+
   function toggleBulk(orderId: string) {
     setBulkIds((prev) => {
       const next = new Set(prev);
@@ -215,10 +232,18 @@ export function SalesOrdersClient() {
     });
   }
 
-  function selectAllGreen() {
+  /**
+   * ติ๊กทั้งรายการ — ตอนดูใบที่รออนุมัติจะเลือกเฉพาะใบที่ไม่มีธงแดง (ตั้งใจให้กดอนุมัติต่อได้เลย)
+   * ส่วนสถานะอื่นไม่มีอะไรให้อนุมัติ จึงติ๊กทุกใบเพื่อใช้ลบล้างประวัติ
+   */
+  function selectAllOnList() {
     setBulkIds(
       new Set(
-        bulkEligible.filter((o) => orderRedFlagCount(o) === 0).map((o) => o.id)
+        bulkEligible.length > 0
+          ? bulkEligible
+              .filter((o) => orderRedFlagCount(o) === 0)
+              .map((o) => o.id)
+          : orders.map((o) => o.id)
       )
     );
   }
@@ -314,11 +339,21 @@ export function SalesOrdersClient() {
     });
   }
 
-  /** ลบออเดอร์ — ทำได้เฉพาะที่ยังไม่ออก PO (เซิร์ฟเวอร์กั้นอีกชั้น) */
+  /**
+   * ลบออเดอร์ — ใบเดียวหรือหลายใบก็เส้นเดียวกัน
+   *
+   * ส่ง withPo=1 เสมอ เพราะกล่องยืนยันบอกไปแล้วว่า PO ที่ออกไปจะถูกลบด้วย
+   * (ค่าเริ่มต้นฝั่ง API ยังกันไว้ ไม่ได้เปิดให้ทุก caller ลบใบที่ออก PO แล้ว)
+   */
   const deleteMutation = useMutation({
-    mutationFn: async (orderId: string) => {
+    mutationFn: async (vars: { orderIds: string[]; notify: boolean }) => {
+      const params = new URLSearchParams({
+        orderIds: vars.orderIds.join(","),
+        withPo: "1",
+      });
+      if (!vars.notify) params.set("notify", "0");
       const res = await fetch(
-        `${appPath("/api/orders")}?orderId=${encodeURIComponent(orderId)}`,
+        `${appPath("/api/orders")}?${params.toString()}`,
         { method: "DELETE" }
       );
       if (!res.ok) {
@@ -331,13 +366,25 @@ export function SalesOrdersClient() {
             : `ลบออเดอร์ไม่สำเร็จ (${res.status})`
         );
       }
-      return res.json();
+      return res.json() as Promise<{
+        deletedIds: string[];
+        deletedPoNumbers: string[];
+        skipped: { orderId: string; reason: string }[];
+      }>;
     },
-    onSuccess: () => {
-      setActionError(null);
+    onSuccess: (data) => {
+      // ลบสำเร็จบางใบก็ยังเข้าทางนี้ — ต้องบอกว่าใบไหนตกหล่น ไม่ใช่เงียบ
+      setActionError(
+        data.skipped.length > 0
+          ? `ลบแล้ว ${data.deletedIds.length} ใบ · อีก ${data.skipped.length} ใบลบไม่ได้ (ไม่มีสิทธิ์ หรือถูกลบไปก่อนแล้ว)`
+          : null
+      );
       setSelectedId(null);
+      setBulkIds(new Set());
+      setIssuedPos([]);
       queryClient.invalidateQueries({ queryKey: ["orders"] });
       queryClient.invalidateQueries({ queryKey: ["sales-pending-count"] });
+      queryClient.invalidateQueries({ queryKey: ["sales-purchase-orders"] });
     },
     onError: (err) => {
       setActionError(err instanceof Error ? err.message : "ลบออเดอร์ไม่สำเร็จ");
@@ -536,21 +583,27 @@ export function SalesOrdersClient() {
           </div>
           </div>
 
-          {/* อนุมัติหลายใบรวดเดียว — เฉพาะตอนดูรายการที่รออนุมัติ */}
-          {statusFilter === "pending_approval" && bulkEligible.length > 0 && (
+          {/* จัดการหลายใบรวดเดียว — อนุมัติได้เฉพาะใบที่รออนุมัติ ส่วนลบได้ทุกสถานะ */}
+          {sorted.length > 0 && (
             <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2 dark:border-slate-700 dark:bg-slate-800/40">
               <div className="flex flex-wrap items-center gap-1.5">
                 <Button
                   size="sm"
                   variant="outline"
                   className="h-7 text-xs"
-                  onClick={selectAllGreen}
+                  onClick={selectAllOnList}
                   disabled={bulkProgress != null}
-                  title="ติ๊กเฉพาะออเดอร์ที่ไม่มีรายการธงแดง"
+                  title={
+                    bulkEligible.length > 0
+                      ? "ติ๊กเฉพาะออเดอร์ที่ไม่มีรายการธงแดง"
+                      : "ติ๊กทุกใบในรายการนี้"
+                  }
                 >
-                  เลือกทั้งหมดที่ไม่มีธงแดง
+                  {bulkEligible.length > 0
+                    ? "เลือกทั้งหมดที่ไม่มีธงแดง"
+                    : `เลือกทั้งหมด (${sorted.length})`}
                 </Button>
-                {bulkIds.size > 0 && (
+                {deleteSelectedOrders.length > 0 && (
                   <>
                     <Button
                       size="sm"
@@ -561,13 +614,26 @@ export function SalesOrdersClient() {
                     >
                       ล้าง
                     </Button>
+                    {bulkSelectedOrders.length > 0 && (
+                      <Button
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => setBulkOpen(true)}
+                        disabled={bulkProgress != null}
+                      >
+                        อนุมัติ {bulkSelectedOrders.length} ใบ
+                      </Button>
+                    )}
                     <Button
                       size="sm"
+                      variant="destructive"
                       className="h-7 text-xs"
-                      onClick={() => setBulkOpen(true)}
-                      disabled={bulkProgress != null}
+                      onClick={() => setBulkDeleteOpen(true)}
+                      disabled={bulkProgress != null || deleteMutation.isPending}
+                      title="ลบออเดอร์ที่เลือกออกจากระบบ พร้อม PO และประวัติฝั่งร้าน"
                     >
-                      อนุมัติ {bulkIds.size} ใบ
+                      <Trash2 className="h-3.5 w-3.5" />
+                      ลบ {deleteSelectedOrders.length} ใบ
                     </Button>
                   </>
                 )}
@@ -662,16 +728,19 @@ export function SalesOrdersClient() {
                     : "border-slate-200 hover:border-slate-300 dark:border-slate-700 dark:hover:border-slate-600"
                 }`}
               >
-                {/* checkbox แยกจากปุ่มเลือกดู ไม่งั้นติ๊กแล้วเปลี่ยนออเดอร์ที่กำลังดูไปด้วย */}
-                {canBulk && (
-                  <div className="absolute right-2.5 top-2.5 z-10">
-                    <Checkbox
-                      checked={bulkIds.has(order.id)}
-                      onCheckedChange={() => toggleBulk(order.id)}
-                      aria-label={`เลือก ${label} เพื่ออนุมัติ`}
-                    />
-                  </div>
-                )}
+                {/* checkbox แยกจากปุ่มเลือกดู ไม่งั้นติ๊กแล้วเปลี่ยนออเดอร์ที่กำลังดูไปด้วย
+                    มีทุกใบ เพราะใบที่อนุมัติไม่ได้ก็ยังเลือกเพื่อลบได้ */}
+                <div className="absolute right-2.5 top-2.5 z-10">
+                  <Checkbox
+                    checked={bulkIds.has(order.id)}
+                    onCheckedChange={() => toggleBulk(order.id)}
+                    aria-label={
+                      canBulk
+                        ? `เลือก ${label} เพื่ออนุมัติหรือลบ`
+                        : `เลือก ${label} เพื่อลบ`
+                    }
+                  />
+                </div>
                 <button
                   type="button"
                   onClick={() => setSelectedId(order.id)}
@@ -681,7 +750,7 @@ export function SalesOrdersClient() {
                   <span className="font-semibold text-slate-900 dark:text-slate-100">
                     {label}
                   </span>
-                  <span className={canBulk ? "mr-7" : undefined}>
+                  <span className="mr-7">
                     <StatusBadge status={order.status} />
                   </span>
                 </div>
@@ -740,7 +809,24 @@ export function SalesOrdersClient() {
                     </p>
                   )}
                 </div>
-                <StatusBadge status={selected.status} />
+                {/* ปุ่มลบอยู่ตรงหัวเรื่อง ไม่ใช่แถบล่าง เพราะแถบล่างมีเฉพาะใบที่รออนุมัติ
+                    แต่ใบที่อนุมัติ/ปฏิเสธแล้วก็ต้องลบได้ตอนล้างประวัติ */}
+                <div className="flex shrink-0 items-center gap-2">
+                  <StatusBadge status={selected.status} />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2 text-xs text-red-600 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-950/40"
+                    disabled={
+                      actionMutation.isPending || deleteMutation.isPending
+                    }
+                    title="ลบออเดอร์นี้ออกจากระบบ พร้อม PO และประวัติที่ร้านเห็น"
+                    onClick={() => setDeleteOpen(true)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    ลบ
+                  </Button>
+                </div>
               </div>
 
               {selected.items.some((i) => i.priceFlagged) && (
@@ -816,7 +902,7 @@ export function SalesOrdersClient() {
                 }
               />
 
-              {selected.status === "pending_approval" && actionError && (
+              {actionError && (
                 <p className="mt-2 shrink-0 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">
                   {actionError}
                 </p>
@@ -830,18 +916,6 @@ export function SalesOrdersClient() {
                     aria-hidden
                   />
                   <div className="vmi-sales-action-bar flex gap-2 max-xl:fixed max-xl:inset-x-0 max-xl:bottom-0 max-xl:z-50 max-xl:border-t max-xl:border-slate-200 max-xl:p-3 max-xl:pb-[max(0.75rem,env(safe-area-inset-bottom))] max-xl:shadow-[0_-4px_20px_rgb(0_0_0/0.06)] dark:max-xl:border-slate-700 xl:mt-2 xl:flex-wrap xl:border-t xl:border-slate-200 xl:pt-2 dark:xl:border-slate-700">
-                    <Button
-                      variant="outline"
-                      className="shrink-0"
-                      disabled={
-                        actionMutation.isPending || deleteMutation.isPending
-                      }
-                      title="ลบออเดอร์นี้ออกจากระบบ (ทำได้ก่อนออก PO)"
-                      onClick={() => setDeleteOpen(true)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                      <span className="hidden sm:inline">ลบ</span>
-                    </Button>
                     <Button
                       variant="destructive"
                       className="max-xl:flex-1"
@@ -884,20 +958,38 @@ export function SalesOrdersClient() {
                 title="ลบออเดอร์นี้?"
                 body={
                   <>
-                    ออเดอร์ของ{" "}
-                    <span className="font-medium">
-                      {formatStoreLabel(
-                        selected.store.code,
-                        selected.store.name
-                      )}
-                    </span>{" "}
-                    ({selected.items.length} รายการ) จะถูกลบออกจากระบบถาวร
-                    และระบบจะแจ้งให้ร้านทราบ
+                    <p>
+                      ออเดอร์ของ{" "}
+                      <span className="font-medium">
+                        {formatStoreLabel(
+                          selected.store.code,
+                          selected.store.name
+                        )}
+                      </span>{" "}
+                      ({selected.items.length} รายการ) จะถูกลบออกจากระบบถาวร
+                    </p>
+                    {selected.status === "approved" && (
+                      <p className="mt-1.5 font-semibold text-amber-700 dark:text-amber-400">
+                        ออเดอร์นี้อนุมัติแล้ว — PO ที่ออกไปจะถูกลบไปด้วย
+                      </p>
+                    )}
+                    <p className="mt-1.5">
+                      ประวัติที่ร้านเห็นในหน้า
+                      &quot;ประวัติการสั่งซื้อ&quot;
+                      และแจ้งเตือนเดิมของออเดอร์นี้จะถูกลบด้วย · ย้อนกลับไม่ได้
+                    </p>
+                    <NotifyStoreCheckbox
+                      checked={notifyStores}
+                      onChange={setNotifyStores}
+                    />
                   </>
                 }
                 confirmLabel="ลบออเดอร์"
                 onConfirm={async () => {
-                  await deleteMutation.mutateAsync(selected.id);
+                  await deleteMutation.mutateAsync({
+                    orderIds: [selected.id],
+                    notify: notifyStores,
+                  });
                 }}
                 onClose={() => setDeleteOpen(false)}
               />
@@ -962,6 +1054,38 @@ export function SalesOrdersClient() {
           await runBulkApprove();
         }}
         onClose={() => setBulkOpen(false)}
+      />
+
+      <ConfirmDialog
+        open={bulkDeleteOpen}
+        title={`ลบ ${deleteSelectedOrders.length} ออเดอร์?`}
+        body={
+          <>
+            <p>
+              ออเดอร์ที่เลือกจะถูกลบออกจากระบบถาวร พร้อมรายการสินค้า
+              ประวัติที่ร้านเห็น และแจ้งเตือนเดิมของออเดอร์เหล่านั้น
+            </p>
+            {deleteSelectedApproved > 0 && (
+              <p className="mt-1.5 font-semibold text-amber-700 dark:text-amber-400">
+                มี {deleteSelectedApproved} ใบที่อนุมัติแล้ว — PO ที่ออกไป
+                จะถูกลบไปด้วย
+              </p>
+            )}
+            <p className="mt-1.5">ย้อนกลับไม่ได้</p>
+            <NotifyStoreCheckbox
+              checked={notifyStores}
+              onChange={setNotifyStores}
+            />
+          </>
+        }
+        confirmLabel={`ลบ ${deleteSelectedOrders.length} ใบ`}
+        onConfirm={async () => {
+          await deleteMutation.mutateAsync({
+            orderIds: deleteSelectedOrders.map((o) => o.id),
+            notify: notifyStores,
+          });
+        }}
+        onClose={() => setBulkDeleteOpen(false)}
       />
     </PageShell>
   );

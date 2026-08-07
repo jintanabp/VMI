@@ -8,6 +8,11 @@ import {
   resolveSalesmanCodesForFilter,
   resolveVdaCodesForSalesmanCodes,
 } from "@/lib/orders/access";
+import {
+  deleteOrdersForSession,
+  MAX_DELETE_BATCH,
+  resolveOrderIdsForPoNumbers,
+} from "@/lib/orders/delete-orders";
 
 export const dynamic = "force-dynamic";
 
@@ -190,5 +195,58 @@ export async function GET(request: Request) {
       totalAmount: agg._sum.totalAmount ?? 0,
       nonC4Count,
     },
+  });
+}
+
+/**
+ * ลบ PO หลายใบรวดเดียว — `?poNumbers=A,B,C`
+ *
+ * ใช้ตอนล้างประวัติก่อนส่งให้ผู้ใช้ทดสอบ ทำงานเหมือน DELETE ของใบเดียวทุกอย่าง
+ * คือลบออเดอร์ต้นทางทั้งใบ เลข PO ที่มาจากออเดอร์เดียวกันจึงถูกยุบเหลือครั้งเดียว
+ */
+export async function DELETE(request: Request) {
+  const session = await getSalesSession();
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { searchParams } = new URL(request.url);
+  const poNumbers = (searchParams.get("poNumbers") ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (poNumbers.length === 0) {
+    return NextResponse.json({ error: "ต้องระบุเลข PO" }, { status: 400 });
+  }
+  if (poNumbers.length > MAX_DELETE_BATCH) {
+    return NextResponse.json(
+      { error: `ลบได้ครั้งละไม่เกิน ${MAX_DELETE_BATCH} ใบ` },
+      { status: 400 }
+    );
+  }
+
+  const { orderIds, missing } = await resolveOrderIdsForPoNumbers(poNumbers);
+  if (orderIds.length === 0) {
+    return NextResponse.json({ error: "ไม่พบ PO ที่เลือก" }, { status: 404 });
+  }
+
+  const result = await deleteOrdersForSession(orderIds, session, {
+    allowIssuedPo: true,
+    notifyStores: searchParams.get("notify") !== "0",
+  });
+  if (result.deletedOrderIds.length === 0) {
+    return NextResponse.json(
+      { error: "ไม่มีสิทธิ์ลบ PO ที่เลือก" },
+      { status: 403 }
+    );
+  }
+
+  return NextResponse.json({
+    success: true,
+    deletedOrderIds: result.deletedOrderIds,
+    deletedPoNumbers: result.deletedPoNumbers,
+    // เลขที่หาไม่เจอ + ใบที่ไม่มีสิทธิ์ — บอกให้ผู้ใช้รู้ว่าไม่ได้ลบครบตามที่เลือก
+    missing,
+    skipped: result.skipped,
   });
 }

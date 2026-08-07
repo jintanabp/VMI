@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronLeft,
   ChevronRight,
@@ -9,6 +9,7 @@ import {
   FileText,
   Loader2,
   Search,
+  Trash2,
 } from "lucide-react";
 import { appPath } from "@/lib/paths";
 import { useAsyncAction } from "@/hooks/use-async-action";
@@ -16,9 +17,11 @@ import { useVdaOptions } from "@/hooks/use-vda-options";
 import { AppHeader } from "@/components/layout/app-header";
 import { PageShell } from "@/components/layout/page-shell";
 import { SalesNav } from "@/components/sales/sales-nav";
+import { NotifyStoreCheckbox } from "@/components/sales/notify-store-checkbox";
 import { PoDetailPanel } from "@/components/sales/po-detail-panel";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { StatCard } from "@/components/ui/stat-card";
 import {
@@ -101,6 +104,7 @@ function downloadPo(poNumber: string, format: "xlsx" | "json") {
  * และ "ใบไหนที่ราคาไม่ตรง C4 ต้องตามเรื่องกับจัดซื้อ"
  */
 export function SalesPoClient() {
+  const queryClient = useQueryClient();
   // useVdaOptions ดู session ให้แล้ว — vdaReady ครอบทั้ง "มี session" และ "สิทธิ์ VDA มาถึง"
   const {
     availableVdas,
@@ -127,7 +131,15 @@ export function SalesPoClient() {
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [detailPo, setDetailPo] = useState<string | null>(null);
-  const [exportError, setExportError] = useState("");
+  /** ข้อความ error ระดับหน้า — ใช้ร่วมกันทั้งดาวน์โหลด เปลี่ยนสถานะ และลบ */
+  const [actionError, setActionError] = useState("");
+  /** PO ที่กำลังจะลบทีละใบ (null = ไม่ได้เปิดกล่องยืนยัน) */
+  const [deleteTarget, setDeleteTarget] = useState<PurchaseOrderRow | null>(
+    null
+  );
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  /** ค่าเริ่มต้นไม่แจ้ง — หน้านี้ลบเพื่อล้างประวัติเป็นหลัก */
+  const [notifyStores, setNotifyStores] = useState(false);
 
   // ค้นหายิงไป server แล้ว (ครอบทุกหน้า ไม่ใช่แค่แถวที่โหลดมา) — หน่วงกันยิงทุกตัวอักษร
   useEffect(() => {
@@ -231,7 +243,7 @@ export function SalesPoClient() {
 
   /** โหลดหลายใบเป็นไฟล์เดียว — ใช้ blob เพื่อให้เห็นสถานะและ error เป็นข้อความ */
   const bulkExport = useAsyncAction(async () => {
-    setExportError("");
+    setActionError("");
     const poNumbers = [...selected].slice(0, MAX_BULK_EXPORT);
     if (poNumbers.length === 0) return;
     const res = await fetch(appPath("/api/sales/purchase-orders/export"), {
@@ -243,7 +255,7 @@ export function SalesPoClient() {
       const body = (await res.json().catch(() => null)) as {
         error?: unknown;
       } | null;
-      setExportError(
+      setActionError(
         typeof body?.error === "string"
           ? body.error
           : `ดาวน์โหลดไม่สำเร็จ (${res.status})`
@@ -259,10 +271,43 @@ export function SalesPoClient() {
     URL.revokeObjectURL(url);
   });
 
+  /**
+   * ลบ PO — เซิร์ฟเวอร์ลบออเดอร์ต้นทางทั้งใบ ไม่ใช่แค่แถว PO
+   * จึงคืน `deletedPoNumbers` ที่อาจมากกว่าที่เลือกไว้ (PO พี่น้องของออเดอร์เดียวกัน)
+   */
+  async function runDelete(poNumbers: string[]) {
+    setActionError("");
+    const params = new URLSearchParams({ poNumbers: poNumbers.join(",") });
+    if (!notifyStores) params.set("notify", "0");
+    const res = await fetch(
+      `${appPath("/api/sales/purchase-orders")}?${params.toString()}`,
+      { method: "DELETE" }
+    );
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as {
+        error?: unknown;
+      } | null;
+      setActionError(
+        typeof body?.error === "string"
+          ? body.error
+          : `ลบไม่สำเร็จ (${res.status})`
+      );
+      return;
+    }
+    const body = (await res.json()) as { deletedPoNumbers?: string[] };
+    const gone = new Set(body.deletedPoNumbers ?? poNumbers);
+    // ล้างเฉพาะใบที่หายจริง — ใบที่ไม่มีสิทธิ์ลบยังติ๊กค้างไว้ให้เห็นว่าตกหล่น
+    setSelected((prev) => new Set([...prev].filter((n) => !gone.has(n))));
+    // ออเดอร์ต้นทางหายไปด้วย — หน้าตรวจออเดอร์และ badge จำนวนที่รออนุมัติต้องรู้
+    queryClient.invalidateQueries({ queryKey: ["orders"] });
+    queryClient.invalidateQueries({ queryKey: ["sales-pending-count"] });
+    await refetch();
+  }
+
   /** เปลี่ยนสถานะ PO — โหลดรายการใหม่หลังสำเร็จเพื่อให้ตัวกรองสถานะสอดคล้อง */
   async function changeStatus(poNumber: string, status: string) {
     setStatusBusy(poNumber);
-    setExportError("");
+    setActionError("");
     try {
       const res = await fetch(
         appPath(`/api/sales/purchase-orders/${encodeURIComponent(poNumber)}`),
@@ -276,7 +321,7 @@ export function SalesPoClient() {
         const b = (await res.json().catch(() => null)) as {
           error?: unknown;
         } | null;
-        setExportError(
+        setActionError(
           typeof b?.error === "string"
             ? b.error
             : `เปลี่ยนสถานะไม่สำเร็จ (${res.status})`
@@ -470,6 +515,16 @@ export function SalesPoClient() {
                 )}
                 ดาวน์โหลด Excel รวม
               </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                className="h-8 text-xs"
+                onClick={() => setBulkDeleteOpen(true)}
+                title="ลบ PO ที่เลือก พร้อมออเดอร์ต้นทาง"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                ลบ {selected.size} ใบ
+              </Button>
             </div>
           )}
         </div>
@@ -480,9 +535,9 @@ export function SalesPoClient() {
             {MAX_BULK_EXPORT} ใบ ระบบจะเอา {MAX_BULK_EXPORT} ใบแรกเท่านั้น
           </p>
         )}
-        {(exportError || bulkExport.error) && (
+        {(actionError || bulkExport.error) && (
           <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-950/30 dark:text-red-300">
-            {exportError || bulkExport.error}
+            {actionError || bulkExport.error}
           </p>
         )}
 
@@ -659,6 +714,15 @@ export function SalesPoClient() {
                           >
                             JSON
                           </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 px-2 text-xs text-red-600 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-950/40"
+                            title="ลบ PO ใบนี้พร้อมออเดอร์ต้นทาง"
+                            onClick={() => setDeleteTarget(po)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
                         </div>
                       </td>
                     </tr>
@@ -747,6 +811,15 @@ export function SalesPoClient() {
                     >
                       JSON
                     </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-8 px-2 text-xs text-red-600 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-950/40"
+                      aria-label={`ลบ ${po.poNumber}`}
+                      onClick={() => setDeleteTarget(po)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
                   </div>
                 </MobileRow>
               ))}
@@ -791,6 +864,73 @@ export function SalesPoClient() {
       {detailPo && (
         <PoDetailPanel poNumber={detailPo} onClose={() => setDetailPo(null)} />
       )}
+
+      <ConfirmDialog
+        open={deleteTarget != null}
+        title={`ลบ PO ${deleteTarget?.poNumber ?? ""}?`}
+        body={
+          deleteTarget && (
+            <>
+              <p>
+                ออเดอร์ต้นทางของ{" "}
+                <span className="font-medium">
+                  {formatStoreLabel(
+                    deleteTarget.storeCode,
+                    deleteTarget.storeName
+                  )}
+                </span>{" "}
+                จะถูกลบทั้งใบ ({deleteTarget.itemCount} รายการ ·{" "}
+                {formatBaht(deleteTarget.totalAmount)})
+              </p>
+              {deleteTarget.siblingCount > 1 && (
+                <p className="mt-1.5 font-semibold text-amber-700 dark:text-amber-400">
+                  ออเดอร์นี้แบ่งเป็น {deleteTarget.siblingCount} PO — ใบพี่น้อง
+                  อีก {deleteTarget.siblingCount - 1} ใบจะถูกลบไปด้วย
+                </p>
+              )}
+              <p className="mt-1.5">
+                ประวัติที่ร้านเห็นในหน้า &quot;ประวัติการสั่งซื้อ&quot;
+                และแจ้งเตือนเดิมของออเดอร์นี้จะถูกลบด้วย · ย้อนกลับไม่ได้
+              </p>
+              <NotifyStoreCheckbox
+                checked={notifyStores}
+                onChange={setNotifyStores}
+              />
+            </>
+          )
+        }
+        confirmLabel="ลบ PO"
+        onConfirm={async () => {
+          if (deleteTarget) await runDelete([deleteTarget.poNumber]);
+        }}
+        onClose={() => setDeleteTarget(null)}
+      />
+
+      <ConfirmDialog
+        open={bulkDeleteOpen}
+        title={`ลบ PO ที่เลือก ${selected.size} ใบ?`}
+        body={
+          <>
+            <p>
+              ระบบจะลบออเดอร์ต้นทางของทุกใบที่เลือก — รายการสินค้า เลข PO
+              ประวัติที่ร้านเห็น และแจ้งเตือนเดิมของออเดอร์เหล่านั้นจะหายทั้งหมด
+            </p>
+            <p className="mt-1.5 font-semibold text-amber-700 dark:text-amber-400">
+              ถ้าออเดอร์ไหนแบ่งเป็นหลาย PO ใบพี่น้องที่ไม่ได้เลือกจะถูกลบด้วย
+            </p>
+            <p className="mt-1.5">ย้อนกลับไม่ได้</p>
+            <NotifyStoreCheckbox
+              checked={notifyStores}
+              onChange={setNotifyStores}
+            />
+          </>
+        }
+        confirmLabel={`ลบ ${selected.size} ใบ`}
+        onConfirm={async () => {
+          await runDelete([...selected]);
+        }}
+        onClose={() => setBulkDeleteOpen(false)}
+      />
     </PageShell>
   );
 }
