@@ -87,13 +87,20 @@ export class VdaAosBillRegistry {
   loadEnvFallback() {
     const raw = process.env.VDA_SALESMAN_MAP?.trim();
     if (!raw) return;
+    const filled: string[] = [];
     for (const [vda, sm] of parseEnvMap(raw)) {
       if (this.byVda.has(vda)) continue; // จับคู่จากไฟล์ได้แล้ว ไม่ต้องทับ
       this.addCode(vda, sm);
+      filled.push(`${vda}→${sm}`);
     }
-    console.info(
-      `[VdaAosBill] เติมจาก VDA_SALESMAN_MAP (fallback) — รวมเป็น ${this.byVda.size} VDA`
-    );
+    // เงียบเมื่อไม่ได้เติมอะไร — ไม่งั้น log จะขึ้นคำว่า fallback ทุกครั้งแม้จับคู่จากไฟล์
+    // ได้ครบแล้ว คนที่ไล่ปัญหาบนเซิร์ฟเวอร์จะเข้าใจผิดว่ากำลังใช้ค่าที่กรอกมืออยู่
+    if (filled.length > 0) {
+      console.info(
+        `[VdaAosBill] ⚠ ใช้ VDA_SALESMAN_MAP (fallback) กับ ${filled.length} VDA ` +
+          `เพราะจับคู่จาก cross_target ไม่ได้: ${filled.join(", ")}`
+      );
+    }
   }
 
   private addCustomer(vda: string, customerCode: string) {
