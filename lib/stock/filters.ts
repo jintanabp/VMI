@@ -3,11 +3,18 @@
  * ที่ส่งออกใช้ตรรกะเดียวกันเป๊ะ (ไฟล์ต้องตรงกับสิ่งที่ผู้ใช้เห็นบนจอ)
  *
  * แบ่งเป็น 2 ชั้น เพื่อไม่ให้ผู้ใช้ต้องเดาว่าปุ่มไหนทับปุ่มไหน:
- *   1. `view`  — มุมมองหลัก เลือกได้ทีละอัน (ทั้งหมด / ควรสั่ง / วิกฤต / ใหม่ / ไม่ขาย)
+ *   1. `view`  — มุมมองหลัก เลือกได้ทีละอัน (ทั้งหมด / ควรสั่ง / วิกฤต / ใหม่ / ไม่ขาย / ค้างสต็อก)
  *   2. ตัวกรองย่อย — แบรนด์ · กลุ่มสินค้า · ซ่อนสินค้าไม่ขาย ใช้ร่วมกับมุมมองใดก็ได้
  */
 
-export type StockView = "all" | "needs" | "critical" | "new" | "noSales";
+export type StockView =
+  | "all"
+  | "needs"
+  | "critical"
+  | "new"
+  | "noSales"
+  | "deadStock"
+  | "target";
 
 export interface StockFilterState {
   view: StockView;
@@ -33,6 +40,10 @@ interface FilterableStockRow {
   stockCvd?: number | null;
   minDays?: number;
   avgSales?: number;
+  /** คงเหลือหน่วยหีบ (ทศนิยมได้) */
+  stock?: number;
+  /** มาจากเป้าขายเดือนนี้ ไม่ได้อยู่ในคลัง — เห็นเฉพาะมุมมอง "ควรมีขาย" */
+  fromTarget?: boolean;
 }
 
 /** สต็อกวิกฤต: จะหมดก่อนถึงจำนวนวันขั้นต่ำ (CVD < MIN) ทั้งที่ยังมีการขาย → เสี่ยงขาดสต็อก
@@ -43,6 +54,16 @@ export function isCriticalStock(r: FilterableStockRow): boolean {
     (r.avgSales ?? 0) > 0 &&
     r.stockCvd < (r.minDays ?? 0)
   );
+}
+
+/**
+ * ค้างสต็อก: ไม่มียอดขายเลยใน 30 วัน แต่ของยังค้างอยู่ในคลัง
+ *
+ * ต่างจากมุมมอง "ไม่ขาย 1 เดือน" ที่รวมของที่ขายหมดไปแล้วด้วย — เคสนั้นแค่หยุดสั่งพอ
+ * แต่เคสนี้คือเงินจมอยู่จริง ต้องเร่งระบายหรือคืนของ ไม่ใช่แค่หยุดสั่ง
+ */
+export function isDeadStock(r: FilterableStockRow): boolean {
+  return Boolean(r.noSales30) && (r.stock ?? 0) > 0;
 }
 
 /** ผ่านมุมมองหลักหรือไม่ */
@@ -56,6 +77,10 @@ function matchesView(row: FilterableStockRow, view: StockView): boolean {
       return Boolean(row.isNew);
     case "noSales":
       return Boolean(row.noSales30);
+    case "deadStock":
+      return isDeadStock(row);
+    case "target":
+      return true;
     default:
       return true;
   }
@@ -66,10 +91,14 @@ export function filterStockRows<T extends FilterableStockRow>(
   filters: StockFilterState
 ): T[] {
   const { view, brand, section, hideNoSales } = filters;
-  // เปิดมุมมอง "ไม่ขาย 1 เดือน" อยู่แล้ว การซ่อนย่อมขัดกันเอง → ไม่นำมาใช้
-  const hide = hideNoSales && view !== "noSales";
+  // มุมมองที่ "ไม่ขาย" เป็นเงื่อนไขของตัวเองอยู่แล้ว การซ่อนย่อมขัดกันเอง
+  // (ไม่กันไว้ = เปิดแท็บค้างสต็อกทั้งที่เปิดปุ่มซ่อนไว้ แล้วได้ตารางว่างโดยไม่รู้สาเหตุ)
+  const hide = hideNoSales && view !== "noSales" && view !== "deadStock";
 
   return rows.filter((r) => {
+    // สินค้าจากเป้าขายไม่ได้อยู่ในคลังจริง (คงเหลือ/ยอดขาย 0 ทั้งแถว) ถ้าปล่อยปนกับ
+    // แถวปกติจะไปโผล่ใน "ไม่ขาย 1 เดือน" และทำตัวเลขทุกแท็บเพี้ยน — แยกขาดทั้งสองทาง
+    if (Boolean(r.fromTarget) !== (view === "target")) return false;
     if (!matchesView(r, view)) return false;
     if (hide && r.noSales30) return false;
     if (brand && (r.brand ?? "") !== brand) return false;
@@ -97,6 +126,8 @@ export function isStockView(value: unknown): value is StockView {
     value === "needs" ||
     value === "critical" ||
     value === "new" ||
-    value === "noSales"
+    value === "noSales" ||
+    value === "deadStock" ||
+    value === "target"
   );
 }

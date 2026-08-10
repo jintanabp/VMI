@@ -24,7 +24,7 @@ NEXT_PUBLIC_AZURE_REDIRECT_URI=https://spc-ai.sahapat.com/vmi/auth/callback
 
 ONELAKE_*                   # service principal + workspace/lakehouse
 STOCK_ONELAKE_*
-CFT_*  VDA_AOS_*
+CFT_*  VDA_CUSTOMER_MAP  VDA_CODES
 ```
 
 > ⚠️ **ต้องมี `.env` ครบก่อน `docker compose build`**

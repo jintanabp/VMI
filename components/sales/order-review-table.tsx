@@ -675,7 +675,10 @@ export function OrderReviewTable({
                             />
                           )}
                         </div>
-                        <p className="mt-0.5 line-clamp-2 text-sm font-medium leading-snug text-slate-800 dark:text-slate-100">
+                        <p
+                          className="vmi-cell-text mt-0.5 line-clamp-2 text-sm font-medium leading-snug text-slate-800 dark:text-slate-100"
+                          title={item.sku.name}
+                        >
                           {item.sku.name}
                         </p>
                         {!promoLoading && (

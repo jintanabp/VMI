@@ -33,6 +33,7 @@ import {
   BarChart3,
   Ban,
   Sparkles,
+  Star,
   CalendarOff,
   Check,
   ArrowUp,
@@ -56,7 +57,7 @@ import {
 } from "@/components/promo/free-good-subrow";
 import { ProductSalesPanel } from "@/components/stock/product-sales-panel";
 import { StopOrderModal } from "@/components/stock/stop-order-modal";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { OrderReviewDialog } from "@/components/stock/order-review-dialog";
 import {
   StockToolbar,
   type StockViewCounts,
@@ -100,6 +101,7 @@ import {
   DEFAULT_STOCK_FILTERS,
   filterStockRows,
   isCriticalStock,
+  isDeadStock,
   isStockView,
   type StockFilterState,
 } from "@/lib/stock/filters";
@@ -287,13 +289,16 @@ export function StockPageClient({
     setRefreshMsg("");
     // จำนวนที่ผู้ใช้แก้บนหน้าจอต้องไปอยู่ในไฟล์ — เดิมส่งแค่ตัวกรอง/การเรียง
     // ทำให้ไฟล์ได้ suggestOrder ของระบบ ไม่ใช่สิ่งที่ผู้ใช้ตั้งไว้
-    // qtyOverrides คีย์ด้วย skuId แต่ฝั่ง server จับคู่ด้วย skuCode
-    const codeById = new Map(rows.map((r) => [r.skuId, r.skuCode]));
+    //
+    // qtyOverrides คีย์ด้วย skuCode อยู่แล้ว (setLineQty ส่ง row.skuCode ทุกจุด)
+    // เดิมโค้ดนี้แปลง skuId → skuCode ก่อน จึงหาไม่เจอสักตัวและส่ง qty ว่างเสมอ
+    // แถวที่ยังไม่กรอกจะไม่มี override — ฝั่ง server ใช้ suggestOrder ให้เอง
+    // (ไฟล์นี้คือใบสั่งซื้อที่เติมค่าแนะนำมาให้แล้ว)
+    const knownCodes = new Set(rows.map((r) => r.skuCode));
     const qtyPairs: string[] = [];
-    for (const [skuId, n] of Object.entries(qtyOverrides)) {
-      const code = codeById.get(skuId);
+    for (const [skuCode, n] of Object.entries(qtyOverrides)) {
       const qty = Math.floor(n);
-      if (code && qty > 0) qtyPairs.push(`${code}:${qty}`);
+      if (knownCodes.has(skuCode) && qty > 0) qtyPairs.push(`${skuCode}:${qty}`);
     }
 
     const body: Record<string, string> = {
@@ -411,24 +416,30 @@ export function StockPageClient({
     try {
       const rawDraft = sessionStorage.getItem("vmi_order_draft");
       const rawQty = sessionStorage.getItem("vmi_order_qty");
-      if (rawDraft) {
-        const draft = JSON.parse(rawDraft) as StockRowComputed[];
-        if (Array.isArray(draft) && draft.length > 0) {
-          const ids = draft
-            .map((r) => r.skuId)
-            .filter((id) => rows.some((r) => r.skuId === id));
-          if (ids.length > 0) setSelected(new Set(ids));
-        }
-      }
+      const restoredQty: Record<string, number> = {};
       if (rawQty) {
         const qtyMap = JSON.parse(rawQty) as Record<string, number>;
         if (qtyMap && typeof qtyMap === "object") {
-          const valid: Record<string, number> = {};
           for (const r of rows) {
             const q = qtyMap[r.skuCode];
-            if (q != null && q > 0) valid[r.skuCode] = Math.floor(q);
+            if (q != null && q > 0) restoredQty[r.skuCode] = Math.floor(q);
           }
-          if (Object.keys(valid).length > 0) setQtyOverrides(valid);
+          if (Object.keys(restoredQty).length > 0) setQtyOverrides(restoredQty);
+        }
+      }
+      if (rawDraft) {
+        const draft = JSON.parse(rawDraft) as StockRowComputed[];
+        if (Array.isArray(draft) && draft.length > 0) {
+          const byId = new Map(rows.map((r) => [r.skuId, r.skuCode]));
+          // หน้า /order ตั้งจำนวนเป็น 0 แล้วเขียนกลับมาได้ — ถ้าไม่กรอง
+          // จะได้แถว "ติ๊กไว้แต่จำนวน 0" ซึ่งขัดกับกฎ ติ๊ก ⇔ จำนวน > 0
+          const ids = draft
+            .map((r) => r.skuId)
+            .filter((id) => {
+              const code = byId.get(id);
+              return code != null && (restoredQty[code] ?? 0) > 0;
+            });
+          if (ids.length > 0) setSelected(new Set(ids));
         }
       }
     } catch {
@@ -684,19 +695,23 @@ export function StockPageClient({
     let critical = 0;
     let fresh = 0;
     let noSales = 0;
+    let deadStock = 0;
+    let target = 0;
+    let all = 0;
     for (const r of enrichedRows) {
+      // สินค้าจากเป้าขายไม่ได้อยู่ในคลัง — นับแยกอย่างเดียว ไม่ปนกับตัวเลขคลังจริง
+      if (r.fromTarget) {
+        target++;
+        continue;
+      }
+      all++;
       if (r.needsOrder) needs++;
       if (isCriticalStock(r)) critical++;
       if (r.isNew) fresh++;
       if (r.noSales30) noSales++;
+      if (isDeadStock(r)) deadStock++;
     }
-    return {
-      all: enrichedRows.length,
-      needs,
-      critical,
-      new: fresh,
-      noSales,
-    };
+    return { all, needs, critical, new: fresh, noSales, deadStock, target };
   }, [enrichedRows]);
 
   function unblock(skuId: string) {
@@ -707,6 +722,12 @@ export function StockPageClient({
 
   const [promoApplyVersion, setPromoApplyVersion] = useState(0);
 
+  /** skuCode → skuId — `selected` คีย์ด้วย skuId แต่ `qtyOverrides` คีย์ด้วย skuCode */
+  const skuIdByCode = useMemo(
+    () => new Map(rows.map((r) => [r.skuCode, r.skuId])),
+    [rows]
+  );
+
   const applyGroupStaged = useCallback(
     (staged: Record<string, number>, memberSkus?: string[]) => {
       const mapped =
@@ -714,12 +735,49 @@ export function StockPageClient({
           ? mapGroupStagedToMemberSkus(rows, memberSkus, staged)
           : mapStagedQtyToSkuCodes(rows, staged);
       setQtyOverrides((prev) => ({ ...prev, ...mapped }));
+      // ตั้งจำนวนจาก modal โปรกลุ่มคือการสั่งชัดเจน — ติ๊กตามให้ด้วย
+      setSelected((prev) => {
+        let changed = false;
+        const next = new Set(prev);
+        for (const [code, q] of Object.entries(mapped)) {
+          const skuId = skuIdByCode.get(code);
+          if (!skuId) continue;
+          if (q > 0 && !next.has(skuId)) {
+            next.add(skuId);
+            changed = true;
+          } else if (q <= 0 && next.has(skuId)) {
+            next.delete(skuId);
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
       setPromoApplyVersion((v) => v + 1);
     },
-    [rows]
+    [rows, skuIdByCode]
   );
 
-  const resolveLineQty = useCallback(
+  /**
+   * จำนวน "สั่งจริง" — เริ่มที่ 0 ทุกแถวเสมอ ต้องพิมพ์เอง/กดชิปแนะนำถึงจะมีค่า
+   * ค่าในช่องต้องสะท้อนเจตนาผู้ใช้ล้วน ๆ ไม่ใช่ตัวเลขที่ระบบเดาไว้ให้
+   */
+  const orderQty = useCallback(
+    (row: StockRowComputed) => {
+      const o = qtyOverrides[row.skuCode];
+      return o != null ? Math.max(0, Math.floor(o)) : 0;
+    },
+    [qtyOverrides]
+  );
+
+  /**
+   * จำนวน "ที่ใช้จำลอง" — ยังไม่ได้แตะ = ใช้ค่าแนะนำ
+   *
+   * ใช้กับโปรและธง CVD หลังสั่งเท่านั้น **ห้ามใช้ตัดสินว่าจะส่งอะไรไป /order**
+   * กฎเดียวกับ promoStagedQty ข้างบน และ lineQtyForRow ใน lib/promo/stock-pooled-promo.ts
+   * — ถ้าจะแก้ต้องแก้พร้อมกันทั้งสามที่ ไม่งั้นข้อความ "อีก 1 หีบ ได้ส่วนลด 50"
+   * จะหายจากแถวที่ผู้ใช้ยังไม่ได้แตะ ซึ่งเป็นข้อมูลหลักที่ใช้ตัดสินใจสั่ง
+   */
+  const simulatedQty = useCallback(
     (row: StockRowComputed) => {
       const o = qtyOverrides[row.skuCode];
       if (o != null) return Math.max(0, Math.floor(o));
@@ -733,16 +791,13 @@ export function StockPageClient({
   }
 
   function lineQty(row: StockRowComputed): number {
-    return resolveLineQty(row);
+    return orderQty(row);
   }
 
-  /** จำนวนที่ใช้ประเมิน CVD — เฉพาะเมื่อมีการสั่งจริงหรือมีแนะนำ */
+  /** จำนวนที่ใช้ประเมิน CVD — แถวที่ยังไม่แตะใช้ค่าแนะนำ ไม่งั้นธงสี/คอลัมน์
+   *  "CVD หลังสั่ง" จะว่างทั้งตารางตอนเปิดหน้า (ทุกช่องเป็น 0) */
   function evalQty(row: StockRowComputed): number {
-    const o = qtyOverrides[row.skuCode];
-    if (o != null) return Math.max(0, Math.floor(o));
-    if (selected.has(row.skuId)) return lineQty(row);
-    if (row.suggestOrder > 0) return row.suggestOrder;
-    return 0;
+    return simulatedQty(row);
   }
 
   function orderCvdFlag(row: StockRowComputed): OrderCvdResult {
@@ -755,15 +810,30 @@ export function StockPageClient({
     );
   }
 
-  /** ปรับจำนวนเท่านั้น — ไม่ติ๊กเลือกอัตโนมัติ */
-  function setLineQty(skuCode: string, qty: number) {
-    const nextQty = Math.max(0, Math.floor(qty));
-    setQtyOverrides((prev) => ({
-      ...prev,
-      [skuCode]: nextQty,
-    }));
-  }
+  /**
+   * ปรับจำนวน = ติ๊ก/ปลดติ๊กให้เอง — จำนวน > 0 คือเจตนาสั่ง
+   * ไม่ต้องกดสองที่ให้ตรงกัน และได้ไฮไลต์แถวที่สั่งมาฟรีจากสีของ `selected`
+   */
+  const setLineQty = useCallback(
+    (skuCode: string, qty: number) => {
+      const nextQty = Math.max(0, Math.floor(qty));
+      setQtyOverrides((prev) => ({ ...prev, [skuCode]: nextQty }));
+      const skuId = skuIdByCode.get(skuCode);
+      if (!skuId) return;
+      setSelected((prev) => {
+        // คืน Set เดิมเมื่อสถานะไม่เปลี่ยน — ไม่งั้นทุกคีย์สโตรกสร้าง Set ใหม่
+        // แล้ว selectedItems + effect autosave + การ์ดมือถือรีเรนเดอร์ทั้งชุด
+        if ((nextQty > 0) === prev.has(skuId)) return prev;
+        const next = new Set(prev);
+        if (nextQty > 0) next.add(skuId);
+        else next.delete(skuId);
+        return next;
+      });
+    },
+    [skuIdByCode]
+  );
 
+  /** ลบค่าที่ผู้ใช้ตั้ง → ช่องกลับไปเป็น 0 และชิป "แนะนำ" โผล่กลับมา */
   function resetLineQty(skuCode: string) {
     setQtyOverrides((prev) => {
       if (!(skuCode in prev)) return prev;
@@ -776,15 +846,17 @@ export function StockPageClient({
   function adjustLineQty(skuCode: string, delta: number) {
     const row = rows.find((r) => r.skuCode === skuCode);
     if (!row) return;
-    setLineQty(skuCode, lineQty(row) + delta);
+    setLineQty(skuCode, orderQty(row) + delta);
   }
 
+  /** ติ๊กแถวแล้วต้องได้จำนวนที่สั่งได้จริง — แถวที่ระบบไม่แนะนำใช้ 1 หีบ (ขั้นต่ำ)
+   *  ไม่งั้นจะได้ "ติ๊กไว้แต่จำนวน 0" ซึ่งเป็นสถานะที่ปุ่มส่งกั้นไว้ */
   function initQtyForRow(row: StockRowComputed) {
     setQtyOverrides((prev) => {
-      if (prev[row.skuCode] != null) return prev;
+      if (prev[row.skuCode] != null && prev[row.skuCode]! > 0) return prev;
       return {
         ...prev,
-        [row.skuCode]: defaultLineQty(row),
+        [row.skuCode]: defaultLineQty(row) || 1,
       };
     });
   }
@@ -798,7 +870,10 @@ export function StockPageClient({
       else next.add(skuId);
       return next;
     });
-    if (adding && row) initQtyForRow(row);
+    if (!row) return;
+    // ติ๊ก ⇔ จำนวน > 0 ต้องเป็นจริงเสมอ ไม่งั้นไฮไลต์กับช่องจำนวนจะขัดกันเอง
+    if (adding) initQtyForRow(row);
+    else resetLineQty(row.skuCode);
   }
 
   /**
@@ -814,8 +889,10 @@ export function StockPageClient({
    * ซึ่งปิดปุ่ม "ตรวจสอบคำสั่ง" — กดเลือกทั้งหมดแล้วส่งออเดอร์ไม่ได้โดยไม่รู้สาเหตุ
    */
   const selectableRows = useMemo(
-    () => filtered.filter((r) => resolveLineQty(r) > 0),
-    [filtered, resolveLineQty]
+    // ใช้ simulatedQty ไม่ใช่ orderQty — ไม่งั้นตอนเปิดหน้าทุกช่องเป็น 0
+    // แล้ว checkbox "เลือกทั้งหมด" บนหัวตารางจะกลายเป็นปุ่มตาย
+    () => filtered.filter((r) => simulatedQty(r) > 0),
+    [filtered, simulatedQty]
   );
 
   /** เฉพาะที่ระบบแนะนำ — ใช้กับปุ่ม "เลือกที่ควรสั่ง" ที่แถบล่าง
@@ -839,6 +916,12 @@ export function StockPageClient({
         selectableRows.forEach((r) => next.delete(r.skuId));
         return next;
       });
+      // เอาติ๊กออก = ล้างจำนวนด้วย ไม่งั้นช่องยังค้างเลขทั้งที่แถวไม่ถูกเลือกแล้ว
+      setQtyOverrides((prev) => {
+        const next = { ...prev };
+        for (const r of selectableRows) delete next[r.skuCode];
+        return next;
+      });
       return;
     }
     setSelected((prev) => {
@@ -850,8 +933,8 @@ export function StockPageClient({
     setQtyOverrides((prev) => {
       const next = { ...prev };
       for (const r of selectableRows) {
-        if (next[r.skuCode] == null) {
-          next[r.skuCode] = r.suggestOrder > 0 ? r.suggestOrder : 0;
+        if (next[r.skuCode] == null || next[r.skuCode] === 0) {
+          next[r.skuCode] = r.suggestOrder > 0 ? r.suggestOrder : 1;
         }
       }
       return next;
@@ -860,6 +943,7 @@ export function StockPageClient({
 
   function clearSelection() {
     setSelected(new Set());
+    setQtyOverrides({});
   }
 
   /** เลือกทุกแถวที่เห็นบนจอ — ใช้กับแท็บ "ไม่ขาย 1 เดือน" เพื่อกดหยุดสั่งรวดเดียว
@@ -868,9 +952,11 @@ export function StockPageClient({
     setSelected(new Set(displayRows.map((r) => r.skuId)));
   }
 
-  /** คืนจำนวนทุกรายการเป็นที่แนะนำ (ไม่เปลี่ยนการเลือก) */
-  function resetAllQtyToSuggested() {
+  /** ล้างจำนวนที่กรอกไว้ทั้งหมด — ทุกช่องกลับเป็น 0 และการเลือกหลุดตามกัน
+   *  (เดิมชื่อ "รีเซ็ตเป็นค่าแนะนำ" ซึ่งตอนนี้จะกลายเป็นการติ๊กทุกแถวที่มีคำแนะนำ) */
+  function clearAllQty() {
     setQtyOverrides({});
+    setSelected(new Set());
   }
 
   /** เลือกที่ควรสั่งตามตัวกรองปัจจุบัน (replace ไม่สะสม) */
@@ -879,24 +965,26 @@ export function StockPageClient({
     if (section) {
       target = target.filter((r) => (r.section ?? "") === section);
     }
+    // แถว needsOrder ที่ suggestOrder เป็น 0 มีได้ — ติ๊กไว้จะกลายเป็น "ติ๊กแต่จำนวน 0"
+    target = target.filter((r) => simulatedQty(r) > 0);
     setSelected(new Set(target.map((r) => r.skuId)));
     setQtyOverrides((prev) => {
       const next = { ...prev };
       for (const r of target) {
-        if (next[r.skuCode] == null) {
-          next[r.skuCode] = r.suggestOrder > 0 ? r.suggestOrder : 0;
+        if (next[r.skuCode] == null || next[r.skuCode] === 0) {
+          next[r.skuCode] = r.suggestOrder > 0 ? r.suggestOrder : 1;
         }
       }
       return next;
     });
   }
 
-  /** จำนวนรายการที่ผู้ใช้แก้จำนวนเอง — ใช้เปิด/ปิดเมนู "รีเซ็ตจำนวนเป็นค่าแนะนำ" */
+  /** จำนวนรายการที่กรอกจำนวนไว้ — ใช้เปิด/ปิดเมนู "ล้างจำนวนที่กรอกทั้งหมด" */
   const adjustedCount = useMemo(() => {
     let n = 0;
     for (const r of rows) {
       const o = qtyOverrides[r.skuCode];
-      if (o != null && o !== (r.suggestOrder > 0 ? r.suggestOrder : 0)) n++;
+      if (o != null && o > 0) n++;
     }
     return n;
   }, [rows, qtyOverrides]);
@@ -922,7 +1010,12 @@ export function StockPageClient({
     let needsOrder = 0;
     /** แถวที่ได้มูลค่าจากต้นทุนจริง (bi_stock_value) — ที่เหลือถอยไปใช้ราคาขาย */
     let valueFromCost = 0;
+    let total = 0;
     for (const r of rows) {
+      // สินค้าจากเป้าขายยังไม่มีในคลัง (ทุกค่าเป็น 0) — นับรวมจะทำให้ "จำนวน SKU"
+      // และ CVD เฉลี่ยของคลังเพี้ยนโดยไม่มีอะไรบนจอบอกว่าทำไม
+      if (r.fromTarget) continue;
+      total++;
       // หน่วยหีบทั้งหมด — stockCases (หีบเต็ม) สำหรับแสดง, stock (ทศนิยม) สำหรับมูลค่า/CVD
       totalStock += r.stockCases;
       totalStockExact += r.stock;
@@ -939,7 +1032,7 @@ export function StockPageClient({
     }
     const cvdAll = totalAvg > 0 ? totalStockExact / totalAvg : null;
     return {
-      total: rows.length,
+      total,
       totalStock,
       totalValue,
       valueFromCost,
@@ -948,9 +1041,12 @@ export function StockPageClient({
     };
   }, [rows]);
 
+  /** ต้องมาจาก enrichedRows ไม่ใช่ rows ดิบ — ดราฟต์ที่ส่งไป /order จะได้พาค่าโปร
+   *  ที่รวมยอดกลุ่มแล้วไปด้วย ไม่งั้นหน้า order แสดงโปรไม่ตรงกับที่เห็นบนหน้านี้
+   *  ตอนที่ /api/promo/lookup ยังไม่ตอบ (หรือตอบไม่ได้) */
   const selectedItems = useMemo(
-    () => rows.filter((r) => selected.has(r.skuId)),
-    [rows, selected]
+    () => enrichedRows.filter((r) => selected.has(r.skuId)),
+    [enrichedRows, selected]
   );
 
   const selectedSkuCodes = useMemo(
@@ -968,7 +1064,7 @@ export function StockPageClient({
     (row: StockRowComputed): string | null => {
       const { flag, reason, blocking } = getOrderCvdFlag(
         row.stock,
-        resolveLineQty(row),
+        orderQty(row),
         row.avgSales,
         row.minDays,
         row.maxDays
@@ -979,7 +1075,7 @@ export function StockPageClient({
       if (flag == null || reason == null) return null;
       return cvdFlagHint(flag, reason, row);
     },
-    [resolveLineQty]
+    [orderQty]
   );
 
   /** รายการที่จำนวนไม่เหมาะสมจนต้องกั้นก่อนส่งออเดอร์
@@ -989,7 +1085,7 @@ export function StockPageClient({
     for (const item of selectedItems) {
       const { blocking } = getOrderCvdFlag(
         item.stock,
-        resolveLineQty(item),
+        orderQty(item),
         item.avgSales,
         item.minDays,
         item.maxDays
@@ -997,11 +1093,13 @@ export function StockPageClient({
       if (blocking) n++;
     }
     return n;
-  }, [selectedItems, resolveLineQty]);
+  }, [selectedItems, orderQty]);
 
+  /** ปกติเป็น 0 เสมอเพราะ "ติ๊ก ⇔ จำนวน > 0" — ยกเว้น selectAllDisplayed
+   *  ที่ติ๊กแถวเพื่อกดหยุดสั่งโดยไม่มีเจตนาสั่ง จึงยังต้องกั้นปุ่มส่งไว้ */
   const selectedZeroQtyCount = useMemo(
-    () => selectedItems.filter((item) => resolveLineQty(item) <= 0).length,
-    [selectedItems, resolveLineQty]
+    () => selectedItems.filter((item) => orderQty(item) <= 0).length,
+    [selectedItems, orderQty]
   );
 
   useEffect(() => {
@@ -1022,19 +1120,19 @@ export function StockPageClient({
       sessionStorage.setItem("vmi_order_draft", JSON.stringify(draft));
       const qtyMap: Record<string, number> = {};
       for (const item of selectedItems) {
-        qtyMap[item.skuCode] = resolveLineQty(item);
+        qtyMap[item.skuCode] = orderQty(item);
       }
       sessionStorage.setItem("vmi_order_qty", JSON.stringify(qtyMap));
     }, 200);
     return () => window.clearTimeout(timer);
-  }, [sessionReady, selectedItems, qtyOverrides, resolveLineQty]);
+  }, [sessionReady, selectedItems, qtyOverrides, orderQty]);
 
   function goToOrder() {
     if (selectedItems.length === 0) return;
     sessionStorage.setItem("vmi_order_draft", JSON.stringify(selectedItems));
     const qtyMap: Record<string, number> = {};
     for (const item of selectedItems) {
-      qtyMap[item.skuCode] = resolveLineQty(item);
+      qtyMap[item.skuCode] = orderQty(item);
     }
     sessionStorage.setItem("vmi_order_qty", JSON.stringify(qtyMap));
     router.push("/order");
@@ -1097,7 +1195,7 @@ export function StockPageClient({
           sort={sort}
           onSortChange={applySort}
           onExport={exportExcel}
-          onResetQty={resetAllQtyToSuggested}
+          onResetQty={clearAllQty}
           onClearSelection={clearSelection}
           selectedCount={selected.size}
           adjustedCount={adjustedCount}
@@ -1143,7 +1241,7 @@ export function StockPageClient({
                   onToggleRow={toggleRow}
                   onSetQty={setLineQty}
                   onAdjustQty={adjustLineQty}
-                  onResetQty={resetLineQty}
+                  onApplySuggest={setLineQty}
                   onConfirmStaged={applyGroupStaged}
                 />
               )
@@ -1192,7 +1290,9 @@ export function StockPageClient({
                       }
                       onAdjustQty={(d) => adjustLineQty(row.skuCode, d)}
                       onSetQty={(q) => setLineQty(row.skuCode, q)}
-                      onApplySuggest={() => resetLineQty(row.skuCode)}
+                      onApplySuggest={() =>
+                        setLineQty(row.skuCode, row.suggestOrder)
+                      }
                       onToggle={() => toggleRow(row.skuId)}
                       expanded={expanded.has(row.skuId)}
                       onToggleExpand={() => toggleExpand(row.skuId)}
@@ -1211,20 +1311,35 @@ export function StockPageClient({
 
                 ⚠️ ความกว้างอิง "ตำแหน่ง" ไม่ใช่ชื่อคอลัมน์ — ย้ายคอลัมน์เมื่อไหร่
                 ต้องย้าย <col> ให้ตรงกันทุกครั้ง ไม่งั้นความกว้างสลับมั่วทั้งตาราง */}
+            {/* คอมเมนต์ต้องอยู่คนละบรรทัดกับ <col> — วางท้ายบรรทัดเดียวกันจะเหลือ
+                text node ช่องว่างใน <colgroup> ซึ่ง React เตือนว่าจะทำ hydration พัง */}
             <colgroup>
-              <col className="w-[2.5%]" /> {/* checkbox */}
-              <col className="w-[6.5%]" /> {/* SKU */}
-              <col className="w-[21%]" /> {/* ชื่อสินค้า */}
-              <col className="w-[5%]" /> {/* สต็อก */}
-              <col className="w-[5.5%]" /> {/* ขายเฉลี่ย */}
-              <col className="w-[4.5%]" /> {/* CVD */}
-              <col className="w-[5%]" /> {/* MIN / MAX */}
-              <col className="w-[5%]" /> {/* ราคา/หีบ */}
-              <col className="w-[5%]" /> {/* ส่วนลด */}
-              <col className="w-[5.5%]" /> {/* ราคาสุทธิ/หีบ */}
-              <col className="w-[19%]" /> {/* โปร */}
-              <col className="w-[9%]" /> {/* จำนวนสั่ง */}
-              <col className="w-[6.5%]" /> {/* CVD หลังสั่ง */}
+              {/* checkbox */}
+              <col className="w-[2.5%]" />
+              {/* SKU */}
+              <col className="w-[6.5%]" />
+              {/* ชื่อสินค้า */}
+              <col className="w-[21%]" />
+              {/* สต็อก */}
+              <col className="w-[5%]" />
+              {/* ขายเฉลี่ย */}
+              <col className="w-[5.5%]" />
+              {/* CVD */}
+              <col className="w-[4.5%]" />
+              {/* MIN / MAX */}
+              <col className="w-[5%]" />
+              {/* ราคา/หีบ */}
+              <col className="w-[5%]" />
+              {/* ส่วนลด */}
+              <col className="w-[5%]" />
+              {/* ราคาสุทธิ/หีบ */}
+              <col className="w-[5.5%]" />
+              {/* โปร */}
+              <col className="w-[19%]" />
+              {/* จำนวนสั่ง */}
+              <col className="w-[9%]" />
+              {/* CVD หลังสั่ง */}
+              <col className="w-[6.5%]" />
             </colgroup>
             <thead className="font-medium text-slate-500 dark:text-slate-400">
               <tr>
@@ -1430,7 +1545,16 @@ export function StockPageClient({
                         {/* ป้ายสถานะแยกบรรทัดบน — ชื่อสินค้าจึงได้ความกว้างเต็มคอลัมน์
                             (เดิมป้ายแย่งที่กับชื่อ ทำให้ชื่อโดนตัดตั้งแต่กลางคำ) */}
                         <div className="flex min-w-0 flex-wrap items-center gap-1 empty:hidden">
-                          {row.isNew && (
+                          {row.fromTarget && (
+                            <span
+                              className="inline-flex shrink-0 items-center gap-0.5 rounded bg-emerald-100 px-1 py-0.5 vmi-t-xs font-bold text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
+                              title="อยู่ในเป้าขายเดือนนี้ แต่ร้านยังไม่เคยสต็อก — สั่งได้เลย"
+                            >
+                              <Star className="h-2.5 w-2.5" />
+                              ยังไม่มีในคลัง
+                            </span>
+                          )}
+                          {row.isNew && !row.fromTarget && (
                             <span
                               className="inline-flex shrink-0 items-center gap-0.5 rounded bg-sky-100 px-1 py-0.5 vmi-t-xs font-bold text-sky-700 dark:bg-sky-950/50 dark:text-sky-300"
                               title="สินค้าใหม่ในระบบ"
@@ -1453,7 +1577,7 @@ export function StockPageClient({
                           {recentBySku[row.skuCode] && (
                             <OrderedBadge info={recentBySku[row.skuCode]!} />
                           )}
-                          {row.noSales30 && !row.blocked && (
+                          {row.noSales30 && !row.blocked && !row.fromTarget && (
                             <span
                               className="inline-flex shrink-0 items-center gap-0.5 rounded bg-slate-200 px-1 py-0.5 vmi-t-xs font-semibold text-slate-500 dark:bg-slate-700 dark:text-slate-400"
                               title="ไม่มียอดขายใน 1 เดือนที่ผ่านมา"
@@ -1571,7 +1695,10 @@ export function StockPageClient({
                           onMinus={() => adjustLineQty(row.skuCode, -1)}
                           onPlus={() => adjustLineQty(row.skuCode, 1)}
                           onSetQty={(q) => setLineQty(row.skuCode, q)}
-                          onApplySuggest={() => resetLineQty(row.skuCode)}
+                          onApplySuggest={() =>
+                            setLineQty(row.skuCode, row.suggestOrder)
+                          }
+                          showSuggestChip
                           compact
                         />
                       </td>
@@ -1683,7 +1810,7 @@ export function StockPageClient({
           </p>
           {/* ปุ่มจัดการการเลือก — ย้ายมาไว้ที่แถบล่างให้ทูลบาร์บนโล่ง */}
           {selected.size === 0 &&
-            filters.view === "noSales" &&
+            (filters.view === "noSales" || filters.view === "deadStock") &&
             displayRows.length > 0 && (
               <Button
                 size="sm"
@@ -1698,6 +1825,7 @@ export function StockPageClient({
             )}
           {selected.size === 0 &&
             filters.view !== "noSales" &&
+            filters.view !== "deadStock" &&
             filteredNeedsOrder.length > 0 && (
             <Button
               size="sm"
@@ -1763,19 +1891,15 @@ export function StockPageClient({
         </div>
       </div>
 
-      <ConfirmDialog
+      <OrderReviewDialog
         open={confirmRiskyOpen}
-        tone="default"
-        title="ยืนยันจำนวนที่สั่ง"
-        body={
-          <>
-            มี {selectedRedCount} รายการที่จำนวนยังไม่เข้าเป้าหมาย MIN/MAX
-            <br />
-            ส่งต่อไปให้พนักงานตรวจได้ — พนักงานจะเห็นธงเตือนนี้ด้วย
-          </>
-        }
-        confirmLabel="ตรวจสอบคำสั่ง"
-        onConfirm={() => goToOrder()}
+        rows={selectedItems}
+        qtyOf={orderQty}
+        onSetQty={setLineQty}
+        onConfirm={() => {
+          setConfirmRiskyOpen(false);
+          goToOrder();
+        }}
         onClose={() => setConfirmRiskyOpen(false)}
       />
 
@@ -1948,6 +2072,17 @@ const StockMobileRow = memo(function StockMobileRow({
               {row.barcode}
             </p>
           )}
+          {/* การ์ดมือถือไม่มีพื้นที่ให้ป้ายครบเหมือนตาราง — แต่ป้ายนี้ต้องมี
+              ไม่งั้นแถวคงเหลือ 0 จะดูเหมือน "ของหมด" ทั้งที่ร้านไม่เคยสต็อกเลย */}
+          {row.fromTarget && (
+            <span
+              className="mt-1 inline-flex items-center gap-0.5 rounded bg-emerald-100 px-1 py-0.5 vmi-t-xs font-bold text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
+              title="อยู่ในเป้าขายเดือนนี้ แต่ร้านยังไม่เคยสต็อก — สั่งได้เลย"
+            >
+              <Star className="h-2.5 w-2.5" />
+              ยังไม่มีในคลัง
+            </span>
+          )}
           {recentOrder && (
             <span className="mt-1 inline-flex">
               <OrderedBadge info={recentOrder} />
@@ -1961,6 +2096,7 @@ const StockMobileRow = memo(function StockMobileRow({
           onPlus={() => onAdjustQty(1)}
           onSetQty={onSetQty}
           onApplySuggest={onApplySuggest}
+          showSuggestChip
           compact
         />
       </MobileRowTop>

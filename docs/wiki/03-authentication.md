@@ -66,7 +66,7 @@ manager/supervisor จะได้ `scopeSalesmanCodes` และ `scopeEmails` 
 อยู่ที่ `lib/orders/access.ts` — `assertOrderAccess(orderId, session)`
 
 1. admin ผ่านหมด
-2. ถ้าร้านเป็น VDA → เช็คจาก `vda_aos_bill` ว่ารหัสเซลล์ของเราดูแล VDA นั้นไหม
+2. ถ้าร้านเป็น VDA → เช็คจากทะเบียนที่จับคู่จาก `cross_target_current_month` ว่ารหัสเซลล์ของเราดูแล VDA นั้นไหม
 3. ถ้าไม่ใช่ VDA → เช็คว่า `store.salesRep.email` อยู่ใน scope ของเราไหม
 
 > สิทธิ์มาจาก **master ของ Fabric** ไม่ใช่ตารางใน DB — ย้ายเขตที่ต้นทางแล้วสิทธิ์ตามทันทีโดยไม่ต้อง sync

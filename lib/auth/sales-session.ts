@@ -115,7 +115,7 @@ function normalizeCode(code: string) {
 /**
  * Access control:
  * - ต้องมีอีเมลใน cross_salesman master
- * - สิทธิ์ดูออเดอร์ VDA มาจาก vda_aos_bill (ไม่ใช้ allowlist)
+ * - สิทธิ์ดูออเดอร์ VDA มาจากทะเบียน VDA_SALESMAN_MAP (ไม่ใช้ allowlist)
  * - Manager/Supervisor ดูออเดอร์ VDA ของลูกทีม
  */
 export async function buildSalesSessionWithAccess(

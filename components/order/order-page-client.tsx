@@ -32,6 +32,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { CvdFlagCell } from "@/components/ui/cvd-flag-cell";
+import { NoticeBanner } from "@/components/ui/notice-banner";
 import {
   MobileRow,
   MobileRowExtra,
@@ -204,9 +205,9 @@ export function OrderPageClient({
       setLines(
         items.map((row) => ({
           row,
-          qty:
-            qtyBySku[row.skuCode] ??
-            (row.suggestOrder > 0 ? row.suggestOrder : 0),
+          // หน้าสต็อกเขียน qty ให้ทุกบรรทัดในดราฟต์เสมอ — fallback เป็น suggestOrder
+          // จะปลุกตัวเลขที่ผู้ใช้ตั้งใจล้างทิ้งกลับขึ้นมา
+          qty: qtyBySku[row.skuCode] ?? 0,
         }))
       );
       setReady(true);
@@ -290,15 +291,31 @@ export function OrderPageClient({
       const flag = cvd.flag;
       const api = promoApi?.lines[line.row.skuCode];
       const fallbackPromo = getPromoForQty(line.qty, line.row.promoTiers ?? []);
+      /**
+       * ผสม api กับ fallback แบบ "ยกกลุ่ม" ไม่ใช่ ?? รายฟิลด์
+       *
+       * เดิมพอ api มา fallback ถูกทิ้งทั้งก้อน — lookup ที่คืนแค่ขั้นปัจจุบันจึงลบ
+       * ข้อความ "อีก X หีบ" ทิ้ง แต่ ?? รายฟิลด์ก็ผิดเพราะจะเอา nextPromo จาก api
+       * ไปผสมกับ qtyToNext ของ fallback แล้วได้ตัวเลขที่ไม่ตรงกัน
+       *
+       * fallback คิดจาก tiers ของแถวเดียว ส่วนโปรกลุ่มคิดจากยอดรวมทั้งกลุ่ม
+       * จึงห้ามใช้แทนกันเมื่อ SKU นี้อยู่ในกลุ่มโปร
+       */
+      const canFallback =
+        !api?.promoGroup || (api.promoGroupMembers ?? 0) <= 1;
+      const useApiNext = api?.nextPromo != null || !canFallback;
+      const next = api && useApiNext ? api : fallbackPromo;
       const promo: PromoResult = api
         ? {
-            currentPromo: api.currentPromo,
-            nextPromo: api.nextPromo,
-            nextPromoQty: api.nextPromoQty,
-            qtyToNext: api.qtyToNext,
-            currentKind: api.currentKind,
-            nextKind: api.nextKind,
-            hasPromoLadder: api.hasPromoLadder ?? (line.row.promoTiers?.length ?? 0) > 0,
+            currentPromo: api.currentPromo ?? fallbackPromo.currentPromo,
+            currentKind: api.currentKind ?? fallbackPromo.currentKind,
+            nextPromo: next.nextPromo,
+            nextPromoQty: next.nextPromoQty,
+            qtyToNext: next.qtyToNext,
+            nextKind: next.nextKind,
+            hasPromoLadder:
+              api.hasPromoLadder ??
+              (line.row.promoTiers?.length ?? 0) > 0,
           }
         : fallbackPromo;
 
@@ -695,92 +712,99 @@ export function OrderPageClient({
           ตรวจสอบรายการก่อนส่ง — แก้จำนวนและราคาได้ที่หน้านี้เลย
         </p>
 
-        {stats.mismatchCount > 0 && (
-          <div className="mb-2 flex shrink-0 items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>
-              ราคา {stats.mismatchCount} รายการต่างจากราคาในระบบ —
-              ส่งได้ตามปกติ แต่เซลล์จะเห็นการแจ้งเตือนให้ตรวจสอบก่อนอนุมัติ
-            </span>
-          </div>
-        )}
+        {/* กองแบนเนอร์เตือน — มีเพดานความสูง (globals.css .vmi-order-notices)
+            เพราะตารางที่อยู่ข้างล่างเป็นลูกตัวเดียวที่ flex-1 ถ้าปล่อยให้แบนเนอร์
+            ยาวตามจำนวนรายการ ตารางจะยุบจนกดแก้จำนวนไม่ได้ ซึ่งคือสิ่งที่คำเตือน
+            บอกให้ไปทำพอดี */}
+        <div className="vmi-order-notices vmi-scroll mb-2 flex shrink-0 flex-col gap-2 overflow-y-auto">
+          {stats.mismatchCount > 0 && (
+            <NoticeBanner
+              tone="warn"
+              title={
+                <>
+                  ราคา {stats.mismatchCount} รายการต่างจากราคาในระบบ —
+                  ส่งได้ตามปกติ แต่เซลล์จะเห็นการแจ้งเตือนให้ตรวจสอบก่อนอนุมัติ
+                </>
+              }
+            />
+          )}
 
-        {cvdNotices.length > 0 && (
-          <div
-            className={cn(
-              "mb-2 shrink-0 rounded-xl border px-4 py-3 text-sm",
-              stats.blockingCount > 0
-                ? "border-red-200 bg-red-50 text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300"
-                : "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200"
-            )}
-          >
-            <p className="flex items-center gap-1.5 font-semibold">
-              <AlertTriangle className="h-4 w-4" />
-              {cvdNotices.length} รายการจำนวนไม่เข้าเป้าหมาย —{" "}
-              {stats.blockingCount > 0
-                ? "ส่งได้ แต่จะให้ยืนยันอีกครั้ง"
-                : "ส่งได้ตามปกติ"}
-            </p>
-            <ul className="mt-1 space-y-0.5 text-xs">
-              {cvdNotices.map((n) => (
-                <li key={n.skuCode} className="truncate">
-                  <span className="font-mono font-semibold">{n.skuCode}</span>{" "}
-                  {n.skuName} · {n.hint}
-                </li>
-              ))}
-            </ul>
-            <p className="mt-1.5 text-xs">
-              ปรับจำนวนได้ที่ช่องในตารางนี้เลย
-            </p>
-          </div>
-        )}
+          {cvdNotices.length > 0 && (
+            <NoticeBanner
+              tone={stats.blockingCount > 0 ? "danger" : "warn"}
+              title={
+                <>
+                  {cvdNotices.length} รายการจำนวนไม่เข้าเป้าหมาย —{" "}
+                  {stats.blockingCount > 0
+                    ? "ส่งได้ แต่จะให้ยืนยันอีกครั้ง"
+                    : "ส่งได้ตามปกติ"}
+                </>
+              }
+              items={cvdNotices.map((n) => ({
+                key: n.skuCode,
+                node: (
+                  <span className="vmi-cell-text block">
+                    <span className="font-mono font-semibold">{n.skuCode}</span>{" "}
+                    {n.skuName} · {n.hint}
+                  </span>
+                ),
+              }))}
+              footer="ปรับจำนวนได้ที่ช่องในตารางนี้เลย"
+            />
+          )}
 
-        {duplicateLines.length > 0 && (
-          <div className="mb-2 shrink-0 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200">
-            <p className="flex items-center gap-1.5 font-semibold">
-              <AlertTriangle className="h-4 w-4" />
-              {duplicateLines.length} รายการเคยสั่งไปแล้วใน{" "}
-              {recentOrders?.days ?? 14} วัน — ตรวจสอบก่อนส่งซ้ำ
-            </p>
-            <ul className="mt-1 space-y-0.5 text-xs">
-              {duplicateLines.map(({ line, info }) => (
-                <li key={line.row.skuId} className="truncate">
-                  <span className="font-mono font-semibold">
-                    {line.row.skuCode}
-                  </span>{" "}
-                  {line.row.skuName} · สั่งไปแล้ว{" "}
-                  {formatNumber(info.totalQty, 0)} หีบ เมื่อ{" "}
-                  {info.daysAgo === 0
-                    ? "วันนี้"
-                    : `${formatNumber(info.daysAgo, 0)} วันก่อน`}
-                  {info.status === "pending_approval" && " (ยังรออนุมัติ)"}
-                </li>
-              ))}
-            </ul>
-            <a
-              href={appPath("/history")}
-              className="mt-1.5 inline-block text-xs font-semibold underline underline-offset-2"
-            >
-              ดูประวัติการสั่งทั้งหมด
-            </a>
-          </div>
-        )}
+          {duplicateLines.length > 0 && (
+            <NoticeBanner
+              tone="warn"
+              title={
+                <>
+                  {duplicateLines.length} รายการเคยสั่งไปแล้วใน{" "}
+                  {recentOrders?.days ?? 14} วัน — ตรวจสอบก่อนส่งซ้ำ
+                </>
+              }
+              items={duplicateLines.map(({ line, info }) => ({
+                key: line.row.skuId,
+                node: (
+                  <span className="vmi-cell-text block">
+                    <span className="font-mono font-semibold">
+                      {line.row.skuCode}
+                    </span>{" "}
+                    {line.row.skuName} · สั่งไปแล้ว{" "}
+                    {formatNumber(info.totalQty, 0)} หีบ เมื่อ{" "}
+                    {info.daysAgo === 0
+                      ? "วันนี้"
+                      : `${formatNumber(info.daysAgo, 0)} วันก่อน`}
+                    {info.status === "pending_approval" && " (ยังรออนุมัติ)"}
+                  </span>
+                ),
+              }))}
+              footer={
+                <a
+                  href={appPath("/history")}
+                  className="font-semibold underline underline-offset-2"
+                >
+                  ดูประวัติการสั่งทั้งหมด
+                </a>
+              }
+            />
+          )}
 
-        {submitError && (
-          <div className="mb-2 flex shrink-0 flex-wrap items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
-            <AlertTriangle className="h-4 w-4 shrink-0" />
-            <span className="min-w-0 flex-1">{submitError}</span>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={submitOrder}
-              disabled={submitMutation.isPending}
-            >
-              ลองใหม่
-            </Button>
-          </div>
-        )}
+          {submitError && (
+            <div className="flex shrink-0 flex-wrap items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span className="min-w-0 flex-1">{submitError}</span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={submitOrder}
+                disabled={submitMutation.isPending}
+              >
+                ลองใหม่
+              </Button>
+            </div>
+          )}
+        </div>
 
         <OrderSummaryList
           lines={displayLines}
@@ -860,16 +884,23 @@ export function OrderPageClient({
   );
 }
 
-function OrderSummaryPromo({ line }: { line: EnrichedLine }) {
-  const hasPromo =
-    line.promo.currentPromo ||
-    line.freeGood ||
-    (line.promo.hasPromoLadder && line.promo.currentKind);
-
-  if (!hasPromo) {
-    return <span className="text-slate-400">—</span>;
-  }
-
+/**
+ * โปรที่ได้ต่อบรรทัด
+ *
+ * เดิมมี guard `currentPromo || freeGood || (hasPromoLadder && currentKind)` คร่อมไว้
+ * ซึ่งเคสที่สำคัญที่สุด — "มีบันไดโปร ยังไม่ถึงขั้นแรก เหลืออีก 1 หีบ" — ตกทั้งสามข้อ
+ * หน้าสต็อกจึงบอกว่า "อีก 1 หีบ ได้ส่วนลด 50" แต่หน้านี้ขึ้น "—" เฉย ๆ
+ *
+ * PromoDetailCell ตัดสินเรื่อง "ไม่มีอะไรจะบอก" เองอยู่แล้วและคืน "—" ให้
+ * จึงไม่ต้องมีเงื่อนไขซ้ำที่นี่ (ซึ่งเป็นตัวที่ drift ออกจากกันมาตลอด)
+ */
+function OrderSummaryPromo({
+  line,
+  onQtyChange,
+}: {
+  line: EnrichedLine;
+  onQtyChange: (skuCode: string, qty: number) => void;
+}) {
   return (
     <PromoDetailCell
       variant="compact"
@@ -882,6 +913,10 @@ function OrderSummaryPromo({ line }: { line: EnrichedLine }) {
       hasPromoLadder={line.promo.hasPromoLadder}
       freeGood={line.freeGood}
       showFreeGoodChip={false}
+      // ปลดล็อกบรรทัด "ซื้อครบ N หีบ …" กับชิป "N ขั้น" ที่หน้าสต็อกมีแต่หน้านี้ไม่มี
+      tiers={line.row.promoTiers}
+      endsInDays={line.row.currentPromoEndsInDays}
+      onApplyNext={(qty) => onQtyChange(line.row.skuCode, qty)}
     />
   );
 }
@@ -1001,13 +1036,9 @@ function OrderSummaryList({
                   <MobileStat label="รวม" value={formatBaht(line.lineTotal)} />
                   <MobileStat label="CVD" value={formatDays(line.cvdEst)} />
                 </MobileRowStats>
-                {(line.promo.currentPromo ||
-                  line.freeGood ||
-                  line.promo.hasPromoLadder) && (
-                  <MobileRowExtra className="pl-7">
-                    <OrderSummaryPromo line={line} />
-                  </MobileRowExtra>
-                )}
+                <MobileRowExtra className="pl-7">
+                  <OrderSummaryPromo line={line} onQtyChange={onQtyChange} />
+                </MobileRowExtra>
               </MobileRow>
               {showFreeGood && line.freeGood && (
                 <FreeGoodMobileCard freeGood={line.freeGood} />
@@ -1020,23 +1051,40 @@ function OrderSummaryList({
 
         <table className="vmi-data-table vmi-order-table hidden w-full min-w-0 text-left lg:table">
           <thead className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
+            {/* ตารางเป็น table-fixed — ความกว้างอ่านจากแถวนี้แถวเดียว และรวมได้ 100%
+                พอต่ำกว่า xl คอลัมน์ MIN/MAX หายไป ที่เหลือจะขยายตามสัดส่วนเอง
+
+                คอลัมน์ CVD ต้องกว้างพอสำหรับ "84.2 วัน" + ป้าย "ตรวจสอบ" ซึ่งเป็น
+                whitespace-nowrap — แคบกว่านี้แล้วตัวเลขจะโดนตัดหัวเหลือ ".2 วัน" */}
             <tr>
-              <th className="w-8 px-2 py-3">#</th>
-              <th className="whitespace-nowrap px-2 py-3">SKU</th>
-              <th className="vmi-order-col-name px-2 py-3">ชื่อสินค้า</th>
-              <th className="whitespace-nowrap px-2 py-3 text-right">จำนวน</th>
+              <th className="w-[3%] px-2 py-3">#</th>
+              <th className="w-[7%] whitespace-nowrap px-2 py-3">SKU</th>
+              <th className="w-[17%] px-2 py-3">ชื่อสินค้า</th>
+              <th className="w-[10%] whitespace-nowrap px-2 py-3 text-right">
+                จำนวน
+              </th>
               <th
-                className="hidden whitespace-nowrap px-2 py-3 text-right xl:table-cell"
+                className="hidden w-[6%] whitespace-nowrap px-2 py-3 text-right xl:table-cell"
                 title="เป้าหมาย CVD ต่ำสุด / สูงสุด (วัน) ตามที่ตั้งในหน้าจัดการ"
               >
                 MIN / MAX
               </th>
-              <th className="whitespace-nowrap px-2 py-3 text-right">ราคา/หีบ</th>
-              <th className="whitespace-nowrap px-2 py-3 text-right">ส่วนลด</th>
-              <th className="whitespace-nowrap px-2 py-3 text-right">ราคาสุทธิ/หีบ</th>
-              <th className="whitespace-nowrap px-2 py-3 text-right">รวม</th>
-              <th className="whitespace-nowrap px-1.5 py-3 text-right">CVD</th>
-              <th className="vmi-order-col-promo min-w-[10rem] px-2 py-3">โปรที่ได้</th>
+              <th className="w-[8%] whitespace-nowrap px-2 py-3 text-right">
+                ราคา/หีบ
+              </th>
+              <th className="w-[5%] whitespace-nowrap px-2 py-3 text-right">
+                ส่วนลด
+              </th>
+              <th className="w-[8%] whitespace-nowrap px-2 py-3 text-right">
+                ราคาสุทธิ/หีบ
+              </th>
+              <th className="w-[8%] whitespace-nowrap px-2 py-3 text-right">
+                รวม
+              </th>
+              <th className="w-[10%] whitespace-nowrap px-1.5 py-3 text-right">
+                CVD
+              </th>
+              <th className="w-[18%] px-2 py-3">โปรที่ได้</th>
             </tr>
           </thead>
           <tbody>
@@ -1075,8 +1123,11 @@ function OrderSummaryList({
                 <td className="whitespace-nowrap px-3 py-2.5 font-medium text-teal-700 dark:text-teal-400">
                   {line.row.skuCode}
                 </td>
-                <td className="vmi-order-col-name min-w-0 px-3 py-2.5 text-slate-700 dark:text-slate-300">
-                  <span className="line-clamp-2" title={line.row.skuName}>
+                <td className="px-3 py-2.5 text-slate-700 dark:text-slate-300">
+                  <span
+                    className="vmi-cell-text line-clamp-2 block"
+                    title={line.row.skuName}
+                  >
                     {line.row.skuName}
                   </span>
                 </td>
@@ -1138,8 +1189,13 @@ function OrderSummaryList({
                 <td className="px-1.5 py-2.5 text-right">
                   <CvdFlagCell cvdEst={line.cvdEst} flag={line.flag} />
                 </td>
-                <td className="vmi-order-col-promo min-w-[10rem] px-3 py-2.5 align-top">
-                  <OrderSummaryPromo line={line} />
+                {/* max-w-0 คือสิ่งที่ทำให้ truncate ข้างใน PromoDetailCell ทำงานจริง
+                    (เหมือนคอลัมน์โปรของหน้าสต็อก) — ไม่มีตัวนี้ข้อความโปรยาว ๆ
+                    จะดันคอลัมน์บานแทนที่จะตัดด้วย … */}
+                <td className="max-w-0 overflow-hidden px-3 py-2.5 align-top">
+                  <div className="min-w-0">
+                    <OrderSummaryPromo line={line} onQtyChange={onQtyChange} />
+                  </div>
                 </td>
               </tr>
               {showFreeGood && line.freeGood && (

@@ -68,7 +68,8 @@ export function FreeGoodOrderTableRow({
       <td className="relative px-3 py-2 align-middle">
         <FreeGoodConnectorRail className="left-[18px]" />
       </td>
-      <td className="px-3 py-2" colSpan={2}>
+      {/* max-w-0 ให้ truncate ข้างใน FreeGoodIdentity ทำงานจริงในตาราง table-fixed */}
+      <td className="max-w-0 px-3 py-2" colSpan={2}>
         <FreeGoodIdentity freeGood={freeGood} rule={rule} />
       </td>
       <td className="px-2 py-2 text-right">

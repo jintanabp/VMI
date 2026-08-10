@@ -37,7 +37,6 @@ export interface MasterRefreshStatus {
     stockCover: boolean;
     promotion: boolean;
     skuMaster: boolean;
-    vdaAos: boolean;
     soldHistory?: boolean;
   };
   lastTrigger?: RefreshTrigger;

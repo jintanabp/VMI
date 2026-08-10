@@ -658,8 +658,10 @@ export function OrderHistoryClient({
                         <table className="w-full min-w-[34rem] text-left text-xs">
                           <thead className="bg-slate-50 text-slate-500 dark:bg-slate-800/50 dark:text-slate-400">
                             <tr>
-                              <th className="px-3 py-1.5 font-medium">รหัส</th>
-                              <th className="px-3 py-1.5 font-medium">
+                              <th className="w-[14%] px-3 py-1.5 font-medium">
+                                รหัส
+                              </th>
+                              <th className="w-[30%] px-3 py-1.5 font-medium">
                                 ชื่อสินค้า
                               </th>
                               <th className="px-3 py-1.5 text-right font-medium">
@@ -692,7 +694,12 @@ export function OrderHistoryClient({
                                     {item.skuCode}
                                   </td>
                                   <td className="px-3 py-1.5 text-slate-700 dark:text-slate-300">
-                                    {item.skuName}
+                                    <span
+                                      className="vmi-cell-text line-clamp-2 block"
+                                      title={item.skuName}
+                                    >
+                                      {item.skuName}
+                                    </span>
                                   </td>
                                   <td className="px-3 py-1.5 text-right tabular-nums text-slate-500">
                                     {formatNumber(item.suggestedQty, 0)}

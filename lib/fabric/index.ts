@@ -11,6 +11,7 @@ import {
   getSalesmanCsvPath,
   getSkuMasterCsvPath,
   getSoldHistoryCsvPath,
+  getCrossTargetCsvPath,
   getStockCoverCsvPath,
   getVdaProductCsvPath,
 } from "./paths";
@@ -20,6 +21,7 @@ import { SkuMasterDirectory } from "./sku-master";
 import { SoldHistoryDirectory } from "./sold-history";
 import { getVdaKeys, reloadVdaAosBillRegistry } from "./vda-aos-bill";
 import { reloadVdaProductValueRegistry } from "./vda-product-value";
+import { reloadCrossTargetRegistry } from "./cross-target";
 import { fabricMastersEnabled } from "./env";
 
 let customerDir: CustomerDirectory | null = null;
@@ -48,6 +50,7 @@ function trackedFabricPaths(): string[] {
     getSkuMasterCsvPath(),
     getSoldHistoryCsvPath(),
     getStockCoverCsvPath(),
+    getCrossTargetCsvPath(),
     // มูลค่าสต็อกต่อ VDA — อยู่ในลายเซ็นด้วย ไม่งั้น sync ไฟล์นี้แล้วหน้าสต็อก
     // ยังเสิร์ฟ payload cache เดิมที่คิดมูลค่าจากราคาขาย
     ...getVdaKeys().map(getVdaProductCsvPath),
@@ -244,6 +247,8 @@ export function reloadFabricMasters(): void {
     soldHistory.load(getSoldHistoryCsvPath());
   }
   reloadStockCover();
+  // cross_target ต้องมาก่อน — ทะเบียน VDA ใช้มันหาว่าเซลล์คนไหนดูแลคลังไหน
+  reloadCrossTargetRegistry();
   reloadVdaAosBillRegistry();
   reloadVdaProductValueRegistry();
   fabricCacheMtimes.clear();
@@ -302,4 +307,5 @@ export * from "./sku-master";
 export * from "./sold-history";
 export * from "./vda-aos-bill";
 export * from "./vda-product-value";
+export * from "./cross-target";
 export * from "./ensure-vda-sales-rep";

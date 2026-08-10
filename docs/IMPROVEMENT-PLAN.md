@@ -123,5 +123,7 @@ B0–B5 ปิดครบแล้ว ดู changelog ด้านล่าง
   - 🧹 **จัดระเบียบ** ลบไฟล์ตาย 4 ไฟล์ (`order-confirm-modal`, `msal-instance`, `msal-config`,
     `fabric/area`) + ถอน dep `@azure/msal-browser`, `@azure/msal-react` ที่ไม่ได้ใช้แล้ว
     (แอปใช้ OAuth ฝั่ง server ไม่ใช่ MSAL ฝั่งเบราว์เซอร์) · ลบ import ที่ค้าง → **lint สะอาด 0 warning**
-  - หมายเหตุ: `promo-context-check.ts` กับ `sync-vda-aos-bills.ts` ดูเหมือนไม่มีใคร import
+  - หมายเหตุ: `promo-context-check.ts` กับ `sync-vda-product-values.ts` ดูเหมือนไม่มีใคร import
     แต่ถูกเรียกผ่าน **dynamic import** — เก็บไว้
+  - 🧹 ถอด `vda*_aos_bill` ออกจากระบบดึงข้อมูลทั้งหมด (ไฟล์ 404 ทุกรอบ ไม่เคยมีจริง)
+    ทะเบียน VDA→เซลล์/รหัสลูกค้ายังอยู่แต่รับค่าจาก `VDA_SALESMAN_MAP` / `VDA_CUSTOMER_MAP` เท่านั้น

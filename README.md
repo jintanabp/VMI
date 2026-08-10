@@ -157,7 +157,6 @@ Cache อยู่ที่ `data/cache/` (Docker: volume `vmi_data`)
   ตรวจได้ด้วย `npm run verify:promo-context` · rollback ด้วย `PROMOTION_CSV=...cft_promotion_credit.csv`
 - ชื่อกลุ่มโปร (`cft_assorted_mapping`) — lakehouse เดียวกับ C4 แปลง `ASSORTEDPRODUCTGROUP`
   เป็น `DESCRIPTIONASSORTED` ให้ UI/Excel แสดงชื่อแทนรหัสกลุ่ม (ไม่มีไฟล์ = ถอยไปแสดงรหัสเหมือนเดิม)
-- แมป VDA → เซลล์ (`vda*_aos_bill`)
 
 ### ตั้งเวลารายวัน (03:30 น. Bangkok)
 

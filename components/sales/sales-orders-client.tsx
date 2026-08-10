@@ -457,7 +457,7 @@ export function SalesOrdersClient() {
           <div className="mb-2 shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800/50 dark:bg-amber-950/30 dark:text-amber-200">
             <p className="font-semibold">รหัสนี้ไม่มี VDA ที่ดูแล</p>
             <p className="mt-1 text-amber-800 dark:text-amber-300/90">
-              รหัส {vdaAccess?.salesmanCode} ไม่มีใน vda_aos_bill
+              รหัส {vdaAccess?.salesmanCode} ไม่มีในทะเบียน VDA (VDA_SALESMAN_MAP)
               {canViewAllPersonVdas
                 ? " — กดปุ่มด้านล่างเพื่อดูออเดอร์ทุก VDA ของคุณ"
                 : " — ไม่มีออเดอร์ให้ตรวจสอบ"}

@@ -603,9 +603,6 @@ body {
     -webkit-overflow-scrolling: touch;
   }
 
-  .vmi-order-page .vmi-order-list-scroll:not(.vmi-table-scroll) {
-    max-height: none;
-  }
 }
 
 @media (min-width: 1024px) {
@@ -628,6 +625,36 @@ body {
     max-height: none;
     padding-bottom: 3.75rem;
   }
+}
+
+/**
+ * กองแบนเนอร์เตือนบนหน้าตรวจสอบคำสั่ง
+ *
+ * แบนเนอร์เป็น shrink-0 และลิสต์ยาวตามจำนวนรายการที่มีปัญหา ส่วนตารางเป็นลูกตัวเดียว
+ * ที่ flex-1 min-h-0 → เดิมตารางดูดส่วนขาดไว้คนเดียวจนยุบเกือบเป็น 0
+ * และที่ ≥1024 หน้าเป็น overflow:hidden จึงไม่มี scroll ให้กู้คืนเลย แก้จำนวนไม่ได้
+ *
+ * เพดานนี้คือหลักประกันชั้นสุดท้าย — NoticeBanner ยุบลิสต์ให้อยู่แล้ว แต่ต่อให้กาง
+ * ทุกก้อนพร้อมกัน กองแบนเนอร์ก็กินได้ไม่เกินนี้ ที่เหลือเลื่อนในตัวเอง
+ */
+.vmi-order-notices {
+  max-height: min(28dvh, 13rem);
+}
+
+.vmi-order-notices:empty {
+  display: none;
+  margin: 0;
+}
+
+/**
+ * ตารางต้องเหลือที่พอกดสเต็ปเปอร์ได้เสมอ ไม่ว่าด้านบนจะมีอะไร
+ *
+ * ต้องอยู่บน "กล่องนอก" (ตัวที่เป็น flex-1) ไม่ใช่ตัว scroll ข้างใน —
+ * ถ้ากล่องนอกยุบเป็น 0 มันเป็น overflow:hidden ลูกที่สูง 10rem ก็โดนตัดอยู่ดี
+ * ประกาศไว้หลัง .vmi-order-list-wrap เดิม (min-height: 0) จึงชนะทุก breakpoint
+ */
+.vmi-order-list-wrap {
+  min-height: 11rem;
 }
 
 .vmi-stock-toolbar {
@@ -727,27 +754,43 @@ body {
   vertical-align: middle;
 }
 
-/* Order review table: auto layout so columns grow to fill width */
+/**
+ * ตารางตรวจสอบคำสั่ง — fixed เหมือนหน้าสต็อก
+ *
+ * เดิมเป็น auto แล้วกำหนดความกว้างคอลัมน์เป็น % ซึ่งใน auto layout เป็นแค่คำใบ้
+ * ชื่อสินค้าไทย (คำเดียวยาว ๆ ตัดไม่ได้) และข้อความโปรที่มี white-space:nowrap
+ * จาก truncate จึงดันคอลัมน์บานจนตารางกว้างเกิน scroller ซึ่ง <1024 เป็น
+ * overflow-x:hidden → เนื้อหาถูกตัดหายและเลื่อนไปดูไม่ได้
+ *
+ * ความกว้างกำหนดที่ <th> แต่ละตัว ไม่ใช้ <colgroup> เพราะคอลัมน์ MIN/MAX
+ * เป็น hidden xl:table-cell — <col> ของคอลัมน์ที่เซลล์ถูก display:none
+ * ให้ผลไม่เหมือนกันข้ามเบราว์เซอร์ ส่วน fixed layout อ่านจากแถวแรกจึงจัดการเองได้
+ */
 .vmi-order-table {
-  table-layout: auto;
+  table-layout: fixed;
   width: 100%;
 }
 
 .vmi-order-table th,
 .vmi-order-table td {
+  overflow: hidden;
   vertical-align: middle;
-}
-
-.vmi-order-table .vmi-order-col-name {
-  width: 28%;
-}
-
-.vmi-order-table .vmi-order-col-promo {
-  width: 20%;
 }
 
 .vmi-stock-page .vmi-stock-table-scroll {
   overflow-x: hidden;
+}
+
+/**
+ * เซลล์ข้อความยาว — ชื่อสินค้าไทยไม่มีช่องว่างระหว่างคำ ถ้าไม่ยอมให้หักคำ
+ * min-content ของเซลล์จะเท่ากับความยาวสตริงทั้งก้อน แล้วดันคอลัมน์บานเสมอ
+ *
+ * ห้ามใส่ให้ td ทุกตัวแบบเหมารวม — เซลล์ตัวเลข/ราคาจะได้เลขขาดกลางตัว
+ */
+.vmi-cell-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .vmi-data-table thead {

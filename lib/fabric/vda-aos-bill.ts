@@ -1,25 +1,23 @@
-import fs from "fs";
-import { readCsvFile } from "./csv";
-import { getVdaAosCsvPath } from "./paths";
 import { normalizeStoreKey } from "./store-key";
+import { getCrossTargetRegistry } from "./cross-target";
 
+/**
+ * ทะเบียน VDA → พนักงานขาย / รหัสลูกค้า
+ *
+ * ทะเบียนนี้คือแหล่งสิทธิ์เดียวของออเดอร์/PO/โปรฝั่ง VDA (ดู lib/orders/access.ts)
+ *
+ * **รหัสลูกค้า** มาจาก VDA_CUSTOMER_MAP ใน .env — ตัวนี้คือนิยามว่าคลัง vdaN คือ
+ * บัญชีลูกค้าใบไหน ไม่มีไฟล์ไหนบอกได้ ต้องตั้งเอง (เพิ่ม VDA ใหม่ = แก้บรรทัดนี้)
+ *
+ * **รหัสเซลล์** หามาจาก cross_target_current_month โดยจับ WarehouseCode ↔ รหัสลูกค้า
+ * ไม่ได้กรอกมืออีกแล้ว เพราะการกรอกมือเคยผิด: เซลล์คนเดียวดูแลได้หลายคลัง
+ * (S091 ดูแลทั้ง vda1 และ vda3) คนกรอกจึงไล่เติมรหัสไม่ซ้ำ 4 ตัวให้ 5 VDA แล้วเลื่อน
+ * ผิดตำแหน่งกันหมด ทำให้เซลล์เห็นออเดอร์ของร้านอื่นโดยไม่มีใครรู้
+ *
+ * VDA_SALESMAN_MAP ยังอยู่แต่เป็น fallback เท่านั้น — ใช้ตอนที่ยังไม่มีไฟล์ในเครื่อง
+ * (คอนเทนเนอร์ที่เพิ่ง deploy ก่อน sync รอบแรก) และใช้ override ได้ถ้าต้นทางผิด
+ */
 const VDA_KEYS = ["vda1", "vda2", "vda3", "vda4", "vda5"] as const;
-
-const SALESMAN_COLUMNS = [
-  "salesmancode",
-  "salesman_code",
-  "salesman",
-  "smcode",
-  "sales_code",
-];
-
-const CUSTOMER_COLUMNS = [
-  "customercode",
-  "customer_code",
-  "custcode",
-  "cust_code",
-  "customer",
-];
 
 function normVda(code: string): string {
   // ใช้ normalizer ตัวเดียวกับ sold-history — รองรับ "VDA_1" → "vda1" ด้วย (เดิม lowercase อย่างเดียว)
@@ -28,19 +26,6 @@ function normVda(code: string): string {
 
 function normSalesman(code: string): string {
   return code.trim().toUpperCase();
-}
-
-function pickColumn(headers: string[], candidates: string[]): string | null {
-  const lower = new Map(headers.map((h) => [h.toLowerCase().trim(), h]));
-  for (const c of candidates) {
-    const hit = lower.get(c);
-    if (hit) return hit;
-  }
-  return null;
-}
-
-function pickSalesmanColumn(headers: string[]): string | null {
-  return pickColumn(headers, SALESMAN_COLUMNS);
 }
 
 function normCustomer(code: string): string {
@@ -72,45 +57,43 @@ export class VdaAosBillRegistry {
     this.customersByVda.clear();
   }
 
+  /**
+   * หารหัสเซลล์จาก cross_target โดยใช้รหัสลูกค้าของแต่ละ VDA เป็นตัวจับ
+   * ต้องเรียกหลัง loadCustomerEnvFallback() เพราะต้องมีรหัสลูกค้าก่อน
+   */
+  loadSalesmenFromTarget(): number {
+    const target = getCrossTargetRegistry();
+    if (!target.isLoaded) return 0;
+
+    let matched = 0;
+    for (const [vda, customers] of this.customersByVda) {
+      const codes = target.salesmenForCustomers([...customers]);
+      if (codes.length === 0) continue;
+      for (const sm of codes) this.addCode(vda, normSalesman(sm));
+      matched++;
+    }
+    if (matched > 0) {
+      console.info(
+        `[VdaAosBill] จับคู่เซลล์ให้ ${matched} VDA จาก cross_target: ` +
+          [...this.byVda]
+            .map(([v, m]) => `${v}→${[...m.keys()].join("/")}`)
+            .join(", ")
+      );
+    }
+    return matched;
+  }
+
+  /** ใช้เมื่อยังไม่มีไฟล์ cross_target (deploy ใหม่ก่อน sync รอบแรก) หรือ override */
   loadEnvFallback() {
     const raw = process.env.VDA_SALESMAN_MAP?.trim();
     if (!raw) return;
-    this.clear();
     for (const [vda, sm] of parseEnvMap(raw)) {
+      if (this.byVda.has(vda)) continue; // จับคู่จากไฟล์ได้แล้ว ไม่ต้องทับ
       this.addCode(vda, sm);
     }
-    console.info(`[VdaAosBill] Loaded ${this.byVda.size} VDA(s) from VDA_SALESMAN_MAP`);
-  }
-
-  loadCsv(vdaKey: string, csvPath: string): boolean {
-    if (!fs.existsSync(csvPath)) return false;
-
-    const { headers, rows } = readCsvFile(csvPath);
-    const col = pickSalesmanColumn(headers);
-    if (!col) {
-      console.warn(`[VdaAosBill] ${csvPath}: no salesmancode column`);
-      return false;
-    }
-    const custCol = pickColumn(headers, CUSTOMER_COLUMNS);
-
-    const vda = normVda(vdaKey);
-    let count = 0;
-    for (const row of rows) {
-      const sm = normSalesman(row[col] ?? "");
-      if (sm) {
-        this.addCode(vda, sm);
-        count++;
-      }
-      if (custCol) {
-        const cust = normCustomer(row[custCol] ?? "");
-        if (cust) this.addCustomer(vda, cust);
-      }
-    }
-
     console.info(
-      `[VdaAosBill] ${vda} ← ${count} rows${custCol ? `, ${this.customersByVda.get(vda)?.size ?? 0} customers` : ""} from ${csvPath}`
+      `[VdaAosBill] เติมจาก VDA_SALESMAN_MAP (fallback) — รวมเป็น ${this.byVda.size} VDA`
     );
-    return count > 0;
   }
 
   private addCustomer(vda: string, customerCode: string) {
@@ -130,7 +113,7 @@ export class VdaAosBillRegistry {
     return this.customersByVda.size > 0;
   }
 
-  /** fallback: map vda -> customercode จาก env VDA_CUSTOMER_MAP
+  /** map vda -> customercode จาก env VDA_CUSTOMER_MAP
    *  รูปแบบ: "vda1:3231847,vda2:5042814,..." (หลายรหัสคั่นด้วย |) */
   loadCustomerEnvFallback() {
     const raw = process.env.VDA_CUSTOMER_MAP?.trim();
@@ -197,19 +180,10 @@ export function getVdaAosBillRegistry(): VdaAosBillRegistry {
 
 export function reloadVdaAosBillRegistry(): void {
   registry = new VdaAosBillRegistry();
-
-  for (const vda of getVdaKeys()) {
-    registry.loadCsv(vda, getVdaAosCsvPath(vda));
-  }
-
-  if (!registry.isLoaded) {
-    registry.loadEnvFallback();
-  }
-  // ถ้า CSV ไม่มี customercode (เช่น vda_aos_bill ยังไม่ถูก export เป็น CSV)
-  // ใช้ env VDA_CUSTOMER_MAP เพื่อกรองยอดขายรายวันรายร้านได้ทันที
-  if (!registry.hasCustomers()) {
-    registry.loadCustomerEnvFallback();
-  }
+  // รหัสลูกค้าก่อน — เป็นกุญแจที่ใช้ไปหารหัสเซลล์ต่อ
+  registry.loadCustomerEnvFallback();
+  registry.loadSalesmenFromTarget();
+  registry.loadEnvFallback();
 }
 
 export function isVdaStoreCode(code: string): boolean {

@@ -11,7 +11,7 @@ function normSalesman(code: string) {
 }
 
 /**
- * ผูก Store (VDA) กับ SalesRep จาก salesmancode ใน vda{N}_aos_bill
+ * ผูก Store (VDA) กับ SalesRep จาก salesmancode ในทะเบียน VDA (VDA_SALESMAN_MAP)
  */
 export async function ensureVdaStoreSalesRep(
   storeId: string,
@@ -21,7 +21,7 @@ export async function ensureVdaStoreSalesRep(
 
   const salesmanCode = getVdaAosBillRegistry().getPrimarySalesmanForVda(vdaCode);
   if (!salesmanCode) {
-    console.warn(`[VdaSalesRep] No salesman for ${vdaCode} — sync vda_aos_bill CSV`);
+    console.warn(`[VdaSalesRep] No salesman for ${vdaCode} — ตรวจ VDA_CUSTOMER_MAP และไฟล์ cross_target`);
     return null;
   }
 

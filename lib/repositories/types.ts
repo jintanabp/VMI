@@ -83,6 +83,12 @@ export interface StockRowComputed {
   fromDb?: string;
   /** SKU เพิ่งเข้าใหม่ในข้อมูล Fabric (ภายใน NEW_PRODUCT_DAYS) */
   isNew?: boolean;
+  /**
+   * มาจากเป้าขายเดือนนี้ (cross_target_current_month) ไม่ได้มาจาก stock_cover_day
+   * = ร้านยังไม่เคยสต็อกสินค้าตัวนี้ คงเหลือ/ยอดขายจึงเป็น 0 โดยธรรมชาติ
+   * ไม่ใช่ "ของหมด" — ห้ามเอาไปคิดรวมในสรุปมูลค่า/CVD ของคลัง
+   */
+  fromTarget?: boolean;
   /** อยู่ใน blocklist และถึงกำหนดหยุดสั่งแล้ว (effectiveFrom <= now) */
   blocked?: boolean;
   /** เหตุผลที่หยุดสั่ง */

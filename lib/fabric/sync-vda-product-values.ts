@@ -11,7 +11,7 @@ import { reloadVdaProductValueRegistry } from "./vda-product-value";
 
 /**
  * ดึง vda{N}_product_product.csv — มูลค่าสต็อกจริงต่อ VDA
- * โครงเดียวกับ syncVdaAosBills: ล้มทีละไฟล์ได้ ถ้าไฟล์เดิมยังอยู่ก็ใช้ต่อได้
+ * ล้มทีละไฟล์ได้ ถ้าไฟล์เดิมยังอยู่ก็ใช้ต่อได้
  */
 export async function syncVdaProductValues(
   options: RefreshOptions = {},

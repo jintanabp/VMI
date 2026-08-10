@@ -8,7 +8,6 @@ import {
   getPromotionOnelakeConfig,
   getSoldHistoryOnelakeConfig,
   getStockOnelakeConfig,
-  getVdaAosOnelakeConfig,
   type OnelakeAuthProfile,
 } from "./env";
 import { getOnelakeToken } from "./onelake-credential";
@@ -302,7 +301,7 @@ export async function refreshOne(
     if (fs.existsSync(tmp)) fs.unlinkSync(tmp);
     if (err instanceof DownloadError && err.status === 404) {
       // ยังไม่ได้ export ตารางนี้ออกมาที่ OneLake — ต่างจาก credential/สิทธิ์พัง
-      // (เคสจริง: vda*_aos_bill ที่ยังใช้ VDA_CUSTOMER_MAP/VDA_SALESMAN_MAP แทน)
+      // (เคสจริง: vda*_product_product ที่ยังมีแค่บาง VDA)
       return fail({
         remotePath,
         skipped: true,
@@ -477,36 +476,10 @@ export function buildSoldHistorySpec(localPath: string): RefreshSpec | null {
   };
 }
 
-export function buildVdaAosSpec(
-  vdaKey: string,
-  localPath: string
-): RefreshSpec | null {
-  const cfg = getVdaAosOnelakeConfig();
-  if (!cfg) return null;
-
-  const key = vdaKey.trim().toLowerCase();
-  const envPath = process.env[`VDA_AOS_ONELAKE_${key.toUpperCase()}`]?.trim();
-  const defaultPath = `${cfg.scanDir.replace(/\/$/, "")}/${key}_aos_bill.csv`;
-
-  return {
-    name: `${key}_aos_bill`,
-    localPath,
-    workspaceId: cfg.workspaceId,
-    onelakeItemId: cfg.exportItemId,
-    scanDir: cfg.scanDir,
-    onelakePath: envPath || defaultPath,
-    columnSignature: ["salesmancode"],
-    requiredColumns: ["salesmancode"],
-    minRows: Number(process.env.VDA_AOS_MIN_ROWS ?? "1"),
-    authProfile: "stock",
-  };
-}
-
 /**
  * product.product ต่อ VDA — มูลค่าสต็อกจริง (bi_stock_value)
  *
- * อยู่ lakehouse เดียวกับ stock_cover_day (ตรวจกับ OneLake จริงแล้ว) ไม่ใช่ตัวที่
- * vda*_aos_bill ใช้ ซึ่ง 404 มาตลอด
+ * อยู่ lakehouse เดียวกับ stock_cover_day (ตรวจกับ OneLake จริงแล้ว)
  *
  * requiredColumns มีแค่ default_code ตั้งใจ — ตอนนี้มีแต่ vda1 ที่ export
  * bi_stock_value ออกมา ถ้าบังคับคอลัมน์นั้น validation จะตีตกไฟล์ vda อื่นทั้งใบ
@@ -537,6 +510,34 @@ export function buildVdaProductSpec(
   };
 }
 
+/**
+ * เป้าขายเดือนปัจจุบัน (cross_target_current_month) — อยู่ lakehouse เดียวกับตาราง C4
+ * จึงใช้ config/auth profile ชุดเดียวกัน
+ *
+ * requiredColumns เอาแค่ 2 คอลัมน์ที่ใช้จริง — ไฟล์ต้นทางมี 11 คอลัมน์ แต่บังคับครบ
+ * แล้ววันหนึ่งเขาเพิ่ม/เปลี่ยนชื่อคอลัมน์ที่เราไม่ได้ใช้ ไฟล์จะถูกตีตกทั้งใบ
+ */
+export function buildCrossTargetSpec(localPath: string): RefreshSpec | null {
+  const cfg = getPromotionOnelakeConfig();
+  if (!cfg) return null;
+
+  return {
+    name: "cross_target_current_month",
+    localPath,
+    workspaceId: cfg.workspaceId,
+    onelakeItemId: cfg.lakehouseId,
+    scanDir: cfg.scanDir,
+    onelakePath:
+      process.env.CROSS_TARGET_ONELAKE_PATH?.trim() ||
+      `${cfg.scanDir.replace(/\/$/, "")}/cross_target_current_month.csv`,
+    columnSignature: ["SalesManCode", "ProductCode"],
+    requiredColumns: ["SalesManCode", "ProductCode"],
+    minRows: Number(process.env.CROSS_TARGET_MIN_ROWS ?? "100"),
+    authProfile:
+      (process.env.CFT_AUTH_PROFILE as OnelakeAuthProfile) ?? "masters",
+  };
+}
+
 export async function bootstrapIfMissing(
   spec: RefreshSpec | null
 ): Promise<DatasetRefreshResult | null> {
@@ -554,13 +555,14 @@ export interface RefreshAllResult {
   stockCover: boolean;
   promotion: boolean;
   skuMaster: boolean;
-  vdaAos: boolean;
   /** มูลค่าสต็อกต่อ VDA (vda*_product_product) — ขาดได้ หน้าสต็อกถอยไปใช้ราคาขาย */
   vdaProduct: boolean;
   /** เดิมผลของ factsales_odoo ถูกทิ้งเงียบ ๆ ไม่ถึงไฟล์ status เลย */
   soldHistory: boolean;
   /** ชื่อกลุ่มโปร — ล้มได้โดยไม่กระทบโปร (UI ถอยไปแสดงรหัสกลุ่ม) */
   assortedMapping: boolean;
+  /** เป้าขายเดือนปัจจุบัน — ขาดได้ แท็บ "ควรมีขาย" จะว่างเฉย ๆ */
+  crossTarget: boolean;
   /** ผลละเอียดต่อชุดข้อมูล — ใช้เขียน status รายตารางและแสดงในหน้าแอดมิน */
   datasets: DatasetRefreshResult[];
 }
@@ -577,6 +579,7 @@ export async function refreshAllMasters(
     getPromotionCsvPath,
     getSkuMasterCsvPath,
     getSoldHistoryCsvPath,
+    getCrossTargetCsvPath,
   } = await import("./paths");
 
   const datasets: DatasetRefreshResult[] = [];
@@ -608,6 +611,7 @@ export async function refreshAllMasters(
     buildAssortedMappingSpec(getAssortedMappingCsvPath())
   );
   const skuMaster = await run(buildSkuMasterSpec(getSkuMasterCsvPath()));
+  const crossTarget = await run(buildCrossTargetSpec(getCrossTargetCsvPath()));
   // ประวัติยอดขายรายวัน (ไม่บล็อก master อื่น ถ้า config/ไฟล์ไม่พร้อม)
   const soldHistory = await run(buildSoldHistorySpec(getSoldHistoryCsvPath()));
 
@@ -620,14 +624,6 @@ export async function refreshAllMasters(
       );
     }
     stockCover = await run(stockSpec);
-  }
-
-  let vdaAos = false;
-  if (!only || [...only].some((n) => n.endsWith("_aos_bill"))) {
-    const { syncVdaAosBills } = await import("./sync-vda-aos-bills");
-    const vda = await syncVdaAosBills(options, only);
-    vdaAos = vda.any;
-    datasets.push(...vda.results);
   }
 
   let vdaProduct = false;
@@ -644,10 +640,10 @@ export async function refreshAllMasters(
     stockCover,
     promotion,
     skuMaster,
-    vdaAos,
     vdaProduct,
     soldHistory,
     assortedMapping,
+    crossTarget,
     datasets,
   };
 }

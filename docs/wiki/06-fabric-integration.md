@@ -81,7 +81,8 @@ ONELAKE_TENANT_ID= ONELAKE_CLIENT_ID= ONELAKE_CLIENT_SECRET=
 ONELAKE_WORKSPACE_ID= ONELAKE_LAKEHOUSE_ID= ONELAKE_SCAN_DIR=
 STOCK_ONELAKE_*             # ชุดแยกสำหรับสต็อก
 CFT_*                       # ชุดแยกสำหรับโปรโมชัน
-VDA_AOS_*                   # ทะเบียน VDA ↔ พนักงานขาย
+VDA_CUSTOMER_MAP            # ทะเบียน VDA ↔ รหัสลูกค้า (ตั้งใน .env — เพิ่ม VDA ใหม่แก้ที่นี่)
+                            # รหัสเซลล์หาเองจาก cross_target_current_month
 SKU_MIN_ROWS= SOLD_HISTORY_MIN_ROWS= ...   # เกณฑ์กันไฟล์พัง
 ```
 

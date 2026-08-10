@@ -87,7 +87,7 @@ function CodeVdaList({ codes }: { codes: PersonCodeAssignment[] }) {
       {withoutVda.map((c) => (
         <li key={c.code} className="text-xs text-slate-400">
           <span className="font-mono font-semibold text-slate-500">{c.code}</span>
-          <span> — ไม่มี VDA ใน vda_aos_bill</span>
+          <span> — ไม่มี VDA ในทะเบียน</span>
         </li>
       ))}
     </ul>
@@ -168,7 +168,7 @@ export function VdaSalesAccessPanel() {
                 : "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
             )}
           >
-            vda_aos_bill: {data.loaded.vdaAosBill ? "โหลดแล้ว" : "ยังไม่มี — ตั้ง VDA_AOS_LAKEHOUSE_ID"}
+            ทะเบียน VDA: {data.loaded.vdaAosBill ? "โหลดแล้ว" : "ยังไม่มี — ตรวจ VDA_CUSTOMER_MAP และไฟล์ cross_target"}
           </span>
           <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
             มี VDA {data.stats.peopleWithVda} คน · {data.stats.withVdaAccess} รหัส
@@ -353,7 +353,7 @@ export function VdaSalesAccessPanel() {
                         className="px-3 py-6 text-center text-slate-500"
                       >
                         {personScope === "with_vda"
-                          ? "ไม่พบคนที่มี VDA — ตรวจ VDA_SALESMAN_MAP หรือ sync vda_aos_bill"
+                          ? "ไม่พบคนที่มี VDA — ตรวจ VDA_CUSTOMER_MAP และไฟล์ cross_target"
                           : "ไม่พบข้อมูล"}
                       </td>
                     </tr>

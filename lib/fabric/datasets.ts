@@ -5,26 +5,26 @@ import { getMinRows } from "./env";
 import {
   bootstrapIfMissing,
   buildAssortedMappingSpec,
+  buildCrossTargetSpec,
   buildCustomerSpec,
   buildPromotionCreditSpec,
   buildSalesmanSpec,
   buildSkuMasterSpec,
   buildSoldHistorySpec,
   buildStockCoverSpec,
-  buildVdaAosSpec,
   buildVdaProductSpec,
   type DatasetRefreshResult,
   type RefreshSpec,
 } from "./onelake-refresh";
 import {
   getAssortedMappingCsvPath,
+  getCrossTargetCsvPath,
   getCustomerCsvPath,
   getPromotionCsvPath,
   getSalesmanCsvPath,
   getSkuMasterCsvPath,
   getSoldHistoryCsvPath,
   getStockCoverCsvPath,
-  getVdaAosCsvPath,
   getVdaProductCsvPath,
 } from "./paths";
 import { getVdaKeys } from "./vda-aos-bill";
@@ -34,7 +34,7 @@ import { getVdaKeys } from "./vda-aos-bill";
  *
  * ก่อนหน้านี้รายชื่อไฟล์กระจายอยู่ 4 ที่ (refreshAllMasters, scheduler,
  * scripts/sync-fabric-masters, app/api/stock/refresh) และ getCacheFileAges()
- * ครอบแค่ 5 จาก 12 ไฟล์ — ตก factsales_odoo.csv และ vda*_aos_bill.csv ทั้งหมด
+ * ครอบแค่ 5 จาก 12 ไฟล์ — ตก factsales_odoo.csv และ vda*_product_product.csv ทั้งหมด
  * ทำให้หน้าแอดมินรายงานไม่ครบโดยไม่มีใครสังเกต
  */
 
@@ -47,10 +47,11 @@ export const CORE_DATASET_IDS = [
   "assorted_mapping",
   "sku_master",
   "factsales_odoo",
+  "cross_target_current_month",
 ] as const;
 
 export type CoreDatasetId = (typeof CORE_DATASET_IDS)[number];
-/** vda1_aos_bill … — ตรวจด้วย isDatasetId() ไม่ใช่ literal union */
+/** vda1_product_product … — ตรวจด้วย isDatasetId() ไม่ใช่ literal union */
 export type DatasetId = CoreDatasetId | (string & {});
 
 export interface DatasetMeta {
@@ -63,10 +64,6 @@ export interface DatasetMeta {
   required: boolean;
 }
 
-function vdaDatasetId(vdaKey: string): string {
-  return `${vdaKey.trim().toLowerCase()}_aos_bill`;
-}
-
 function vdaProductDatasetId(vdaKey: string): string {
   return `${vdaKey.trim().toLowerCase()}_product_product`;
 }
@@ -74,7 +71,6 @@ function vdaProductDatasetId(vdaKey: string): string {
 export function getDatasetIds(): DatasetId[] {
   return [
     ...CORE_DATASET_IDS,
-    ...getVdaKeys().map(vdaDatasetId),
     ...getVdaKeys().map(vdaProductDatasetId),
   ];
 }
@@ -150,18 +146,17 @@ export function datasetMeta(id: DatasetId): DatasetMeta | null {
         minRowsEnv: "SOLD_HISTORY_MIN_ROWS",
         required: false,
       };
+    case "cross_target_current_month":
+      return {
+        id,
+        label: "เป้าขายเดือนนี้ (cross_target_current_month)",
+        localPath: getCrossTargetCsvPath(),
+        minRows: Number(process.env.CROSS_TARGET_MIN_ROWS ?? "100"),
+        minRowsEnv: "CROSS_TARGET_MIN_ROWS",
+        // ขาดได้ — แท็บ "ควรมีขาย" จะว่าง ส่วนที่เหลือของหน้าสต็อกทำงานปกติ
+        required: false,
+      };
     default: {
-      const aosVda = getVdaKeys().find((k) => vdaDatasetId(k) === id);
-      if (aosVda) {
-        return {
-          id,
-          label: `บิล AOS ${aosVda.toUpperCase()} (${id})`,
-          localPath: getVdaAosCsvPath(aosVda),
-          minRows: Number(process.env.VDA_AOS_MIN_ROWS ?? "1"),
-          minRowsEnv: "VDA_AOS_MIN_ROWS",
-          required: false,
-        };
-      }
       const productVda = getVdaKeys().find((k) => vdaProductDatasetId(k) === id);
       if (productVda) {
         return {
@@ -197,9 +192,9 @@ export function buildSpecFor(id: DatasetId): RefreshSpec | null {
       return buildSkuMasterSpec(meta.localPath);
     case "factsales_odoo":
       return buildSoldHistorySpec(meta.localPath);
+    case "cross_target_current_month":
+      return buildCrossTargetSpec(meta.localPath);
     default: {
-      const aosVda = getVdaKeys().find((k) => vdaDatasetId(k) === id);
-      if (aosVda) return buildVdaAosSpec(aosVda, meta.localPath);
       const productVda = getVdaKeys().find((k) => vdaProductDatasetId(k) === id);
       if (productVda) return buildVdaProductSpec(productVda, meta.localPath);
       return null;

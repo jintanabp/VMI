@@ -25,8 +25,14 @@ import {
   resolveActiveFromDb,
   type StockFilterConfig,
 } from "./stock-filter-config";
-import { fabricStockReady, getStockCoverDirectory } from "./stock-cover";
+import {
+  fabricStockReady,
+  getStockCoverDirectory,
+  type StockCoverRow,
+} from "./stock-cover";
 import { getVdaProductValueRegistry } from "./vda-product-value";
+import { getCrossTargetRegistry } from "./cross-target";
+import { getVdaAosBillRegistry } from "./vda-aos-bill";
 import {
   backdatedSkuCreatedAt,
   getNewProductDays,
@@ -232,7 +238,40 @@ export async function buildFabricStockPayload(
   const valueReg = getVdaProductValueRegistry();
   const hasStockValues = valueReg.hasValuesFor(storeCode);
 
-  const skus = await ensureSkus(coverRows);
+  /**
+   * สินค้าที่อยู่ในเป้าขายของเซลล์ที่ดูแลคลังนี้ แต่ยังไม่มีแถวใน stock_cover_day
+   *
+   * หน้าสต็อกสร้างแถวจาก stock_cover_day เท่านั้น สินค้าที่เพิ่งออกใหม่และร้าน
+   * ยังไม่เคยสต็อกจึงไม่มีแถวให้กดสั่ง — ร้านอยากสั่งก็สั่งไม่ได้
+   *
+   * ปั้นเป็น cover row ปลอม (คงเหลือ 0 / ไม่มียอดขาย) แล้วส่งเข้า loop เดิม
+   * จะได้ราคา โปร MIN/MAX และการคิด CVD ชุดเดียวกับแถวปกติทั้งหมดโดยไม่ต้องเขียนซ้ำ
+   * suggestOrder จะเป็น 0 เองเพราะไม่มียอดขาย → ไม่ไปโผล่ในแท็บ "ควรสั่ง"
+   */
+  const coverCodes = new Set(coverRows.map((c) => c.productCode));
+  const targetCodes = skuDir
+    ? getCrossTargetRegistry()
+        .productsForSalesmen(
+          getVdaAosBillRegistry().getSalesmanCodesForVda(storeCode)
+        )
+        .filter((code) => !coverCodes.has(code) && skuDir.nameForSku(code))
+    : [];
+  const targetRows: StockCoverRow[] = targetCodes.map((code) => ({
+    productCode: code,
+    productName: skuDir!.nameForSku(code) || code,
+    fromDb: activeFromDb,
+    storeCode,
+    dateMs: maxDateMs,
+    qtyAvailable: 0,
+    avgQtyOutL7: 0,
+    avgQtyOutL30: 0,
+    coverDayL7: null,
+    coverDayL30: null,
+  }));
+  const targetCodeSet = new Set(targetCodes);
+  const allRows = [...coverRows, ...targetRows];
+
+  const skus = await ensureSkus(allRows);
   const skuByCode = new Map(skus.map((s) => [s.code, s]));
 
   const stockItems = await prisma.stockItem.findMany({
@@ -278,7 +317,7 @@ export async function buildFabricStockPayload(
     block: (typeof blocks)[number] | undefined;
   }[] = [];
 
-  for (const cover of coverRows) {
+  for (const cover of allRows) {
     const sku = skuByCode.get(cover.productCode);
     if (!sku) continue;
 
@@ -431,6 +470,7 @@ export async function buildFabricStockPayload(
         packSize: item.packSize,
         poolQtyForDiscount: poolQty,
         isNew: item.isNew,
+        fromTarget: targetCodeSet.has(item.cover.productCode),
         blocked: item.blocked,
         blockReason: item.block?.reason ?? null,
         blockEffectiveFrom: item.block?.effectiveFrom?.toISOString() ?? null,

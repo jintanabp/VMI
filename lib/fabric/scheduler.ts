@@ -94,8 +94,8 @@ const EMPTY_FLAGS: Omit<RefreshAllResult, "datasets"> = {
   stockCover: false,
   promotion: false,
   skuMaster: false,
-  vdaAos: false,
   vdaProduct: false,
+  crossTarget: false,
   soldHistory: false,
   assortedMapping: false,
 };

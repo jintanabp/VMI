@@ -605,7 +605,7 @@ export function SalesPoClient() {
                     >
                       ออกเมื่อ{sortIndicator("issuedAt")}
                     </th>
-                    <th className="px-3 py-2">โดย</th>
+                    <th className="w-[12%] px-3 py-2">โดย</th>
                     <th className="px-3 py-2" />
                   </tr>
                 </thead>
@@ -688,8 +688,12 @@ export function SalesPoClient() {
                       <td className="px-3 py-2 whitespace-nowrap text-slate-500">
                         {fmtDateTime(po.issuedAt)}
                       </td>
-                      <td className="px-3 py-2 truncate text-slate-500">
-                        {po.issuedBy || "—"}
+                      {/* truncate บน <td> ไม่มีผล (display: table-cell) —
+                          ต้องตัดที่ <div> ข้างในและมีความกว้างจาก <th> คุมไว้ */}
+                      <td className="max-w-0 px-3 py-2 text-slate-500">
+                        <div className="truncate" title={po.issuedBy || ""}>
+                          {po.issuedBy || "—"}
+                        </div>
                       </td>
                       <td
                         className="px-3 py-2 text-right"

@@ -25,7 +25,7 @@ export async function syncFabricSalesReps(): Promise<number> {
 }
 
 /**
- * @deprecated ใช้ vda_aos_bill mapping แทน — คงไว้เฉพาะร้าน non-VDA (ถ้ามี)
+ * @deprecated ใช้ทะเบียน VDA_SALESMAN_MAP แทน — คงไว้เฉพาะร้าน non-VDA (ถ้ามี)
  */
 export async function ensureStoreSalesRep(storeId: string): Promise<string | null> {
   const store = await prisma.store.findUnique({ where: { id: storeId } });

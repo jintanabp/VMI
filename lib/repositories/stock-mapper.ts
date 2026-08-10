@@ -49,6 +49,7 @@ export function mapStockRow(
     promoOverride?: PromoResult;
     poolQtyForDiscount?: number;
     isNew?: boolean;
+    fromTarget?: boolean;
     blocked?: boolean;
     blockReason?: string | null;
     blockEffectiveFrom?: string | null;
@@ -166,6 +167,7 @@ export function mapStockRow(
     needsOrder: suggestOrder > 0,
     fromDb: item.fromDb,
     isNew: item.isNew ?? false,
+    fromTarget: item.fromTarget ?? false,
     blocked: item.blocked ?? false,
     blockReason: item.blockReason ?? null,
     blockEffectiveFrom: item.blockEffectiveFrom ?? null,

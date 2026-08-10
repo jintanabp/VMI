@@ -4,7 +4,7 @@ import { getVdaAosBillRegistry } from "./vda-aos-bill";
 /**
  * ชื่อร้านของคลัง VDA
  *
- * map vda → customercode (จาก vda*_aos_bill หรือ env VDA_CUSTOMER_MAP)
+ * map vda → customercode (จาก env VDA_CUSTOMER_MAP)
  * แล้วดึง Customer_NameThai จาก dim_customer
  * คืนค่าว่างเมื่อไม่มี mapping / ยังไม่โหลด master / หาไม่เจอ
  *

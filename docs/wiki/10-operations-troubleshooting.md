@@ -64,7 +64,7 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" |
 สิทธิ์มาจาก master ไม่ใช่ตารางใน DB — เช็คว่า
 
 1. อีเมลอยู่ใน `cross_salesman_reference_email` ไหม
-2. รหัสเซลล์นั้นผูกกับ VDA ใน `vda_aos_bill` ไหม
+2. รหัสเซลล์นั้นผูกกับ VDA ไหม — ระบบหาจาก `cross_target_current_month` (WarehouseCode ↔ รหัสลูกค้าใน `VDA_CUSTOMER_MAP`) ดู log `[VdaAosBill] จับคู่เซลล์ให้ N VDA`
 3. ถ้าถือหลายรหัส ลองกด **"ทุก VDA ของฉัน"** หรือสลับรหัสที่ active
 
 หน้าจะขึ้นแบนเนอร์ "รหัสนี้ไม่มี VDA ที่ดูแล" ถ้าเป็นกรณีที่ 2
@@ -123,5 +123,5 @@ backup อัตโนมัติเกิดทุกครั้งที่ 
 ## ติดต่อ
 
 - ปัญหาข้อมูล master → ทีมที่ดูแล Fabric
-- ปัญหาสิทธิ์เซลล์ → ตรวจ master `cross_salesman_reference_email` และ `vda_aos_bill`
+- ปัญหาสิทธิ์เซลล์ → ตรวจ master `cross_salesman_reference_email`, `VDA_CUSTOMER_MAP` ใน .env และไฟล์ `cross_target_current_month`
 - ปัญหาระบบ → ดู log container แล้วแจ้ง dev พร้อมเวลาและอาการที่เจอ

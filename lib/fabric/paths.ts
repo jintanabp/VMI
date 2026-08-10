@@ -33,6 +33,14 @@ export function getPromotionCsvPath() {
   );
 }
 
+/** เป้าขายเดือนปัจจุบันต่อพนักงานขาย — อยู่ lakehouse เดียวกับ C4 */
+export function getCrossTargetCsvPath() {
+  return (
+    process.env.CROSS_TARGET_CSV ??
+    path.join(getFabricCacheDir(), "cross_target_current_month.csv")
+  );
+}
+
 /** ชื่อกลุ่มโปร (ASSORTEDPRODUCTGROUP → DESCRIPTIONASSORTED) — อยู่ lakehouse เดียวกับ C4 */
 export function getAssortedMappingCsvPath() {
   return (
@@ -55,12 +63,6 @@ export function getSoldHistoryCsvPath() {
   );
 }
 
-export function getVdaAosCsvPath(vdaKey: string) {
-  const key = vdaKey.trim().toLowerCase();
-  const fromEnv = process.env[`VDA_AOS_CSV_${key.toUpperCase()}`]?.trim();
-  if (fromEnv) return fromEnv;
-  return path.join(getFabricCacheDir(), `${key}_aos_bill.csv`);
-}
 
 /** product.product ต่อ VDA — มูลค่าสต็อกจริง (bi_stock_value) ที่ร้านซื้อไป */
 export function getVdaProductCsvPath(vdaKey: string) {

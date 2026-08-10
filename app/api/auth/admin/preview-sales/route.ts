@@ -33,7 +33,7 @@ export async function POST(request: Request) {
 
     if (!fromMaster && vdas.length === 0) {
       return NextResponse.json(
-        { error: "ไม่พบรหัสเซลล์นี้ใน vda_aos_bill" },
+        { error: "ไม่พบรหัสเซลล์นี้ในทะเบียน VDA (VDA_SALESMAN_MAP)" },
         { status: 404 }
       );
     }

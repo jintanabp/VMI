@@ -13,6 +13,8 @@ import {
   ArrowDownUp,
   ArrowUp,
   CalendarOff,
+  PackageX,
+  Star,
   Check,
   Download,
   Eye,
@@ -51,9 +53,11 @@ export interface StockViewCounts {
   critical: number;
   new: number;
   noSales: number;
+  deadStock: number;
+  target: number;
 }
 
-type Tone = "slate" | "amber" | "red" | "sky";
+type Tone = "slate" | "amber" | "red" | "sky" | "violet" | "emerald";
 
 /** ตัวเลขบนป้ายแท็บ — ย่อหลักพันเพื่อไม่ให้แท็บยืดจนแถวล้น */
 function compactCount(n: number): string {
@@ -117,6 +121,24 @@ const VIEW_TABS: {
     hint: "ไม่มียอดขายเลยใน 30 วันล่าสุด — ควรพิจารณาหยุดสั่ง",
     hideWhenEmpty: true,
   },
+  {
+    view: "target",
+    label: "ควรมีขาย",
+    shortLabel: "ควรมี",
+    icon: <Star className="h-3.5 w-3.5" />,
+    tone: "emerald",
+    hint: "อยู่ในเป้าขายเดือนนี้ของเซลล์ที่ดูแลคลังนี้ แต่ยังไม่มีในคลัง — สั่งเพิ่มได้เลย",
+    hideWhenEmpty: true,
+  },
+  {
+    view: "deadStock",
+    label: "ค้างสต็อก",
+    shortLabel: "ค้าง",
+    icon: <PackageX className="h-3.5 w-3.5" />,
+    tone: "violet",
+    hint: "ไม่มียอดขายใน 30 วัน แต่ของยังค้างอยู่ในคลัง — เงินจมจริง ต้องเร่งระบาย ไม่ใช่แค่หยุดสั่ง",
+    hideWhenEmpty: true,
+  },
 ];
 
 const TAB_ACTIVE: Record<Tone, string> = {
@@ -125,6 +147,8 @@ const TAB_ACTIVE: Record<Tone, string> = {
   amber: "bg-amber-500 text-white shadow-sm dark:bg-amber-500",
   red: "bg-red-600 text-white shadow-sm dark:bg-red-600",
   sky: "bg-sky-600 text-white shadow-sm dark:bg-sky-600",
+  violet: "bg-violet-600 text-white shadow-sm dark:bg-violet-600",
+  emerald: "bg-emerald-600 text-white shadow-sm dark:bg-emerald-600",
 };
 
 const TAB_BADGE_IDLE: Record<Tone, string> = {
@@ -132,6 +156,10 @@ const TAB_BADGE_IDLE: Record<Tone, string> = {
   amber: "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300",
   red: "bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300",
   sky: "bg-sky-100 text-sky-700 dark:bg-sky-500/20 dark:text-sky-300",
+  violet:
+    "bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300",
+  emerald:
+    "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300",
 };
 
 /* ------------------------------------------------------------------ */
@@ -743,11 +771,11 @@ function MoreMenu({
           />
           <MenuItem
             icon={<RotateCcw className="h-4 w-4" />}
-            label="รีเซ็ตจำนวนเป็นค่าแนะนำ"
+            label="ล้างจำนวนที่กรอกทั้งหมด"
             hint={
               adjustedCount > 0
-                ? `แก้ไว้ ${adjustedCount} รายการ`
-                : "ยังไม่ได้แก้จำนวนรายการใด"
+                ? `กรอกไว้ ${adjustedCount} รายการ — ทุกช่องจะกลับเป็น 0`
+                : "ยังไม่ได้กรอกจำนวนรายการใด"
             }
             disabled={adjustedCount === 0}
             onClick={() => run(onResetQty)}

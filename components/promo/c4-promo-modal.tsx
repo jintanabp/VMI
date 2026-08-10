@@ -349,7 +349,10 @@ export function C4PromoModal({
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                   ขั้นโปร (C4)
                 </p>
+                {/* .vmi-table-wrap เป็น overflow:hidden — ถ้าไม่มีตัวเลื่อนคั่น
+                    ตาราง min-w-[520px] จะถูกตัดขอบขวาและเลื่อนไปดูไม่ได้เลย */}
                 <div className="vmi-table-wrap">
+                  <div className="vmi-scroll overflow-x-auto">
                   <table className="w-full min-w-[520px] text-left text-xs">
                     <thead>
                       <tr className="border-b border-slate-200 text-slate-500 dark:border-slate-700">
@@ -416,6 +419,7 @@ export function C4PromoModal({
                       })}
                     </tbody>
                   </table>
+                  </div>
                 </div>
               </div>
             </div>

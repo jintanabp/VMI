@@ -15,7 +15,7 @@ export interface PersonVdaRow {
   allVdas: string[];
   multipleCodes: boolean;
   hasVdaAccess: boolean;
-  /** รหัสมีใน vda_aos แต่ไม่พบอีเมลใน cross_salesman */
+  /** รหัสมีในทะเบียน VDA แต่ไม่พบอีเมลใน cross_salesman */
   unmapped?: boolean;
 }
 

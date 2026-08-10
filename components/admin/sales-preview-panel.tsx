@@ -125,7 +125,7 @@ export function SalesPreviewPanel() {
                       : "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
                   )}
                 >
-                  vda_aos_bill:{" "}
+                  ทะเบียน VDA:{" "}
                   {salesDirectory.loaded?.vdaAosBill
                     ? "โหลดแล้ว"
                     : "ยังไม่มี — sync หรือตั้ง VDA_SALESMAN_MAP"}
@@ -245,7 +245,7 @@ export function SalesPreviewPanel() {
                                   </div>
                                 ) : (
                                   <p className="mt-0.5 text-xs text-slate-400">
-                                    ไม่มี VDA ใน vda_aos_bill
+                                    ไม่มี VDA ในทะเบียน
                                   </p>
                                 )}
                               </div>
@@ -287,8 +287,8 @@ export function SalesPreviewPanel() {
                 <p className="py-8 text-center text-sm text-slate-500">
                   {repScope === "with_vda" && !repSearch.trim()
                     ? salesDirectory?.loaded?.vdaAosBill
-                      ? "ไม่พบเซลล์ที่จับคู่ได้ — ลองกด「ทั้งหมด」หรือ sync vda_aos_bill"
-                      : "ยังไม่มี vda_aos_bill — รัน sync masters หรือตั้ง VDA_SALESMAN_MAP"
+                      ? "ไม่พบเซลล์ที่จับคู่ได้ — ลองกด「ทั้งหมด」หรือตรวจ VDA_CUSTOMER_MAP"
+                      : "ยังไม่มีทะเบียน VDA — ตรวจ VDA_CUSTOMER_MAP และไฟล์ cross_target"
                     : "ไม่พบเซลล์"}
                 </p>
               )}
