@@ -126,7 +126,22 @@ async function ensureSkus(
     const data = stamped
       ? toCreate.map((s) => ({ ...s, createdAt: stamped }))
       : toCreate;
-    await prisma.sku.createMany({ data });
+    /**
+     * ชนกันได้เมื่อมีหลาย request สร้างรหัสเดียวกันพร้อมกัน — โค้ดกรองด้วย byCode
+     * ที่อ่านมาก่อนหน้า แต่ระหว่าง findMany กับ createMany มีช่องว่างเสมอ
+     *
+     * เดิมไม่เคยเจอเพราะรหัสใหม่มาทีละน้อยมาก แต่ฟีเจอร์ "ควรมีขาย" ทำให้ request
+     * แรก ๆ หลัง deploy สร้างรหัสใหม่พร้อมกันหลายตัว ถ้าปล่อยให้ throw = /api/stock
+     * 500 ทั้งเส้น · แถวที่ชนแปลว่ามีคนอื่นสร้างให้แล้ว findMany ท้ายฟังก์ชันจะเก็บครบเอง
+     */
+    try {
+      await prisma.sku.createMany({ data });
+    } catch (err) {
+      console.warn(
+        `[Sku] createMany ชนกัน ${toCreate.length} รหัส — น่าจะมี request อื่นสร้างไปแล้ว:`,
+        err instanceof Error ? err.message : err
+      );
+    }
     if (stamped) {
       console.info(
         `[Sku] Bulk-created ${toCreate.length} SKUs with backdated createdAt (existing=${existingTotal})`
@@ -249,13 +264,23 @@ export async function buildFabricStockPayload(
    * suggestOrder จะเป็น 0 เองเพราะไม่มียอดขาย → ไม่ไปโผล่ในแท็บ "ควรสั่ง"
    */
   const coverCodes = new Set(coverRows.map((c) => c.productCode));
-  const targetCodes = skuDir
-    ? getCrossTargetRegistry()
+  /** ล้มตรงนี้ต้องไม่ทำให้หน้าสต็อกทั้งหน้าพัง — เป็นฟีเจอร์เสริม ขาดได้ */
+  let targetCodes: string[] = [];
+  try {
+    if (skuDir) {
+      targetCodes = getCrossTargetRegistry()
         .productsForSalesmen(
           getVdaAosBillRegistry().getSalesmanCodesForVda(storeCode)
         )
-        .filter((code) => !coverCodes.has(code) && skuDir.nameForSku(code))
-    : [];
+        .filter((code) => !coverCodes.has(code) && skuDir.nameForSku(code));
+    }
+  } catch (err) {
+    console.error(
+      `[StockRows] หาสินค้าจากเป้าขายไม่สำเร็จ (${storeCode}) — แท็บ "ควรมีขาย" จะว่าง:`,
+      err
+    );
+    targetCodes = [];
+  }
   const targetRows: StockCoverRow[] = targetCodes.map((code) => ({
     productCode: code,
     productName: skuDir!.nameForSku(code) || code,

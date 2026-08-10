@@ -62,7 +62,14 @@ export class VdaAosBillRegistry {
    * ต้องเรียกหลัง loadCustomerEnvFallback() เพราะต้องมีรหัสลูกค้าก่อน
    */
   loadSalesmenFromTarget(): number {
-    const target = getCrossTargetRegistry();
+    let target: ReturnType<typeof getCrossTargetRegistry>;
+    try {
+      target = getCrossTargetRegistry();
+    } catch (err) {
+      // ล้มตรงนี้ = ไม่มีทะเบียนสิทธิ์ VDA เลย ต้องปล่อยให้ตกไปใช้ env fallback
+      console.error("[VdaAosBill] อ่าน cross_target ไม่ได้ — ใช้ VDA_SALESMAN_MAP แทน:", err);
+      return 0;
+    }
     if (!target.isLoaded) return 0;
 
     let matched = 0;

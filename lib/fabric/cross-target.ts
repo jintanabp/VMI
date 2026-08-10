@@ -185,5 +185,19 @@ export function getCrossTargetRegistry(): CrossTargetRegistry {
 
 export function reloadCrossTargetRegistry(): void {
   registry = new CrossTargetRegistry();
-  registry.load(getCrossTargetCsvPath());
+  /**
+   * ห้ามโยน exception ออกไป — ตัวนี้ถูกเรียกใน reloadFabricMasters() ซึ่งทุก request
+   * วิ่งผ่าน ensureFabricMastersFresh() ถ้าอ่านไฟล์ไม่ได้ (ดิสก์เต็ม สิทธิ์ไฟล์
+   * ไฟล์เสีย ฯลฯ) แล้วปล่อยให้ throw จะกลายเป็น 500 ทั้งเว็บ ทั้งที่ชุดข้อมูลนี้
+   * required: false — ขาดได้ แค่แท็บ "ควรมีขาย" ว่างเท่านั้น
+   */
+  try {
+    registry.load(getCrossTargetCsvPath());
+  } catch (err) {
+    console.error(
+      `[CrossTarget] โหลดไม่สำเร็จ — แท็บ "ควรมีขาย" จะว่าง ส่วนอื่นทำงานปกติ:`,
+      err
+    );
+    registry.clear();
+  }
 }
