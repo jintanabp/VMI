@@ -3,7 +3,11 @@ import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { getStoreSession } from "@/lib/auth/store-session";
 import { CUSTOMER_STORE_COOKIE } from "@/lib/auth/roles";
-import { calcNetUnitPrice, resolveOrderLinePrice } from "@/lib/calculations";
+import {
+  calcNetUnitPrice,
+  LEAD_TIME_DAYS,
+  resolveOrderLinePrice,
+} from "@/lib/calculations";
 import {
   collectOwedFreeGoods,
   type OwedFreeGood,
@@ -92,6 +96,16 @@ export interface OrderHistorySummaryEntry {
   daysAgo: number;
   /** จำนวนออเดอร์ที่มี SKU นี้ในช่วงที่ดู */
   orderCount: number;
+  /**
+   * จำนวนหีบที่สั่งไปแล้วแต่ของยังไม่น่าจะถึงร้าน — ใช้หักออกจากจำนวนแนะนำ
+   * ไม่งั้นหน้าสต็อกจะแนะนำซ้ำจนร้านสั่งเบิ้ล เพราะ stock_cover_day ยังไม่เห็นของ
+   *
+   * นับเมื่อ: ยังไม่อนุมัติ (ไม่ว่านานแค่ไหน — ยังไม่ได้ส่งเข้าคลังด้วยซ้ำ)
+   *          หรือ อนุมัติแล้วแต่ยังไม่ครบ lead time
+   * ไม่นับออเดอร์ที่อนุมัติเกิน lead time แล้ว เพราะของน่าจะเข้าสต็อกและถูกนับใน
+   * stock_cover_day ไปแล้ว — หักซ้ำจะกลายเป็นแนะนำน้อยเกินจริง
+   */
+  pendingQty: number;
 }
 
 export async function GET(request: Request) {
@@ -128,7 +142,13 @@ export async function GET(request: Request) {
     const bySku: Record<string, OrderHistorySummaryEntry> = {};
     const now = Date.now();
     for (const order of orders) {
-      if (order.status === "rejected") continue;
+      // ปฏิเสธ/ยกเลิก = ของจะไม่มา ต้องไม่นับว่า "สั่งไปแล้ว" และห้ามเอาไปหักจำนวนแนะนำ
+      if (order.status === "rejected" || order.status === "cancelled") continue;
+      const daysAgo = Math.floor(
+        (now - order.createdAt.getTime()) / 86_400_000
+      );
+      const inFlight =
+        order.status === "pending_approval" || daysAgo < LEAD_TIME_DAYS;
       for (const item of order.items) {
         const code = item.sku.code;
         const existing = bySku[code];
@@ -136,6 +156,7 @@ export async function GET(request: Request) {
         if (existing) {
           existing.totalQty += item.finalQty;
           existing.orderCount += 1;
+          if (inFlight) existing.pendingQty += item.finalQty;
           continue;
         }
         bySku[code] = {
@@ -143,8 +164,9 @@ export async function GET(request: Request) {
           lastQty: item.finalQty,
           orderedAt: order.createdAt.toISOString(),
           status: order.status,
-          daysAgo: Math.floor((now - order.createdAt.getTime()) / 86_400_000),
+          daysAgo,
           orderCount: 1,
+          pendingQty: inFlight ? item.finalQty : 0,
         };
       }
     }

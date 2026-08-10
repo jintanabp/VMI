@@ -786,8 +786,27 @@ export function StockPageClient({
     [qtyOverrides]
   );
 
+  /**
+   * จำนวนแนะนำหลังหักของที่สั่งไปแล้วแต่ยังไม่ถึงร้าน
+   *
+   * suggestOrder คิดจากสต็อกที่มี ณ ตอนนี้เทียบ MIN/MAX เท่านั้น — ไม่รู้จักของที่
+   * สั่งค้างอยู่ ของที่สั่งวันนี้กว่าจะเข้า stock_cover_day ก็อีกหลายวัน ระหว่างนั้น
+   * มันจะแนะนำจำนวนเดิมซ้ำ ๆ ทั้งที่ร้านสั่งไปแล้ว → สั่งเบิ้ลจนกลายเป็นของค้างสต็อก
+   *
+   * หักเฉพาะที่ยังไม่ถึงร้าน (ดู pendingQty ใน /api/store/order-history)
+   * ของที่มาถึงแล้วจะถูกนับใน stock อยู่แล้ว หักซ้ำจะแนะนำน้อยเกินจริง
+   */
+  const suggestRemaining = useCallback(
+    (row: StockRowComputed): number => {
+      const base = row.suggestOrder > 0 ? row.suggestOrder : 0;
+      const pending = recentBySku[row.skuCode]?.pendingQty ?? 0;
+      return Math.max(0, base - pending);
+    },
+    [recentBySku]
+  );
+
   function defaultLineQty(row: StockRowComputed): number {
-    return row.suggestOrder > 0 ? row.suggestOrder : 0;
+    return suggestRemaining(row);
   }
 
   function lineQty(row: StockRowComputed): number {
@@ -889,10 +908,14 @@ export function StockPageClient({
    * ซึ่งปิดปุ่ม "ตรวจสอบคำสั่ง" — กดเลือกทั้งหมดแล้วส่งออเดอร์ไม่ได้โดยไม่รู้สาเหตุ
    */
   const selectableRows = useMemo(
-    // ใช้ simulatedQty ไม่ใช่ orderQty — ไม่งั้นตอนเปิดหน้าทุกช่องเป็น 0
+    // อิง "จำนวนที่ยังควรสั่งเพิ่ม" ไม่ใช่ orderQty — ไม่งั้นตอนเปิดหน้าทุกช่องเป็น 0
     // แล้ว checkbox "เลือกทั้งหมด" บนหัวตารางจะกลายเป็นปุ่มตาย
-    () => filtered.filter((r) => simulatedQty(r) > 0),
-    [filtered, simulatedQty]
+    // และไม่ใช่ suggestOrder ดิบ — แถวที่สั่งครบแล้วไม่ควรถูกกวาดมาสั่งซ้ำ
+    () =>
+      filtered.filter(
+        (r) => (qtyOverrides[r.skuCode] ?? suggestRemaining(r)) > 0
+      ),
+    [filtered, qtyOverrides, suggestRemaining]
   );
 
   /** เฉพาะที่ระบบแนะนำ — ใช้กับปุ่ม "เลือกที่ควรสั่ง" ที่แถบล่าง
@@ -934,7 +957,7 @@ export function StockPageClient({
       const next = { ...prev };
       for (const r of selectableRows) {
         if (next[r.skuCode] == null || next[r.skuCode] === 0) {
-          next[r.skuCode] = r.suggestOrder > 0 ? r.suggestOrder : 1;
+          next[r.skuCode] = suggestRemaining(r) || 1;
         }
       }
       return next;
@@ -965,14 +988,14 @@ export function StockPageClient({
     if (section) {
       target = target.filter((r) => (r.section ?? "") === section);
     }
-    // แถว needsOrder ที่ suggestOrder เป็น 0 มีได้ — ติ๊กไว้จะกลายเป็น "ติ๊กแต่จำนวน 0"
-    target = target.filter((r) => simulatedQty(r) > 0);
+    // ตัดแถวที่สั่งครบแล้ว/ไม่มีคำแนะนำออก ไม่งั้นจะได้ "ติ๊กแต่จำนวน 0"
+    target = target.filter((r) => suggestRemaining(r) > 0);
     setSelected(new Set(target.map((r) => r.skuId)));
     setQtyOverrides((prev) => {
       const next = { ...prev };
       for (const r of target) {
         if (next[r.skuCode] == null || next[r.skuCode] === 0) {
-          next[r.skuCode] = r.suggestOrder > 0 ? r.suggestOrder : 1;
+          next[r.skuCode] = suggestRemaining(r);
         }
       }
       return next;
@@ -1242,6 +1265,8 @@ export function StockPageClient({
                   onSetQty={setLineQty}
                   onAdjustQty={adjustLineQty}
                   onApplySuggest={setLineQty}
+                  suggestRemaining={suggestRemaining}
+                  pendingQtyOf={(r) => recentBySku[r.skuCode]?.pendingQty ?? 0}
                   onConfirmStaged={applyGroupStaged}
                 />
               )
@@ -1290,8 +1315,10 @@ export function StockPageClient({
                       }
                       onAdjustQty={(d) => adjustLineQty(row.skuCode, d)}
                       onSetQty={(q) => setLineQty(row.skuCode, q)}
+                      suggestRemaining={suggestRemaining(row)}
+                      pendingQty={recentBySku[row.skuCode]?.pendingQty ?? 0}
                       onApplySuggest={() =>
-                        setLineQty(row.skuCode, row.suggestOrder)
+                        setLineQty(row.skuCode, suggestRemaining(row))
                       }
                       onToggle={() => toggleRow(row.skuId)}
                       expanded={expanded.has(row.skuId)}
@@ -1691,12 +1718,13 @@ export function StockPageClient({
                       <td className="px-1 py-1.5 text-center">
                         <StockQtyStepper
                           qty={lineQty(row)}
-                          suggestOrder={row.suggestOrder}
+                          suggestOrder={suggestRemaining(row)}
+                          orderedQty={recentBySku[row.skuCode]?.pendingQty ?? 0}
                           onMinus={() => adjustLineQty(row.skuCode, -1)}
                           onPlus={() => adjustLineQty(row.skuCode, 1)}
                           onSetQty={(q) => setLineQty(row.skuCode, q)}
                           onApplySuggest={() =>
-                            setLineQty(row.skuCode, row.suggestOrder)
+                            setLineQty(row.skuCode, suggestRemaining(row))
                           }
                           showSuggestChip
                           compact
@@ -1959,6 +1987,8 @@ const StockMobileRow = memo(function StockMobileRow({
   onAdjustQty,
   onSetQty,
   onApplySuggest,
+  suggestRemaining,
+  pendingQty,
   onToggle,
   expanded,
   onToggleExpand,
@@ -1987,6 +2017,10 @@ const StockMobileRow = memo(function StockMobileRow({
   onAdjustQty: (delta: number) => void;
   onSetQty: (qty: number) => void;
   onApplySuggest: () => void;
+  /** จำนวนแนะนำหลังหักของที่สั่งค้าง — คำนวณที่ parent การ์ดนี้เป็น memo */
+  suggestRemaining: number;
+  /** สั่งไปแล้วแต่ของยังไม่ถึงร้าน */
+  pendingQty: number;
   expanded: boolean;
   onToggleExpand: () => void;
   onToggle: () => void;
@@ -2091,7 +2125,8 @@ const StockMobileRow = memo(function StockMobileRow({
         </button>
         <StockQtyStepper
           qty={qty}
-          suggestOrder={row.suggestOrder}
+          suggestOrder={suggestRemaining}
+          orderedQty={pendingQty}
           onMinus={() => onAdjustQty(-1)}
           onPlus={() => onAdjustQty(1)}
           onSetQty={onSetQty}
@@ -2310,6 +2345,8 @@ type RecentOrderSummary = {
   status: string;
   daysAgo: number;
   orderCount: number;
+  /** สั่งแล้วแต่ของยังไม่ถึงร้าน — หักออกจากจำนวนแนะนำ */
+  pendingQty: number;
 };
 
 const EMPTY_RECENT: Record<string, RecentOrderSummary> = {};

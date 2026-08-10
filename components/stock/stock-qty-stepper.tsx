@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Minus, Plus, RotateCcw } from "lucide-react";
+import { Check, Minus, Plus, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -15,6 +15,7 @@ export function StockQtyStepper({
   onApplySuggest,
   compact = false,
   showSuggestChip = false,
+  orderedQty = 0,
 }: {
   qty: number;
   suggestOrder: number;
@@ -31,12 +32,17 @@ export function StockQtyStepper({
   compact?: boolean;
   /** โชว์จำนวนแนะนำเป็นชิปใต้ช่อง — ใช้ฝั่ง /stock ที่ช่องเริ่มต้นเป็น 0 ทุกแถว */
   showSuggestChip?: boolean;
+  /** จำนวนที่สั่งไปแล้วแต่ของยังไม่ถึงร้าน — ใช้เปลี่ยนคำบนชิปให้ตรงความจริง
+   *  (suggestOrder ที่ส่งเข้ามาต้องหักตัวนี้ออกมาแล้ว) */
+  orderedQty?: number;
 }) {
   const btn = compact ? "h-6 w-6 rounded-md" : "h-8 w-8";
   const defaultQty = suggestOrder > 0 ? suggestOrder : 0;
   // ปุ่ม ↺ ในบรรทัดกับชิป "แนะนำ" ทำหน้าที่ตรงข้ามกัน มีพร้อมกันไม่ได้
   const showReset = !showSuggestChip && qty !== defaultQty;
   const showChip = showSuggestChip && suggestOrder > 0 && qty !== suggestOrder;
+  // สั่งครบตามที่แนะนำแล้ว — บอกให้รู้ ไม่ใช่เงียบไปเฉย ๆ จนคนสงสัยว่าทำไมไม่มีชิป
+  const showOrdered = showSuggestChip && suggestOrder <= 0 && orderedQty > 0;
   const [draft, setDraft] = useState(String(qty));
 
   useEffect(() => {
@@ -152,12 +158,25 @@ export function StockQtyStepper({
             e.stopPropagation();
             onApplySuggest();
           }}
-          title={`ระบบแนะนำ ${suggestOrder} หีบ — กดเพื่อใส่จำนวนนี้`}
+          title={
+            orderedQty > 0
+              ? `สั่งไปแล้ว ${orderedQty} หีบ (ของยังไม่ถึงร้าน) — ระบบแนะนำเพิ่มอีก ${suggestOrder} หีบ กดเพื่อใส่จำนวนนี้`
+              : `ระบบแนะนำ ${suggestOrder} หีบ — กดเพื่อใส่จำนวนนี้`
+          }
           className="inline-flex items-center gap-0.5 whitespace-nowrap rounded px-1 py-px text-[10px] font-semibold leading-tight text-teal-700 hover:bg-teal-50 dark:text-teal-400 dark:hover:bg-teal-950/50"
         >
           <RotateCcw className="h-2.5 w-2.5 shrink-0" />
-          แนะนำ {suggestOrder}
+          {orderedQty > 0 ? `แนะนำอีก ${suggestOrder}` : `แนะนำ ${suggestOrder}`}
         </button>
+      )}
+      {showOrdered && (
+        <span
+          title={`สั่งไปแล้ว ${orderedQty} หีบ ครบตามที่ระบบแนะนำ — ของยังไม่ถึงร้าน สั่งเพิ่มได้ถ้าต้องการ`}
+          className="inline-flex items-center gap-0.5 whitespace-nowrap rounded px-1 py-px text-[10px] font-semibold leading-tight text-slate-500 dark:text-slate-400"
+        >
+          <Check className="h-2.5 w-2.5 shrink-0" />
+          สั่งครบแล้ว
+        </span>
       )}
     </div>
   );

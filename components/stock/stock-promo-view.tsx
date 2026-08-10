@@ -56,6 +56,10 @@ export interface StockPromoViewProps {
   onAdjustQty: (skuCode: string, delta: number) => void;
   /** เติมจำนวนแนะนำลงช่อง (คู่กับชิป "แนะนำ N" ใต้ stepper) */
   onApplySuggest: (skuCode: string, suggestOrder: number) => void;
+  /** จำนวนแนะนำหลังหักของที่สั่งไปแล้วแต่ยังไม่ถึงร้าน */
+  suggestRemaining: (row: StockRowComputed) => number;
+  /** สั่งไปแล้วแต่ของยังไม่ถึงร้าน — ใช้เปลี่ยนคำบนชิป */
+  pendingQtyOf: (row: StockRowComputed) => number;
   onConfirmStaged: (
     staged: Record<string, number>,
     memberSkus?: string[]
@@ -122,6 +126,8 @@ function PromoBucketCard({
   onSetQty,
   onAdjustQty,
   onApplySuggest,
+  suggestRemaining,
+  pendingQtyOf,
   onConfirmStaged,
 }: StockPromoViewProps & {
   bucket: PromoBucket<StockRowComputed>;
@@ -349,6 +355,8 @@ function PromoBucketCard({
                     onSetQty={onSetQty}
                     onAdjustQty={onAdjustQty}
                     onApplySuggest={onApplySuggest}
+                    suggestRemaining={suggestRemaining}
+                    pendingQtyOf={pendingQtyOf}
                   />
                 ))}
               </tbody>
@@ -374,6 +382,8 @@ function PromoBucketCard({
                   onSetQty={onSetQty}
                   onAdjustQty={onAdjustQty}
                   onApplySuggest={onApplySuggest}
+                  suggestRemaining={suggestRemaining}
+                  pendingQtyOf={pendingQtyOf}
                 />
               ))}
             </MobileRowList>
@@ -412,6 +422,10 @@ interface SkuRowProps {
   onAdjustQty: (skuCode: string, delta: number) => void;
   /** เติมจำนวนแนะนำลงช่อง (คู่กับชิป "แนะนำ N" ใต้ stepper) */
   onApplySuggest: (skuCode: string, suggestOrder: number) => void;
+  /** จำนวนแนะนำหลังหักของที่สั่งไปแล้วแต่ยังไม่ถึงร้าน */
+  suggestRemaining: (row: StockRowComputed) => number;
+  /** สั่งไปแล้วแต่ของยังไม่ถึงร้าน — ใช้เปลี่ยนคำบนชิป */
+  pendingQtyOf: (row: StockRowComputed) => number;
 }
 
 const PromoSkuRow = memo(function PromoSkuRow({
@@ -429,6 +443,8 @@ const PromoSkuRow = memo(function PromoSkuRow({
   onSetQty,
   onAdjustQty,
   onApplySuggest,
+  suggestRemaining,
+  pendingQtyOf,
 }: SkuRowProps & { showFreeGood: boolean }) {
   return (
     <>
@@ -532,11 +548,12 @@ const PromoSkuRow = memo(function PromoSkuRow({
             )}
             <StockQtyStepper
               qty={qty}
-              suggestOrder={row.suggestOrder}
+              suggestOrder={suggestRemaining(row)}
+              orderedQty={pendingQtyOf(row)}
               onMinus={() => onAdjustQty(row.skuCode, -1)}
               onPlus={() => onAdjustQty(row.skuCode, 1)}
               onSetQty={(q) => onSetQty(row.skuCode, q)}
-              onApplySuggest={() => onApplySuggest(row.skuCode, row.suggestOrder)}
+              onApplySuggest={() => onApplySuggest(row.skuCode, suggestRemaining(row))}
               showSuggestChip
               compact
             />
@@ -568,6 +585,8 @@ const PromoSkuMobileRow = memo(function PromoSkuMobileRow({
   onSetQty,
   onAdjustQty,
   onApplySuggest,
+  suggestRemaining,
+  pendingQtyOf,
 }: SkuRowProps) {
   return (
     <MobileRow
@@ -603,11 +622,12 @@ const PromoSkuMobileRow = memo(function PromoSkuMobileRow({
           )}
           <StockQtyStepper
             qty={qty}
-            suggestOrder={row.suggestOrder}
+            suggestOrder={suggestRemaining(row)}
+            orderedQty={pendingQtyOf(row)}
             onMinus={() => onAdjustQty(row.skuCode, -1)}
             onPlus={() => onAdjustQty(row.skuCode, 1)}
             onSetQty={(q) => onSetQty(row.skuCode, q)}
-            onApplySuggest={() => onApplySuggest(row.skuCode, row.suggestOrder)}
+            onApplySuggest={() => onApplySuggest(row.skuCode, suggestRemaining(row))}
             showSuggestChip
             compact
           />
