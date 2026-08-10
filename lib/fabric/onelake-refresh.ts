@@ -517,24 +517,49 @@ export function buildVdaProductSpec(
  * requiredColumns เอาแค่ 2 คอลัมน์ที่ใช้จริง — ไฟล์ต้นทางมี 11 คอลัมน์ แต่บังคับครบ
  * แล้ววันหนึ่งเขาเพิ่ม/เปลี่ยนชื่อคอลัมน์ที่เราไม่ได้ใช้ ไฟล์จะถูกตีตกทั้งใบ
  */
+/**
+ * cross_target_current_month.csv อยู่ lakehouse Bronze_OrderAgent **ที่เดียว**
+ * (ตรวจกับ OneLake จริงแล้ว — masters lakehouse ไม่มีไฟล์นี้)
+ *
+ * จึงไม่ผูกกับ getPromotionOnelakeConfig() ตรง ๆ เพราะมันถอยไป ONELAKE_* เมื่อไม่มี
+ * CFT_* ซึ่งเป็นเคสจริงบนเซิร์ฟเวอร์ แล้วได้ 404 โดยไม่มีอะไรบอกว่าไปผิดที่ —
+ * ไฟล์อื่นมีอยู่ทั้งสอง lakehouse เลย sync ผ่านหมด ไม่มีใครสังเกต
+ *
+ * ค่า default ชี้ Bronze ตรง ๆ ให้ทำงานได้โดยไม่ต้องแก้ .env และไม่ไปเปลี่ยนที่มา
+ * ของตาราง C4 (การเติม CFT_* จะย้าย promotion_c4 ไปอีก lakehouse ด้วย คนละเรื่องกัน)
+ * ย้ายที่เมื่อไหร่ตั้ง CROSS_TARGET_WORKSPACE_ID / CROSS_TARGET_LAKEHOUSE_ID ทับได้
+ */
+const CROSS_TARGET_WORKSPACE = "18ff6d42-8639-48a9-acd2-14a0c6b8ac9d";
+const CROSS_TARGET_LAKEHOUSE = "92789a85-4269-411f-ad0c-f63ad7733fe2";
+
 export function buildCrossTargetSpec(localPath: string): RefreshSpec | null {
   const cfg = getPromotionOnelakeConfig();
-  if (!cfg) return null;
+  const workspaceId =
+    process.env.CROSS_TARGET_WORKSPACE_ID?.trim() ||
+    process.env.CFT_WORKSPACE_ID?.trim() ||
+    CROSS_TARGET_WORKSPACE;
+  const lakehouseId =
+    process.env.CROSS_TARGET_LAKEHOUSE_ID?.trim() ||
+    process.env.CFT_LAKEHOUSE_ID?.trim() ||
+    CROSS_TARGET_LAKEHOUSE;
+  const scanDir = cfg?.scanDir ?? "Files/exports/";
 
   return {
     name: "cross_target_current_month",
     localPath,
-    workspaceId: cfg.workspaceId,
-    onelakeItemId: cfg.lakehouseId,
-    scanDir: cfg.scanDir,
+    workspaceId,
+    onelakeItemId: lakehouseId,
+    scanDir,
     onelakePath:
       process.env.CROSS_TARGET_ONELAKE_PATH?.trim() ||
-      `${cfg.scanDir.replace(/\/$/, "")}/cross_target_current_month.csv`,
+      `${scanDir.replace(/\/$/, "")}/cross_target_current_month.csv`,
     columnSignature: ["SalesManCode", "ProductCode"],
     requiredColumns: ["SalesManCode", "ProductCode"],
     minRows: Number(process.env.CROSS_TARGET_MIN_ROWS ?? "100"),
+    // default เป็น stock ไม่ใช่ masters — SP ของ masters ได้ 403 ใน workspace นี้
     authProfile:
-      (process.env.CFT_AUTH_PROFILE as OnelakeAuthProfile) ?? "masters",
+      ((process.env.CROSS_TARGET_AUTH_PROFILE ||
+        process.env.CFT_AUTH_PROFILE) as OnelakeAuthProfile) ?? "stock",
   };
 }
 
