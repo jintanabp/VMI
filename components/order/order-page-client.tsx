@@ -14,6 +14,7 @@ import {
   Send,
   ShoppingCart,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 import { AppHeader } from "@/components/layout/app-header";
 import { PageShell } from "@/components/layout/page-shell";
@@ -31,6 +32,7 @@ import {
   StockNetPriceCell,
 } from "@/components/stock/stock-price-cells";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { CvdFlagCell } from "@/components/ui/cvd-flag-cell";
 import {
@@ -160,6 +162,9 @@ export function OrderPageClient({
   const [confirmRiskyOpen, setConfirmRiskyOpen] = useState(false);
   /** ชิปคำเตือนที่กดค้างไว้ — กรองตารางให้เหลือเฉพาะรายการของคำเตือนนั้น */
   const [noticeFilter, setNoticeFilter] = useState<string | null>(null);
+  /** รหัส SKU ที่ติ๊กไว้เพื่อลบออกจากคำสั่ง */
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
   /** skuCode → ราคา/หีบ ที่ร้านพิมพ์เอง */
   const [priceOverrides, setPriceOverrides] = useState<Record<string, number>>(
     {}
@@ -487,6 +492,60 @@ export function OrderPageClient({
     }
   }
 
+  function toggleSelected(skuCode: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(skuCode)) next.delete(skuCode);
+      else next.add(skuCode);
+      return next;
+    });
+  }
+
+  /**
+   * ลบรายการที่ติ๊กไว้ออกจากคำสั่ง
+   *
+   * ต้องเขียน sessionStorage ทั้งสองคีย์ให้ตรงกัน — draft (รายการ) กับ qty (จำนวน)
+   * เพราะหน้า /stock อ่านคีย์ qty ตอนกดย้อนกลับ ถ้าลบแต่ draft จำนวนของตัวที่ลบแล้ว
+   * จะยังค้างอยู่แล้วโผล่กลับมาเมื่อผู้ใช้เด้งไป-กลับ
+   */
+  function removeSelected() {
+    const next = lines.filter((l) => !selected.has(l.row.skuCode));
+    setSelected(new Set());
+    setConfirmRemoveOpen(false);
+
+    // ลบหมดทั้งคำสั่ง = ไม่มีอะไรให้ตรวจแล้ว กลับไปเลือกของใหม่
+    if (next.length === 0) {
+      try {
+        sessionStorage.removeItem("vmi_order_draft");
+        sessionStorage.removeItem("vmi_order_qty");
+        sessionStorage.removeItem(PRICE_STORAGE_KEY);
+      } catch {
+        // sessionStorage ปิดอยู่ — เด้งกลับก็พอ
+      }
+      router.replace("/stock");
+      return;
+    }
+
+    setLines(next);
+    // ราคาที่ร้านแก้ไว้ของตัวที่ลบต้องหายไปด้วย ไม่งั้นไปเกาะ SKU เดิมถ้าเพิ่มกลับมา
+    setPriceOverrides((prev) =>
+      Object.fromEntries(
+        Object.entries(prev).filter(([code]) => !selected.has(code))
+      )
+    );
+    try {
+      const qtyMap: Record<string, number> = {};
+      for (const l of next) qtyMap[l.row.skuCode] = l.qty;
+      sessionStorage.setItem("vmi_order_qty", JSON.stringify(qtyMap));
+      sessionStorage.setItem(
+        "vmi_order_draft",
+        JSON.stringify(next.map((l) => l.row))
+      );
+    } catch {
+      // sessionStorage ปิดอยู่ — ลบในหน้านี้ยังใช้ได้ แค่ไม่รอดข้ามหน้า
+    }
+  }
+
   function resetAllToSuggested() {
     // ไม่กรองแถวที่ได้ 0 ทิ้ง — ปุ่มนี้ "รีเซ็ตจำนวน" ไม่ใช่ "ลบรายการ"
     // (เดิมกรองทิ้ง ทำให้ทุกแถวหายพร้อมกันเมื่อ suggestOrder เป็น 0 หมด แล้วหน้าค้างที่ spinner)
@@ -672,6 +731,29 @@ export function OrderPageClient({
       orderedLines.filter((l) => codes.has(l.row.skuCode))
     );
   }, [noticeFilter, noticeGroups, orderedLines, displayLines]);
+
+  /** เลือกทั้งหมด = เฉพาะที่เห็นอยู่ตามตัวกรอง ไม่ใช่ทั้งคำสั่ง
+   *  กดเลือกทั้งหมดตอนกรอง "สั่งซ้ำ" อยู่ ต้องได้เฉพาะรายการสั่งซ้ำ ไม่ใช่กวาดทั้งใบ */
+  const visibleSkus = useMemo(
+    () => visibleLines.map((l) => l.row.skuCode),
+    [visibleLines]
+  );
+  const selectedVisibleCount = visibleSkus.filter((c) =>
+    selected.has(c)
+  ).length;
+  const allVisibleSelected =
+    visibleSkus.length > 0 && selectedVisibleCount === visibleSkus.length;
+  const someVisibleSelected =
+    selectedVisibleCount > 0 && !allVisibleSelected;
+
+  function toggleAllVisible() {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) for (const c of visibleSkus) next.delete(c);
+      else for (const c of visibleSkus) next.add(c);
+      return next;
+    });
+  }
 
   /** บรรทัดที่ส่งจริง — จำนวน 0 ส่งไม่ได้ (API บังคับ finalQty >= 1) */
   const submittableLines = useMemo(
@@ -874,6 +956,11 @@ export function OrderPageClient({
         <OrderSummaryList
           lines={visibleLines}
           duplicateBySku={duplicateBySku}
+          selectedSkus={selected}
+          onToggleSelect={toggleSelected}
+          allVisibleSelected={allVisibleSelected}
+          someVisibleSelected={someVisibleSelected}
+          onToggleAll={toggleAllVisible}
           promoStagedQty={promoStagedQty}
           groupMemberSkusMap={groupMemberSkusMap}
           onFocusStock={focusSkuOnStock}
@@ -905,6 +992,19 @@ export function OrderPageClient({
             <RotateCcw className="h-4 w-4" />
             <span className="hidden md:inline">รีเซ็ตเป็นจำนวนแนะนำ</span>
           </Button>
+          {selected.size > 0 && (
+            <Button
+              variant="destructive"
+              size="sm"
+              className="shrink-0"
+              onClick={() => setConfirmRemoveOpen(true)}
+              disabled={submitMutation.isPending}
+              title="เอารายการที่เลือกออกจากคำสั่งนี้"
+            >
+              <Trash2 className="h-4 w-4" />
+              ลบ {selected.size} รายการ
+            </Button>
+          )}
           <div className="min-w-0 flex-1 text-center text-sm">
             <p className="font-semibold text-slate-800 dark:text-slate-100">
               รวม {stats.totalQty} หีบ · {stats.skuCount} รายการ
@@ -930,6 +1030,31 @@ export function OrderPageClient({
           </Button>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmRemoveOpen}
+        tone="danger"
+        title="ลบรายการออกจากคำสั่ง"
+        body={
+          <>
+            เอา {selected.size} รายการออกจากคำสั่งนี้
+            {selected.size === lines.length && (
+              <>
+                <br />
+                <span className="font-semibold">
+                  เป็นรายการทั้งหมด — ลบแล้วจะกลับไปหน้าสต็อก
+                </span>
+              </>
+            )}
+            <br />
+            เพิ่มกลับได้จากหน้าสต็อก
+          </>
+        }
+        confirmLabel={`ลบ ${selected.size} รายการ`}
+        cancelLabel="เก็บไว้"
+        onConfirm={removeSelected}
+        onClose={() => setConfirmRemoveOpen(false)}
+      />
 
       <ConfirmDialog
         open={confirmRiskyOpen}
@@ -1018,6 +1143,11 @@ function DuplicateMark({ info }: { info: DuplicateInfo }) {
 function OrderSummaryList({
   lines,
   duplicateBySku,
+  selectedSkus,
+  onToggleSelect,
+  allVisibleSelected,
+  someVisibleSelected,
+  onToggleAll,
   promoStagedQty,
   groupMemberSkusMap,
   onFocusStock,
@@ -1026,6 +1156,11 @@ function OrderSummaryList({
 }: {
   lines: EnrichedLine[];
   duplicateBySku: Map<string, DuplicateInfo>;
+  selectedSkus: Set<string>;
+  onToggleSelect: (skuCode: string) => void;
+  allVisibleSelected: boolean;
+  someVisibleSelected: boolean;
+  onToggleAll: () => void;
   promoStagedQty: Record<string, number>;
   groupMemberSkusMap: Map<string, string[]>;
   onFocusStock: (skuCode: string) => void;
@@ -1063,7 +1198,12 @@ function OrderSummaryList({
                     </div>
                   )}
                 <div className="flex items-start gap-2">
-                  <span className="w-5 shrink-0 pt-0.5 text-xs text-slate-400">
+                  <span className="flex shrink-0 items-center gap-1 pt-0.5 text-xs text-slate-400">
+                    <Checkbox
+                      checked={selectedSkus.has(line.row.skuCode)}
+                      onCheckedChange={() => onToggleSelect(line.row.skuCode)}
+                      aria-label={`เลือก ${line.row.skuCode}`}
+                    />
                     {index + 1}
                   </span>
                   <div className="min-w-0 flex-1">
@@ -1158,7 +1298,26 @@ function OrderSummaryList({
                 คอลัมน์ CVD ต้องกว้างพอสำหรับ "84.2 วัน" + ป้าย "ตรวจสอบ" ซึ่งเป็น
                 whitespace-nowrap — แคบกว่านี้แล้วตัวเลขจะโดนตัดหัวเหลือ ".2 วัน" */}
             <tr>
-              <th className="w-[3%] px-2 py-3">#</th>
+              {/* ช่องติ๊ก + ลำดับ อยู่คอลัมน์เดียวกัน — ตารางเป็น table-fixed ที่ผลรวม
+                  ต้องเป็น 100% พอดี การเพิ่มคอลัมน์ใหม่จะไปบีบชื่อสินค้ากับคอลัมน์โปร
+                  ซึ่งสองตัวนั้นตัดข้อความอยู่แล้ว */}
+              <th className="w-[6%] px-2 py-3">
+                <span className="flex items-center gap-1.5">
+                  <Checkbox
+                    checked={
+                      allVisibleSelected
+                        ? true
+                        : someVisibleSelected
+                          ? "indeterminate"
+                          : false
+                    }
+                    onCheckedChange={onToggleAll}
+                    aria-label="เลือกทุกรายการในตาราง"
+                    title="เลือกทุกรายการที่เห็นอยู่ (ตามตัวกรอง)"
+                  />
+                  #
+                </span>
+              </th>
               <th className="w-[7%] whitespace-nowrap px-2 py-3">SKU</th>
               <th className="w-[17%] px-2 py-3">ชื่อสินค้า</th>
               <th className="w-[10%] whitespace-nowrap px-2 py-3 text-right">
@@ -1176,16 +1335,16 @@ function OrderSummaryList({
               <th className="w-[5%] whitespace-nowrap px-2 py-3 text-right">
                 ส่วนลด
               </th>
-              <th className="w-[8%] whitespace-nowrap px-2 py-3 text-right">
+              <th className="w-[7%] whitespace-nowrap px-2 py-3 text-right">
                 ราคาสุทธิ/หีบ
               </th>
-              <th className="w-[8%] whitespace-nowrap px-2 py-3 text-right">
+              <th className="w-[7%] whitespace-nowrap px-2 py-3 text-right">
                 รวม
               </th>
               <th className="w-[10%] whitespace-nowrap px-1.5 py-3 text-right">
                 CVD
               </th>
-              <th className="w-[18%] px-2 py-3">โปรที่ได้</th>
+              <th className="w-[17%] px-2 py-3">โปรที่ได้</th>
             </tr>
           </thead>
           <tbody>
@@ -1220,7 +1379,16 @@ function OrderSummaryList({
                   line.flag === "red" && "bg-red-50/70 dark:bg-red-950/25"
                 )}
               >
-                <td className="px-3 py-2.5 text-slate-500">{index + 1}</td>
+                <td className="px-2 py-2.5 text-slate-500">
+                  <span className="flex items-center gap-1.5">
+                    <Checkbox
+                      checked={selectedSkus.has(line.row.skuCode)}
+                      onCheckedChange={() => onToggleSelect(line.row.skuCode)}
+                      aria-label={`เลือก ${line.row.skuCode}`}
+                    />
+                    {index + 1}
+                  </span>
+                </td>
                 <td className="whitespace-nowrap px-3 py-2.5 font-medium text-teal-700 dark:text-teal-400">
                   {line.row.skuCode}
                 </td>
