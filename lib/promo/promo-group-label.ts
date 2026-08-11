@@ -31,7 +31,6 @@ export function promoGroupShortLabel(
   maxLen = 26
 ): string {
   const full = promoGroupLabel(group, names);
-  const code = group?.trim() ?? "";
   // ตัดวงเล็บทิ้งเฉพาะตอนที่เหลือข้อความหน้าวงเล็บพอให้รู้เรื่อง
   const head = full.split("(")[0]!.trim();
   const short = head.length >= 4 ? head : full;
