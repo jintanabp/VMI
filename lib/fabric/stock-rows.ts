@@ -367,7 +367,9 @@ export async function buildFabricStockPayload(
         promoCtx.region
       );
       if (c4PromoRows.length > 0) {
-        promoTiers = promoRowsToTiers(c4PromoRows).map((t) => {
+        promoTiers = promoRowsToTiers(c4PromoRows, (c) =>
+          skuDir?.packSizeForSku(c) ?? 1
+        ).map((t) => {
           if (!t.premiumProduct) return t;
           return {
             ...t,

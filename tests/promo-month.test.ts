@@ -36,6 +36,8 @@ function promoRow(o: {
   premiumQty?: number;
   group?: string;
   minPurchase?: number;
+  /** PREMIUMUNIT = B (เป็นหีบอยู่แล้ว) แทนค่าปกติ P (ชิ้น) */
+  premiumUnitB?: boolean;
   from?: string;
   to?: string;
 }): string {
@@ -61,7 +63,7 @@ function promoRow(o: {
     "MK102",
     o.premiumProduct ?? "",
     (o.premiumQty ?? 0).toFixed(1),
-    o.premiumProduct ? "P" : "",
+    o.premiumProduct ? (o.premiumUnitB ? "B" : "P") : "",
     o.group ?? "",
     '""',
     "AM132",
@@ -168,7 +170,7 @@ describe("buildPromoMonthReport", () => {
     expect(rep.totals.rowsOtherContext).toBe(0);
   });
 
-  it("ของแถมเขียนเป็น «คละ X หีบ ฟรี ... N หีบ» ตามแบบฟอร์มสั่งสินค้า", async () => {
+  it("ของแถมคิดต่อล็อต MINIMUMPURCHASE ไม่ใช่ต่อ 1 หีบ และบอกเป็นหีบ", async () => {
     // BSWN ของจริง: ต่อ 1 หีบ ได้ 6 ชิ้น ขั้นต่ำ 24 หีบ → 24 × 6 = 144 ชิ้น = 1 หีบ
     packSizes["429001"] = 144;
     const promo = writePromoCsv([
@@ -180,33 +182,95 @@ describe("buildPromoMonthReport", () => {
         premiumQty: 6,
         minPurchase: 24,
       }),
+      promoRow({
+        division: "E",
+        product: "426551",
+        group: "BSWN",
+        premiumProduct: "429001",
+        premiumQty: 6,
+        minPurchase: 24,
+      }),
     ]);
 
     const rep = await loadReport(promo, ["vda1"]);
+    const g = rep.groups[0];
 
-    expect(rep.groups[0].minPurchase).toBe(24);
-    expect(rep.groups[0].promoLabel).toBe(
-      "คละ 24 หีบ ฟรี 429001 สินค้า 429001 1 หีบ"
-    );
+    expect(g.minPurchase).toBe(24);
+    // ขั้นบันไดต้องเป็นล็อต 24 หีบ ได้ 1 หีบ ไม่ใช่ 1 หีบ ได้ 6 ชิ้น
+    expect(g.tiers[0].minQty).toBe(24);
+    expect(g.tiers[0].premiumQty).toBe(1);
+    expect(g.tiers[0].premiumUnit).toBe("B");
+    // หลาย SKU ในกลุ่ม = รวมยอดกันได้ → ใช้คำว่า "คละ"
+    expect(g.promoLabel).toBe("คละ 24 หีบ ฟรี 429001 สินค้า 429001 1 หีบ");
   });
 
-  it("หารเป็นหีบไม่ลงตัว → บอกเป็นชิ้นตามต้นทาง ไม่ปัดให้ดูสวย", async () => {
+  it("กลุ่มสินค้าเดียวใช้คำว่า «ซื้อ» ไม่ใช่ «คละ» เพราะไม่มีอะไรให้รวมยอด", async () => {
     packSizes["429001"] = 144;
     const promo = writePromoCsv([
       promoRow({
         division: "E",
         product: "426544",
-        group: "BSWM",
         premiumProduct: "429001",
         premiumQty: 6,
+        minPurchase: 24,
+      }),
+    ]);
+
+    const rep = await loadReport(promo, ["vda1"]);
+
+    expect(rep.groups[0].promoLabel).toBe(
+      "ซื้อ 24 หีบ ฟรี 429001 สินค้า 429001 1 หีบ"
+    );
+  });
+
+  it("หารเป็นหีบไม่ลงตัว → บอกเป็นชิ้นตามต้นทาง ไม่ปัดให้ดูสวย", async () => {
+    // BSBSN ของจริง: ล็อต 6 หีบ ได้ 72 ชิ้น = ครึ่งหีบ โชว์ "0.5 หีบ" ไม่มีความหมาย
+    packSizes["429001"] = 144;
+    const promo = writePromoCsv([
+      promoRow({
+        division: "E",
+        product: "426544",
+        group: "BSBSN",
+        premiumProduct: "429001",
+        premiumQty: 12,
+        minPurchase: 6,
+      }),
+      promoRow({
+        division: "E",
+        product: "426551",
+        group: "BSBSN",
+        premiumProduct: "429001",
+        premiumQty: 12,
+        minPurchase: 6,
+      }),
+    ]);
+
+    const rep = await loadReport(promo, ["vda1"]);
+
+    expect(rep.groups[0].tiers[0].premiumUnit).toBe("P");
+    expect(rep.groups[0].promoLabel).toBe(
+      "คละ 6 หีบ ฟรี 429001 สินค้า 429001 72 ชิ้น"
+    );
+  });
+
+  it("PREMIUMUNIT ที่เป็น B อยู่แล้ว ห้ามหารด้วย packSize ซ้ำ", async () => {
+    packSizes["429001"] = 12;
+    const promo = writePromoCsv([
+      promoRow({
+        division: "E",
+        product: "426544",
+        premiumProduct: "429001",
+        premiumQty: 1,
+        premiumUnitB: true,
         minPurchase: 5,
       }),
     ]);
 
     const rep = await loadReport(promo, ["vda1"]);
 
-    expect(rep.groups[0].promoLabel).toContain("คละ 5 หีบ");
-    expect(rep.groups[0].promoLabel).toContain("30 ชิ้น");
+    // 1 หีบ/หีบ × ล็อต 5 = 5 หีบ — ถ้าเผลอหารด้วย packSize จะได้ 0.42 หีบ
+    expect(rep.groups[0].tiers[0].premiumQty).toBe(5);
+    expect(rep.groups[0].tiers[0].premiumUnit).toBe("B");
   });
 
   it("แถวที่ไม่มีทั้งส่วนลดและของแถม ถือว่าไม่มีสิทธิประโยชน์", async () => {

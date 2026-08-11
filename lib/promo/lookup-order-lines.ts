@@ -70,6 +70,9 @@ export function lookupOrderPromoLines(
     salesRepEmail: options?.salesRepEmail,
   });
 
+  // แปลงของแถมจากชิ้นเป็นหีบเมื่อทำได้ — ทั้งแอปพูดเป็นหีบ
+  const packSizeOf = (code: string) => skuDir?.packSizeForSku(code) ?? 1;
+
   const c4Lines = lines.map((l, i) => ({
     itemId: String(i),
     product: String(l.skuCode ?? ""),
@@ -81,6 +84,7 @@ export function lookupOrderPromoLines(
     cusgroup: ctx.cusgroup,
     region: ctx.region,
     promo,
+    packSizeOf,
   });
 
   const perSku: OrderPromoLineResult[] = lines.map((l, i) => {
@@ -93,7 +97,7 @@ export function lookupOrderPromoLines(
       code,
       ctx.region
     );
-    const tiers = promoRowsToTiers(rows);
+    const tiers = promoRowsToTiers(rows, packSizeOf);
     const lineResult = lookup.lines.find((r) => r.itemId === String(i));
     const tierQty = lineResult?.pooledQty ?? qty;
     let display = getC4PromoForQty(tierQty, tiers);

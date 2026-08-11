@@ -79,6 +79,11 @@ export interface PromoMonthReport {
   from: string;
   to: string;
   totals: {
+    /** ทุกแถวในไฟล์ที่ sync มา (ก่อนกรองอะไรเลย) */
+    rowsInFile: number;
+    /** แถวที่ช่วงวันที่ทับซ้อนกับเดือนนี้ */
+    rowsInMonth: number;
+    /** แถวที่รายงานนี้ใช้จริง = ในเดือน และอยู่ในบริบทที่คลังใช้ */
     rows: number;
     groups: number;
     skus: number;
@@ -146,51 +151,34 @@ export function promoOverlapsMonth(
  * เดียวกัน — BSWN: ขั้นต่ำ 24 หีบ × 6 ชิ้น = 144 ชิ้น = 1 หีบของ 429001 พอดี
  * ที่นี่จึงคูณกลับให้ตรงกับที่คนอ่านในแบบฟอร์ม แล้วแปลงชิ้น→หีบ เมื่อหารลงตัว
  */
-function buildC4Label(
-  tiers: PromoTierInput[],
-  minPurchase: number,
-  packSizeOf: (code: string) => number
-): string {
+function buildC4Label(tiers: PromoTierInput[], pooled: boolean): string {
   const benefit = tiers
     .filter(isBenefitTier)
     .slice()
     .sort((a, b) => a.minQty - b.minQty);
   if (benefit.length === 0) return "";
 
+  // minQty/premiumQty ที่เข้ามาผ่าน promoRowsToTiers มาแล้ว — เป็นขนาดล็อตและจำนวน
+  // ต่อล็อต (แปลงเป็นหีบให้ตอนที่ทำได้) ที่นี่จึงแค่เรียงเป็นประโยคเท่านั้น
+  const lead = pooled ? "คละ" : "ซื้อ";
   return benefit
     .map((t) => {
       if (t.kind === "premium" && t.premiumProduct) {
-        const perStep = t.premiumQty ?? 0;
-        const steps =
-          minPurchase > t.minQty && t.minQty > 0
-            ? Math.floor(minPurchase / t.minQty)
-            : 1;
-        const totalQty = steps * perStep;
         const unit = formatPremiumUnit(t.premiumUnit ?? "");
-        const pack = packSizeOf(t.premiumProduct);
-        const free =
-          unit === "ชิ้น" && pack > 1 && totalQty % pack === 0
-            ? `${totalQty / pack} หีบ`
-            : `${totalQty} ${unit}`;
-        const lead =
-          minPurchase > t.minQty
-            ? `คละ ${minPurchase} หีบ`
-            : `ซื้อ ${t.minQty} หีบ`;
         const name = t.premiumName || "";
-        return `${lead} ฟรี ${t.premiumProduct} ${name} ${free}`.replace(
+        return `${lead} ${t.minQty} หีบ ฟรี ${t.premiumProduct} ${name} ${t.premiumQty ?? 0} ${unit}`.replace(
           /\s+/g,
           " "
         );
       }
-      const qty = Math.max(minPurchase, t.minQty);
       if (t.discBaht != null && t.discBaht > 0) {
-        return `ซื้อ ${qty} หีบขึ้นไป ลด ${t.discBaht.toLocaleString("th-TH", {
+        return `${lead} ${t.minQty} หีบขึ้นไป ลด ${t.discBaht.toLocaleString("th-TH", {
           minimumFractionDigits: 2,
           maximumFractionDigits: 2,
         })} บาท/หีบ`;
       }
       if (t.discPct != null && t.discPct > 0) {
-        return `ซื้อ ${qty} หีบขึ้นไป ลด ${t.discPct}%`;
+        return `${lead} ${t.minQty} หีบขึ้นไป ลด ${t.discPct}%`;
       }
       return "";
     })
@@ -264,9 +252,10 @@ export function buildPromoMonthReport(input?: {
         promoServesRegion(r, normalizeRegion(c.region))
     );
 
-  const inMonth = promo
-    .allRows()
-    .filter((r) => promoOverlapsMonth(r, range.from, range.to));
+  const allRows = promo.allRows();
+  const inMonth = allRows.filter((r) =>
+    promoOverlapsMonth(r, range.from, range.to)
+  );
   // ไม่มีคลังในระบบเลย (stock cover ยังไม่โหลด) → ไม่กรอง ดีกว่าโชว์หน้าว่างโดยไม่บอกอะไร
   const rows = contexts.length > 0 ? inMonth.filter(inStoreContext) : inMonth;
   const rowsOtherContext = inMonth.length - rows.length;
@@ -295,7 +284,9 @@ export function buildPromoMonthReport(input?: {
     const kinds = [...new Set(bucket.map(kindOf))];
     for (const r of bucket) if (kindOf(r) === "none") noBenefitRows++;
 
-    const tiers = promoRowsToTiers(bucket).map((t) =>
+    const tiers = promoRowsToTiers(bucket, (c) =>
+      skuDir?.packSizeForSku(c) ?? 1
+    ).map((t) =>
       t.premiumProduct
         ? {
             ...t,
@@ -367,9 +358,7 @@ export function buildPromoMonthReport(input?: {
       group,
       groupName,
       headline,
-      promoLabel: buildC4Label(tiers, minPurchase, (c) =>
-        skuDir?.packSizeForSku(c) ?? 1
-      ),
+      promoLabel: buildC4Label(tiers, skus.length > 1),
       skus,
       tiers,
       kinds,
@@ -391,6 +380,8 @@ export function buildPromoMonthReport(input?: {
   return {
     ...range,
     totals: {
+      rowsInFile: allRows.length,
+      rowsInMonth: inMonth.length,
       rows: rows.length,
       groups: groups.length,
       skus: allSkus.size,

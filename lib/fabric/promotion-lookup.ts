@@ -1,6 +1,7 @@
 import type { PromoTierInput, PromoTierKind } from "@/lib/calculations";
 import {
   calcStepPremiumQty,
+  formatPremiumUnit,
   getPromoForQty,
   type PromoResult,
 } from "@/lib/calculations";
@@ -9,6 +10,7 @@ import {
   isStepTier,
   promoActiveOn,
   promoServesRegion,
+  tierMinQty,
   type PromoRow,
   type PromotionCredit,
 } from "./promotion-credit";
@@ -57,14 +59,43 @@ export interface C4LookupResult {
   skipped: { itemId: string; product: string; reason: string }[];
 }
 
+/** ชิ้นต่อหีบของสินค้าของแถม — ไม่ส่งมา = ไม่แปลงหน่วย */
+export type PackSizeResolver = (productCode: string) => number;
+
+/**
+ * ของแถมที่ได้ต่อหนึ่งล็อต แปลงเป็นหีบเมื่อทำได้
+ *
+ * ต้นทางเขียนอัตราเป็น "ต่อ from หีบ ได้ premiumQty หน่วย" แต่เงื่อนไขจริงคือต้องครบ
+ * ล็อตละ tierMinQty หีบ จึงต้องคูณกลับก่อน (BSWN: 6 ชิ้น/หีบ × 24 หีบ = 144 ชิ้น)
+ *
+ * PREMIUMUNIT เป็น B อยู่แล้ว 26 แถว (เป็นหีบ ห้ามหารซ้ำ) ที่เหลือเป็น P (ชิ้น)
+ * แปลงเป็นหีบเฉพาะตอนที่หารลงตัว — มี 32 แถวที่ได้ไม่ถึงหีบเต็ม (เช่น BSBSN
+ * ซื้อ 6 หีบ ได้ 72 ชิ้น = ครึ่งหีบ) พวกนั้นคงหน่วยชิ้นไว้ ดีกว่าโชว์ "0.5 หีบ"
+ */
+export function premiumPerLot(
+  row: PromoRow,
+  packSizeOf?: PackSizeResolver
+): { qty: number; unit: string } {
+  const from = row.fromQty > 0 ? row.fromQty : 1;
+  const raw = row.premiumQty * (tierMinQty(row) / from);
+  if ((row.premiumUnit || "").toUpperCase() === "B") {
+    return { qty: raw, unit: "B" };
+  }
+  const pack = packSizeOf?.(row.premiumProduct) ?? 1;
+  if (pack > 1 && raw % pack === 0) return { qty: raw / pack, unit: "B" };
+  return { qty: raw, unit: row.premiumUnit };
+}
+
 export function activePromoRowAtQty(
   rows: PromoRow[],
   qty: number
 ): PromoRow | null {
-  const sorted = [...rows].sort((a, b) => a.fromQty - b.fromQty);
+  // เทียบกับ tierMinQty ไม่ใช่ fromQty — ขั้นที่มี MINIMUMPURCHASE ยังไม่ active
+  // จนกว่าจะซื้อถึงขั้นต่ำจริง
+  const sorted = [...rows].sort((a, b) => tierMinQty(a) - tierMinQty(b));
   let active: PromoRow | null = null;
   for (const r of sorted) {
-    if (qty >= r.fromQty) active = r;
+    if (qty >= tierMinQty(r)) active = r;
     else break;
   }
   return active;
@@ -75,7 +106,7 @@ function activeTier(rows: PromoRow[], pooledQty: number): PromoRow | null {
 }
 
 /** ของแถมขั้นบันได / หน่วยของแถม — re-export จาก calculations (client-safe) */
-export { calcStepPremiumQty, formatPremiumUnit } from "@/lib/calculations";
+export { calcStepPremiumQty, formatPremiumUnit };
 
 export function lookupC4(
   lines: C4Line[],
@@ -85,6 +116,8 @@ export function lookupC4(
     region: string;
     day?: Date;
     promo: PromotionCredit;
+    /** ใช้แปลงของแถมจากชิ้นเป็นหีบ — ไม่ส่งมาก็ยังคำนวณได้ แค่คงหน่วยต้นทาง */
+    packSizeOf?: PackSizeResolver;
   }
 ): C4LookupResult {
   const day = opts.day ?? new Date();
@@ -120,7 +153,7 @@ export function lookupC4(
   for (const [poolKey, pool] of pools) {
     const pooledQty = pool.lines.reduce((s, l) => s + (l.qty || 0), 0);
     const sortedRows = [...pool.rows].sort(
-      (a, b) => a.fromQty - b.fromQty || a.toQty - b.toQty
+      (a, b) => tierMinQty(a) - tierMinQty(b) || a.toQty - b.toQty
     );
     const active = activeTier(sortedRows, pooledQty);
 
@@ -165,19 +198,18 @@ export function lookupC4(
     }
 
     if (isStepTier(active) && hasPremium(active)) {
-      const freeQty = calcStepPremiumQty(
-        pooledQty,
-        active.fromQty,
-        active.premiumQty
-      );
+      // ล็อตละ tierMinQty หีบ ได้ของแถม perLot ต่อล็อต — เศษที่ไม่ครบล็อตไม่นับ
+      const lot = tierMinQty(active);
+      const perLot = premiumPerLot(active, opts.packSizeOf);
+      const freeQty = calcStepPremiumQty(pooledQty, lot, perLot.qty);
       if (freeQty > 0) {
         const firstItemId = pool.lines[0]?.itemId;
         result.freeGoods.push({
           poolKey,
           premiumProduct: active.premiumProduct,
           qty: freeQty,
-          unit: active.premiumUnit,
-          reason: `buy ${pooledQty} → ${freeQty} free ${active.premiumProduct} (tier ${active.fromQty}, ×${active.premiumQty})`,
+          unit: perLot.unit,
+          reason: `buy ${pooledQty} → ${freeQty} free ${active.premiumProduct} (lot ${lot}, ×${perLot.qty})`,
         });
         const host = result.lines.find(
           (ln) => ln.poolKey === poolKey && ln.itemId === firstItemId
@@ -186,9 +218,9 @@ export function lookupC4(
           host.freeGood = {
             premiumProduct: active.premiumProduct,
             qty: freeQty,
-            unit: active.premiumUnit,
-            tierFromQty: active.fromQty,
-            tierPremiumQty: active.premiumQty,
+            unit: perLot.unit,
+            tierFromQty: lot,
+            tierPremiumQty: perLot.qty,
             pooledQty,
           };
         }
@@ -213,11 +245,16 @@ function formatDiscPct(pct: number): string {
   });
 }
 
-export function formatPromoDiscount(row: PromoRow): string {
+export function formatPromoDiscount(
+  row: PromoRow,
+  packSizeOf?: PackSizeResolver
+): string {
   if (row.discAmt > 0) return `${formatDiscAmt(row.discAmt)} บาท/หีบ`;
   if (row.discPct > 0) return `${formatDiscPct(row.discPct)}%`;
   if (hasPremium(row)) {
-    return `แถม ${row.premiumProduct} ×${row.premiumQty}`;
+    // จำนวนต่อล็อต ไม่ใช่อัตราต่อหีบดิบ ๆ — ให้ตรงกับเงื่อนไขที่ร้านต้องทำจริง
+    const perLot = premiumPerLot(row, packSizeOf);
+    return `แถม ${row.premiumProduct} ×${perLot.qty} ${formatPremiumUnit(perLot.unit)}`;
   }
   return "";
 }
@@ -249,24 +286,35 @@ export function tierKind(row: PromoRow): PromoTierKind {
   return "none";
 }
 
-export function promoRowsToTiers(rows: PromoRow[]): PromoTierInput[] {
+/**
+ * แปลงแถว C4 เป็นขั้นบันไดที่ปลายทางใช้
+ *
+ * minQty ที่ออกไปคือ "จำนวนจริงที่ต้องซื้อ" (tierMinQty) ไม่ใช่ fromQty ดิบ ๆ
+ * ปลายทางทุกตัวเทียบ qty กับ minQty อยู่แล้ว การใส่ค่าที่ถูกตั้งแต่ตรงนี้จึงทำให้
+ * ทั้งการ active ขั้น การนับล็อตของแถม และข้อความที่แสดง ตรงกันหมดโดยไม่ต้องแก้ทีละที่
+ */
+export function promoRowsToTiers(
+  rows: PromoRow[],
+  packSizeOf?: PackSizeResolver
+): PromoTierInput[] {
   const seen = new Set<number>();
   const tiers: PromoTierInput[] = [];
   for (const r of rows) {
-    if (seen.has(r.fromQty)) continue;
-    seen.add(r.fromQty);
+    const minQty = tierMinQty(r);
+    if (seen.has(minQty)) continue;
+    seen.add(minQty);
     const kind = tierKind(r);
+    const perLot = kind === "premium" ? premiumPerLot(r, packSizeOf) : null;
     tiers.push({
-      minQty: r.fromQty,
-      discount: formatPromoDiscount(r),
-      sortOrder: r.fromQty,
+      minQty,
+      discount: formatPromoDiscount(r, packSizeOf),
+      sortOrder: minQty,
       kind,
       discBaht: r.discAmt > 0 ? r.discAmt : undefined,
       discPct: r.discPct > 0 ? r.discPct : undefined,
-      premiumProduct:
-        kind === "premium" ? r.premiumProduct : undefined,
-      premiumQty: kind === "premium" ? r.premiumQty : undefined,
-      premiumUnit: kind === "premium" ? r.premiumUnit : undefined,
+      premiumProduct: kind === "premium" ? r.premiumProduct : undefined,
+      premiumQty: perLot?.qty,
+      premiumUnit: perLot?.unit,
     });
   }
   return tiers.sort((a, b) => a.sortOrder - b.sortOrder);

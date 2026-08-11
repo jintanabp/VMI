@@ -69,6 +69,20 @@ export function isStepTier(row: PromoRow): boolean {
   return row.fromQty === row.toQty;
 }
 
+/**
+ * จำนวนที่ต้องซื้อจริงถึงจะได้ขั้นนี้ — และเป็น "ขนาดล็อต" ของการทบของแถมด้วย
+ *
+ * ไฟล์ C4 เขียนขั้นแรกเป็น from=1 ไว้เป็นค่าเริ่มต้นเสมอ แล้วบอกเงื่อนไขจริงแยกไว้ที่
+ * MINIMUMPURCHASE (ตรวจไฟล์แล้ว: ทุกแถวที่ min > 0 มี from = 1 ทั้งหมด ไม่มีข้อยกเว้น
+ * ส่วนขั้นสูงกว่ามี min = 0 เพราะ from ของมันเองคือเงื่อนไขอยู่แล้ว)
+ *
+ * เดิมระบบอ่านแต่ from จึงคิดว่า BSWN คือ "ซื้อ 1 หีบ แถม 6 ชิ้น" ทั้งที่ของจริงคือ
+ * "สั่งคละ 24 หีบในกลุ่ม แถม 1 หีบ" — ให้ของแถมทั้งที่ยังไม่ถึงขั้นต่ำ และให้เกินจริง
+ */
+export function tierMinQty(row: PromoRow): number {
+  return Math.max(row.fromQty, row.minPurchase);
+}
+
 export function hasPremium(row: PromoRow): boolean {
   return (
     row.premiumProduct !== "" &&

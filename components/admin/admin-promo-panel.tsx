@@ -240,9 +240,11 @@ export function AdminPromoPanel() {
                   ? `กลุ่มโปร ${monthLabel(data?.month ?? "")} (${visibleGroups.length.toLocaleString("th-TH")})`
                   : `รายสินค้า ${monthLabel(data?.month ?? "")} (${visibleSkuRows.length.toLocaleString("th-TH")})`}
               </CardTitle>
+              {/* แยกให้เห็นว่าเลขแต่ละตัวมาจากไหน — เดิมเขียน "N แถวจากไฟล์ C4"
+                  ทั้งที่ N คือจำนวนหลังกรองแล้ว เทียบกับไฟล์จริงไม่ตรงเลย */}
               <CardDescription>
                 {data
-                  ? `${data.totals.rows.toLocaleString("th-TH")} แถวจากไฟล์ C4 · ช่วง ${data.from} ถึง ${data.to} · ไฟล์อัปเดตเดือนละครั้ง`
+                  ? `ไฟล์มี ${data.totals.rowsInFile.toLocaleString("th-TH")} แถว · ทับซ้อนเดือนนี้ ${data.totals.rowsInMonth.toLocaleString("th-TH")} แถว · ใช้จริง ${data.totals.rows.toLocaleString("th-TH")} แถว · ช่วง ${data.from} ถึง ${data.to}`
                   : "กำลังอ่านไฟล์โปร C4"}
               </CardDescription>
 
