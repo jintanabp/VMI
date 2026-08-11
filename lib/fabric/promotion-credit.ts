@@ -54,9 +54,8 @@ export interface PromoRow {
   /**
    * MINIMUMPURCHASE จากไฟล์ต้นทาง — ยอดสั่งขั้นต่ำที่ประกาศไว้แยกจาก fromQty/toQty
    *
-   * ตอนนี้เป็น "ข้อมูลประกอบ" เท่านั้น ไม่ได้เอาไปกรองหรือคิดส่วนลด เพราะยังไม่ยืนยัน
-   * กฎธุรกิจ — บางกลุ่มเขียน from/to = 1/1 แต่ minPurchase = 24 (เช่น BSWN) ซึ่งถ้า
-   * บังคับใช้จะเปลี่ยนตัวเลขที่ลูกค้าเห็นทันที เอาไว้โชว์ให้คนตัดสินก่อน
+   * บังคับใช้จริงแล้วผ่าน tierMinQty() ทั้งเงื่อนไขและขนาดล็อตของแถม
+   * อย่าอ่านค่านี้ตรง ๆ เพื่อตัดสินว่าถึงขั้นหรือยัง ให้ผ่าน tierMinQty() เสมอ
    */
   minPurchase: number;
   regions: Set<string>;
@@ -174,21 +173,6 @@ export class PromotionCredit {
   allRows(): PromoRow[] {
     const out: PromoRow[] = [];
     for (const bucket of this.byKey.values()) out.push(...bucket);
-    return out;
-  }
-
-  /**
-   * รหัสสินค้าทั้งหมดที่มีแถว C4 ในบริบทนี้
-   *
-   * ใช้หา "สินค้าที่มีโปรแต่ร้านไม่เคยสต็อก" ซึ่งหน้าสต็อกสร้างแถวจาก stock_cover_day
-   * อย่างเดียวจึงไม่เคยเห็น — อ่านจากคีย์ของ byKey ตรง ๆ ไม่ต้องไล่ทุกแถว
-   */
-  productsFor(division: string, cusgroup: string): string[] {
-    const prefix = `${division}|${cusgroup}|`;
-    const out: string[] = [];
-    for (const key of this.byKey.keys()) {
-      if (key.startsWith(prefix)) out.push(key.slice(prefix.length));
-    }
     return out;
   }
 
