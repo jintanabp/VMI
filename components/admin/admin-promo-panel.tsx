@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   ChevronDown,
   Gift,
+  Info,
   Layers,
   List,
   Package,
@@ -240,32 +241,43 @@ export function AdminPromoPanel() {
                   : `รายสินค้า ${monthLabel(data?.month ?? "")} (${visibleSkuRows.length.toLocaleString("th-TH")})`}
               </CardTitle>
               <CardDescription>
-                {data ? (
-                  <>
-                    {data.totals.rows.toLocaleString("th-TH")} แถวจากไฟล์ C4 ·
-                    ช่วง {data.from} ถึง {data.to} · ไฟล์อัปเดตเดือนละครั้ง
-                    {/* บอกให้ชัดว่ากรองอะไรออกไป — ไม่ใช่ตัดเงียบ ๆ แล้วให้เดาเอง
-                        ว่าทำไมแถวที่เปิดเจอในไฟล์ถึงไม่อยู่ในนี้ */}
-                    <br />
-                    เฉพาะบริบทที่คลังใช้จริง:{" "}
-                    {data.contexts
-                      .map(
-                        (c) =>
-                          `Div.${c.division} · กลุ่มลูกค้า ${c.cusgroup} · ${c.region} (${c.stores.join(", ")})`
-                      )
-                      .join(" | ") || "—"}
+                {data
+                  ? `${data.totals.rows.toLocaleString("th-TH")} แถวจากไฟล์ C4 · ช่วง ${data.from} ถึง ${data.to} · ไฟล์อัปเดตเดือนละครั้ง`
+                  : "กำลังอ่านไฟล์โปร C4"}
+              </CardDescription>
+
+              {/* บอกตรง ๆ ว่าเราใช้ Div ไหน — ไฟล์ C4 มีของ Div อื่นปนมาด้วยและ
+                  การ lookup ของหน้าร้านไม่แตะถึงเลย ถ้าไม่เขียนไว้ คนเปิดไฟล์เทียบ
+                  จะเจอโปรที่ไม่มีในนี้แล้วนึกว่าระบบทำข้อมูลหาย */}
+              {data && data.contexts.length > 0 && (
+                <p className="mt-2 flex flex-wrap items-start gap-1.5 rounded-lg bg-teal-50 px-2 py-1.5 text-xs font-medium text-teal-900 ring-1 ring-teal-200 dark:bg-teal-950/40 dark:text-teal-100 dark:ring-teal-900">
+                  <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span className="min-w-0">
+                    ระบบเราใช้{" "}
+                    <span className="font-bold">
+                      Div.
+                      {[...new Set(data.contexts.map((c) => c.division))].join(
+                        " / "
+                      )}
+                    </span>{" "}
+                    เท่านั้น (กลุ่มลูกค้า{" "}
+                    {[...new Set(data.contexts.map((c) => c.cusgroup))].join(
+                      " / "
+                    )}{" "}
+                    ·{" "}
+                    {[...new Set(data.contexts.map((c) => c.region))].join(" / ")}{" "}
+                    · {data.contexts.flatMap((c) => c.stores).join(", ")}) —
+                    โปรของ Div. อื่นในไฟล์ไม่ได้ใช้
                     {data.totals.rowsOtherContext > 0 && (
                       <>
                         {" "}
-                        · ตัดแถวบริบทอื่นออก{" "}
+                        ตัดออก{" "}
                         {data.totals.rowsOtherContext.toLocaleString("th-TH")} แถว
                       </>
                     )}
-                  </>
-                ) : (
-                  "กำลังอ่านไฟล์โปร C4"
-                )}
-              </CardDescription>
+                  </span>
+                </p>
+              )}
             </div>
             {/* สลับมุมมอง — "รายสินค้า" จัดคอลัมน์ให้ตรงกับแบบฟอร์มสั่งสินค้าที่ทีมใช้จริง
                 จะได้เทียบกับไฟล์ที่ส่งให้ร้านได้บรรทัดต่อบรรทัด */}
