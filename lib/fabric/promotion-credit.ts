@@ -51,6 +51,14 @@ export interface PromoRow {
   premiumProduct: string;
   premiumQty: number;
   premiumUnit: string;
+  /**
+   * MINIMUMPURCHASE จากไฟล์ต้นทาง — ยอดสั่งขั้นต่ำที่ประกาศไว้แยกจาก fromQty/toQty
+   *
+   * ตอนนี้เป็น "ข้อมูลประกอบ" เท่านั้น ไม่ได้เอาไปกรองหรือคิดส่วนลด เพราะยังไม่ยืนยัน
+   * กฎธุรกิจ — บางกลุ่มเขียน from/to = 1/1 แต่ minPurchase = 24 (เช่น BSWN) ซึ่งถ้า
+   * บังคับใช้จะเปลี่ยนตัวเลขที่ลูกค้าเห็นทันที เอาไว้โชว์ให้คนตัดสินก่อน
+   */
+  minPurchase: number;
   regions: Set<string>;
   fromDate: Date | null;
   toDate: Date | null;
@@ -109,6 +117,7 @@ function parsePromoRow(norm: Record<string, string>): PromoRow | null {
     premiumProduct: norm.PREMIUMPRODUCT ?? "",
     premiumQty: toInt(norm.PREMIUMQUANTITY),
     premiumUnit: norm.PREMIUMUNIT ?? "",
+    minPurchase: toInt(norm.MINIMUMPURCHASE),
     regions,
     fromDate: toDate(norm.FROMDATE),
     toDate: toDate(norm.TODATE),
@@ -139,6 +148,19 @@ export class PromotionCredit {
 
   rowsFor(division: string, cusgroup: string, product: string): PromoRow[] {
     return this.byKey.get(`${division}|${cusgroup}|${product}`) ?? [];
+  }
+
+  /**
+   * ทุกแถวใน directory — สำหรับงานที่ต้อง "ไล่ดูทั้งชุด" ไม่ใช่ lookup รายคีย์
+   *
+   * ที่ต้องมี: rowsFor/rowsForGroup ต้องรู้ (division, cusgroup, product) ก่อน จึงไล่ดู
+   * ทั้งไฟล์ไม่ได้เลย งานอย่างรายงานโปรรายเดือนหรือสคริปต์เก็บสถิติเคยต้องเปิด CSV
+   * อ่านซ้ำเองทั้งที่ข้อมูลชุดเดียวกัน parse ไว้ในหน่วยความจำอยู่แล้ว
+   */
+  allRows(): PromoRow[] {
+    const out: PromoRow[] = [];
+    for (const bucket of this.byKey.values()) out.push(...bucket);
+    return out;
   }
 
   /** All tier rows under (division, cusgroup) whose ASSORTEDPRODUCTGROUP equals group. */

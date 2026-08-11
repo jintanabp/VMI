@@ -35,6 +35,8 @@ export interface PromoInspectorTier {
   toDate: string;
   discountLabel: string;
   isStepTier: boolean;
+  /** ยอดสั่งขั้นต่ำที่ประกาศไว้ในไฟล์ — แสดงอย่างเดียว ไม่ได้ใช้คิดส่วนลด */
+  minPurchase: number;
 }
 
 export interface PromoInspectorProduct {
@@ -78,6 +80,7 @@ function tierFromRow(row: PromoRow, premiumName: (code: string) => string): Prom
     toDate: (row.raw.TODATE ?? "").slice(0, 10),
     discountLabel: formatPromoDiscount(row),
     isStepTier: isStepTier(row) && hasPremium(row),
+    minPurchase: row.minPurchase,
   };
 }
 

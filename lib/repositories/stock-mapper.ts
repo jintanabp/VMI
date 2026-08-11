@@ -82,7 +82,7 @@ export function mapStockRow(
     item.poolQtyForDiscount ??
     (suggestOrder > 0 ? suggestOrder : 0);
 
-  if (item.c4PromoRows?.length && suggestOrder > 0 && tierQty > 0) {
+  if (item.c4PromoRows?.length && tierQty > 0) {
     const active = activePromoRowAtQty(item.c4PromoRows, tierQty);
     if (active) {
       discountBaht = active.discAmt > 0 ? active.discAmt : null;
@@ -101,14 +101,20 @@ export function mapStockRow(
       ? calcLineAmount(suggestOrder, item.unitPrice, netUnitPrice)
       : null;
 
+  // ส่ง tierQty ตรง ๆ (ยอม 0) — เดิมแกล้งสมมติว่าสั่ง 1 หีบเมื่อยังไม่มีจำนวน
+  // ทำให้แถวที่ยังไม่ได้สั่งโชว์ "ได้โปรแล้ว" ทั้งที่ยังไม่ได้อะไร
+  // ที่ qty 0 จะได้ currentPromo = null และ nextPromo/qtyToNext บอกเงื่อนไขขั้นแรกแทน
   const promo =
-    item.promoOverride ??
-    getPromoForQty(
-      tierQty > 0 ? tierQty : 1,
-      item.sku.promoTiers
-    );
+    item.promoOverride ?? getPromoForQty(tierQty, item.sku.promoTiers);
 
-  const showPromo = suggestOrder > 0;
+  /**
+   * ตัวเลขที่เป็น "เงิน" ผูกกับจำนวนที่สั่งจริง — ไม่มีจำนวนก็ยังไม่มีส่วนลด
+   *
+   * เดิมใช้ suggestOrder > 0 เป็นเกตของทุกอย่างรวมถึงข้อมูลโปรด้วย ผลคือสินค้าที่
+   * สต็อกยังพอ (ระบบไม่แนะนำให้สั่ง) จะไม่แสดงโปรเลยทั้งที่มีโปร active อยู่จริง
+   * เช่น 426544 กลุ่ม BSWN บน vda4 — คนดูเห็นโปรใน C4 แต่หน้าจอว่าง
+   */
+  const showMoney = tierQty > 0;
 
   // จำนวนวันที่โปร active จะหมด (นับวันที่ใกล้สุดในบรรดา c4PromoRows ที่ active อยู่)
   let currentPromoEndsInDays: number | null = null;
@@ -146,23 +152,24 @@ export function mapStockRow(
     maxStock,
     stockCvd: calcStockCvd(stock, avgSales),
     suggestOrder,
-    currentPromo: showPromo ? promo.currentPromo : null,
-    nextPromo: showPromo ? promo.nextPromo : null,
-    nextPromoQty: showPromo ? promo.nextPromoQty : null,
-    qtyToNext: showPromo ? promo.qtyToNext : null,
-    currentPromoKind: showPromo ? promo.currentKind : null,
-    nextPromoKind: showPromo ? promo.nextKind : null,
-    hasPromoLadder: showPromo ? promo.hasPromoLadder : false,
+    // ข้อมูลโปรไม่มีเกต — โปรที่ active อยู่ต้องเห็นทุกแถว ไม่ว่าจะควรสั่งหรือไม่
+    currentPromo: promo.currentPromo,
+    nextPromo: promo.nextPromo,
+    nextPromoQty: promo.nextPromoQty,
+    qtyToNext: promo.qtyToNext,
+    currentPromoKind: promo.currentKind ?? null,
+    nextPromoKind: promo.nextKind ?? null,
+    hasPromoLadder: promo.hasPromoLadder ?? false,
     currentPromoEndsInDays,
     promoGroup: item.promoGroup ?? null,
     promoGroupMembers: item.promoGroupMembers ?? 0,
     promoTiers: item.sku.promoTiers,
     unitPrice: item.unitPrice ?? null,
     stockValue: item.stockValue ?? null,
-    discountBahtPerCase: showPromo ? discountBaht : null,
-    discountPctPerCase: showPromo ? discountPct : null,
-    netUnitPrice: showPromo ? netUnitPrice : item.unitPrice ?? null,
-    lineTotal: showPromo ? lineTotal : null,
+    discountBahtPerCase: showMoney ? discountBaht : null,
+    discountPctPerCase: showMoney ? discountPct : null,
+    netUnitPrice: showMoney ? netUnitPrice : item.unitPrice ?? null,
+    lineTotal: showMoney ? lineTotal : null,
     priceExpired: item.priceExpired ?? false,
     needsOrder: suggestOrder > 0,
     fromDb: item.fromDb,

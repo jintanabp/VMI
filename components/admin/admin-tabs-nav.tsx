@@ -8,6 +8,7 @@ import {
   Shield,
   SlidersHorizontal,
   Store,
+  Tag,
   Users,
   Warehouse,
 } from "lucide-react";
@@ -28,6 +29,7 @@ export const ADMIN_TABS: AdminTabDef[] = [
   { href: "/admin/sync", label: "ข้อมูล & Sync", icon: Database },
   { href: "/admin/stores", label: "บัญชีร้านค้า", icon: Store },
   { href: "/admin/thresholds", label: "MIN/MAX & หยุดสั่ง", icon: SlidersHorizontal },
+  { href: "/admin/promo", label: "โปรโมชั่น C4", icon: Tag },
   { href: "/admin/vda", label: "มุมมอง VDA", icon: Warehouse },
   { href: "/admin/sales", label: "มุมมองเซลล์", icon: Users },
   { href: "/admin/settings", label: "ตั้งค่าระบบ", icon: Shield },

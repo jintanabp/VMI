@@ -155,10 +155,6 @@ function lineQtyForRow(row: StockRowComputed, staged?: StagedQtyMap): number {
   return row.suggestOrder > 0 ? row.suggestOrder : 0;
 }
 
-function shouldShowPromo(row: StockRowComputed, staged?: StagedQtyMap): boolean {
-  return lineQtyForRow(row, staged) > 0;
-}
-
 function buildFreeGood(
   tier: PromoTierInput | null,
   tierQty: number
@@ -174,24 +170,6 @@ function buildFreeGood(
     unitLabel: formatPremiumUnit(tier.premiumUnit ?? ""),
     tierFromQty: tier.minQty,
     tierPremiumQty,
-  };
-}
-
-function clearPromoFields(row: StockRowComputed): StockRowComputed {
-  return {
-    ...row,
-    currentPromo: null,
-    nextPromo: null,
-    nextPromoQty: null,
-    qtyToNext: null,
-    currentPromoKind: null,
-    nextPromoKind: null,
-    hasPromoLadder: false,
-    discountBahtPerCase: null,
-    discountPctPerCase: null,
-    netUnitPrice: row.unitPrice ?? null,
-    lineTotal: null,
-    freeGood: null,
   };
 }
 
@@ -240,10 +218,18 @@ function enrichOne(
   staged: StagedQtyMap | undefined,
   groupPool: Map<string, number>
 ): StockRowComputed {
-  if (!shouldShowPromo(row, staged)) {
-    return clearPromoFields(row);
-  }
   const lineQty = lineQtyForRow(row, staged);
+
+  // ยังไม่ได้สั่ง — คิดบันไดที่ 0 จึงได้ "ยังไม่ได้ส่วนลด แต่อีก N หีบได้อะไร"
+  //
+  // เดิมล้างฟิลด์โปรทิ้งทั้งชุดตรงนี้ คู่กับ showPromo ใน stock-mapper สินค้าที่สต็อก
+  // ยังพอ (ระบบไม่แนะนำให้สั่ง) จึงไม่แสดงโปรเลยทั้งที่ C4 มีโปร active อยู่จริง
+  // เช่น 426544 กลุ่ม BSWN บน vda4 — เปิด CSV เห็นโปร แต่หน้าจอว่าง
+  //
+  // ไม่เอา pooled มาคิดในเคสนี้: แถวที่สั่ง 0 ไม่ควรขึ้นว่า "ได้ส่วนลดแล้ว"
+  // เพราะเพื่อนในกลุ่มไต่ขั้นไปถึง
+  if (lineQty <= 0) return applyTierPricing(row, 0, 0);
+
   const pooled =
     row.promoGroup &&
     isPooledPromoGroup(row.promoGroup, row.promoGroupMembers)

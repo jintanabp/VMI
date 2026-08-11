@@ -393,6 +393,17 @@ export function C4PromoModal({
                                 ? `–${step.toQty}`
                                 : "+"}{" "}
                               {step.unitLabel}
+                              {/* ไฟล์ C4 ประกาศ MINIMUMPURCHASE แยกจาก from/to และบางกลุ่ม
+                                  ไม่ตรงกัน (BSWN: from/to = 1/1 แต่ขั้นต่ำ 24) ระบบยังไม่
+                                  บังคับใช้ตัวเลขนี้ จึงบอกไว้เฉย ๆ ให้เห็นว่ามีเงื่อนไขอื่น */}
+                              {step.minPurchase > step.fromQty && (
+                                <span
+                                  className="ml-1 whitespace-nowrap font-normal text-amber-700 dark:text-amber-400"
+                                  title="ยอดสั่งขั้นต่ำที่ระบุมาในไฟล์ C4 — ระบบยังไม่นำมาคิดส่วนลดให้"
+                                >
+                                  (ขั้นต่ำ {step.minPurchase})
+                                </span>
+                              )}
                             </td>
                             <td className="px-2 py-2 text-right font-mono">
                               {step.discBaht != null

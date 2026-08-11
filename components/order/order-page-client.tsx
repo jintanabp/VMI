@@ -7,6 +7,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
   ArrowLeft,
+  Banknote,
   CheckCircle2,
   Pencil,
   RotateCcw,
@@ -32,7 +33,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { CvdFlagCell } from "@/components/ui/cvd-flag-cell";
-import { NoticeBanner } from "@/components/ui/notice-banner";
+import {
+  OrderNoticeBar,
+  type OrderNoticeGroup,
+} from "@/components/order/order-notice-bar";
 import {
   MobileRow,
   MobileRowExtra,
@@ -154,6 +158,8 @@ export function OrderPageClient({
   const [submitError, setSubmitError] = useState<string | null>(null);
   /** ยืนยันอีกครั้งเมื่อมีรายการที่จำนวนไม่เข้าเป้าหมาย — เตือน ไม่ใช่ห้ามส่ง */
   const [confirmRiskyOpen, setConfirmRiskyOpen] = useState(false);
+  /** ชิปคำเตือนที่กดค้างไว้ — กรองตารางให้เหลือเฉพาะรายการของคำเตือนนั้น */
+  const [noticeFilter, setNoticeFilter] = useState<string | null>(null);
   /** skuCode → ราคา/หีบ ที่ร้านพิมพ์เอง */
   const [priceOverrides, setPriceOverrides] = useState<Record<string, number>>(
     {}
@@ -391,7 +397,6 @@ export function OrderPageClient({
     const overriddenCount = enriched.filter(
       (l) => l.unitPriceOverride != null
     ).length;
-    const mismatchCount = enriched.filter((l) => l.priceMismatch).length;
     // orderTotal จาก API คิดจากราคา master ไม่รู้จัก override — มี override เมื่อไหร่ต้องรวมเอง
     const orderTotal =
       overriddenCount > 0
@@ -404,13 +409,13 @@ export function OrderPageClient({
       warnCount,
       withPromo,
       overriddenCount,
-      mismatchCount,
       skuCount: enriched.length,
       orderTotal: orderTotal > 0 ? orderTotal : null,
     };
   }, [enriched, promoApi]);
 
-  const displayLines = useMemo(() => {
+  /** เรียงแล้วแต่ยังไม่ทาแถบสีกลุ่ม — ต้องทาหลังกรอง ไม่งั้นหัวกลุ่มจะไปอยู่บนแถวที่ถูกกรองทิ้ง */
+  const orderedLines = useMemo(() => {
     const withGroup = enriched.map((line) => ({
       ...line,
       promoGroup: line.promoGroup ?? line.row.promoGroup ?? null,
@@ -418,8 +423,14 @@ export function OrderPageClient({
         line.promoGroupMembers ?? line.row.promoGroupMembers ?? 0,
       skuCode: line.row.skuCode,
     }));
-    return annotatePromoGroupStripes(sortRowsByPromoGroup(withGroup));
+    return sortRowsByPromoGroup(withGroup);
   }, [enriched]);
+
+  /** ชุดเต็ม — ยอดรวมกลุ่มโปรและสมาชิกกลุ่มต้องคิดจากตัวนี้เสมอ ไม่ใช่ชุดที่ถูกกรอง */
+  const displayLines = useMemo(
+    () => annotatePromoGroupStripes(orderedLines),
+    [orderedLines]
+  );
 
   const promoStagedQty = useMemo(() => {
     const m: Record<string, number> = {};
@@ -537,6 +548,130 @@ export function OrderPageClient({
           x.info != null
       );
   }, [lines, recentOrders]);
+
+  /** สั่งซ้ำ ค้นด้วยรหัส SKU — ใช้ทั้งชิปในแถบเตือนและป้าย ↻ ในแถว */
+  const duplicateBySku = useMemo(() => {
+    const m = new Map<string, (typeof duplicateLines)[number]["info"]>();
+    for (const { line, info } of duplicateLines) {
+      m.set(line.row.skuCode, info);
+    }
+    return m;
+  }, [duplicateLines]);
+
+  const mismatchLines = useMemo(
+    () => enriched.filter((l) => l.priceMismatch),
+    [enriched]
+  );
+
+  /**
+   * คำเตือนทั้งหมดในรูปแบบเดียว — ชิปหนึ่งอันต่อหนึ่งเรื่อง
+   *
+   * `skuCodes` คือหัวใจ: มันทำให้คำเตือนกดแล้วทำอะไรได้ ไม่ใช่แค่ข้อความให้อ่าน
+   * ปัญหาเดิมคือรายการยาว ๆ กินที่ตารางซึ่งเป็นที่เดียวที่แก้ปัญหาได้
+   */
+  const noticeGroups = useMemo<OrderNoticeGroup[]>(() => {
+    const groups: OrderNoticeGroup[] = [];
+
+    if (mismatchLines.length > 0) {
+      groups.push({
+        key: "price",
+        tone: "warn",
+        icon: <Banknote className="h-3.5 w-3.5" />,
+        label: "ราคาต่าง",
+        count: mismatchLines.length,
+        summary: `ราคา ${mismatchLines.length} รายการต่างจากราคาในระบบ — ส่งได้ตามปกติ แต่เซลล์จะเห็นการแจ้งเตือนให้ตรวจสอบก่อนอนุมัติ`,
+        skuCodes: mismatchLines.map((l) => l.row.skuCode),
+        items: mismatchLines.map((l) => ({
+          key: l.row.skuCode,
+          node: (
+            <span className="vmi-cell-text block">
+              <span className="font-mono font-semibold">{l.row.skuCode}</span>{" "}
+              {l.row.skuName}
+              {l.priceDiff != null && (
+                <> · ต่าง {formatBaht(l.priceDiff)}/หีบ</>
+              )}
+            </span>
+          ),
+        })),
+      });
+    }
+
+    if (cvdNotices.length > 0) {
+      groups.push({
+        key: "cvd",
+        tone: stats.blockingCount > 0 ? "danger" : "warn",
+        icon: <AlertTriangle className="h-3.5 w-3.5" />,
+        label: "ไม่เข้าเป้า",
+        count: cvdNotices.length,
+        summary: `${cvdNotices.length} รายการจำนวนไม่เข้าเป้าหมาย — ${
+          stats.blockingCount > 0
+            ? "ส่งได้ แต่จะให้ยืนยันอีกครั้ง"
+            : "ส่งได้ตามปกติ"
+        }`,
+        skuCodes: cvdNotices.map((n) => n.skuCode),
+        items: cvdNotices.map((n) => ({
+          key: n.skuCode,
+          node: (
+            <span className="vmi-cell-text block">
+              <span className="font-mono font-semibold">{n.skuCode}</span>{" "}
+              {n.skuName} · {n.hint}
+            </span>
+          ),
+        })),
+        footer: "ปรับจำนวนได้ที่ช่องในตารางนี้เลย",
+      });
+    }
+
+    if (duplicateLines.length > 0) {
+      groups.push({
+        key: "duplicate",
+        tone: "warn",
+        icon: <RotateCcw className="h-3.5 w-3.5" />,
+        label: "สั่งซ้ำ",
+        count: duplicateLines.length,
+        summary: `${duplicateLines.length} รายการเคยสั่งไปแล้วใน ${
+          recentOrders?.days ?? 14
+        } วัน — ตรวจสอบก่อนส่งซ้ำ`,
+        skuCodes: duplicateLines.map(({ line }) => line.row.skuCode),
+        items: duplicateLines.map(({ line, info }) => ({
+          key: line.row.skuId,
+          node: (
+            <span className="vmi-cell-text block">
+              <span className="font-mono font-semibold">
+                {line.row.skuCode}
+              </span>{" "}
+              {line.row.skuName} · สั่งไปแล้ว {formatNumber(info.totalQty, 0)}{" "}
+              หีบ เมื่อ{" "}
+              {info.daysAgo === 0
+                ? "วันนี้"
+                : `${formatNumber(info.daysAgo, 0)} วันก่อน`}
+              {info.status === "pending_approval" && " (ยังรออนุมัติ)"}
+            </span>
+          ),
+        })),
+        footer: (
+          <a
+            href={appPath("/history")}
+            className="font-semibold underline underline-offset-2"
+          >
+            ดูประวัติการสั่งทั้งหมด
+          </a>
+        ),
+      });
+    }
+
+    return groups;
+  }, [mismatchLines, cvdNotices, duplicateLines, stats.blockingCount, recentOrders]);
+
+  /** แถวที่แสดงจริง — ทาแถบสีกลุ่มหลังกรอง หัวกลุ่มจะได้ตรงกับแถวแรกที่เห็นจริง */
+  const visibleLines = useMemo(() => {
+    const group = noticeGroups.find((g) => g.key === noticeFilter);
+    if (!group) return displayLines;
+    const codes = new Set(group.skuCodes);
+    return annotatePromoGroupStripes(
+      orderedLines.filter((l) => codes.has(l.row.skuCode))
+    );
+  }, [noticeFilter, noticeGroups, orderedLines, displayLines]);
 
   /** บรรทัดที่ส่งจริง — จำนวน 0 ส่งไม่ได้ (API บังคับ finalQty >= 1) */
   const submittableLines = useMemo(
@@ -708,106 +843,37 @@ export function OrderPageClient({
           />
         </div>
 
-        <p className="mb-2 shrink-0 text-xs text-slate-500 dark:text-slate-400">
-          ตรวจสอบรายการก่อนส่ง — แก้จำนวนและราคาได้ที่หน้านี้เลย
-        </p>
+        {/* คำเตือนอยู่ในแถบเดียวสูงคงที่ — รายการเต็มไปอยู่ใน portal และ "สิ่งที่ต้องทำ"
+            ไปอยู่ที่ตัวตาราง (กดชิป = กรอง) เดิมเป็นกองแบนเนอร์ที่ยาวตามจำนวนรายการ
+            แล้วไปหักความสูงของตาราง ซึ่งเป็นที่เดียวที่แก้ปัญหาตามคำเตือนได้ */}
+        <OrderNoticeBar
+          groups={noticeGroups}
+          activeKey={noticeFilter}
+          onToggle={setNoticeFilter}
+          visibleCount={visibleLines.length}
+          totalCount={displayLines.length}
+        />
 
-        {/* กองแบนเนอร์เตือน — มีเพดานความสูง (globals.css .vmi-order-notices)
-            เพราะตารางที่อยู่ข้างล่างเป็นลูกตัวเดียวที่ flex-1 ถ้าปล่อยให้แบนเนอร์
-            ยาวตามจำนวนรายการ ตารางจะยุบจนกดแก้จำนวนไม่ได้ ซึ่งคือสิ่งที่คำเตือน
-            บอกให้ไปทำพอดี */}
-        <div className="vmi-order-notices vmi-scroll mb-2 flex shrink-0 flex-col gap-2 overflow-y-auto">
-          {stats.mismatchCount > 0 && (
-            <NoticeBanner
-              tone="warn"
-              title={
-                <>
-                  ราคา {stats.mismatchCount} รายการต่างจากราคาในระบบ —
-                  ส่งได้ตามปกติ แต่เซลล์จะเห็นการแจ้งเตือนให้ตรวจสอบก่อนอนุมัติ
-                </>
-              }
-            />
-          )}
-
-          {cvdNotices.length > 0 && (
-            <NoticeBanner
-              tone={stats.blockingCount > 0 ? "danger" : "warn"}
-              title={
-                <>
-                  {cvdNotices.length} รายการจำนวนไม่เข้าเป้าหมาย —{" "}
-                  {stats.blockingCount > 0
-                    ? "ส่งได้ แต่จะให้ยืนยันอีกครั้ง"
-                    : "ส่งได้ตามปกติ"}
-                </>
-              }
-              items={cvdNotices.map((n) => ({
-                key: n.skuCode,
-                node: (
-                  <span className="vmi-cell-text block">
-                    <span className="font-mono font-semibold">{n.skuCode}</span>{" "}
-                    {n.skuName} · {n.hint}
-                  </span>
-                ),
-              }))}
-              footer="ปรับจำนวนได้ที่ช่องในตารางนี้เลย"
-            />
-          )}
-
-          {duplicateLines.length > 0 && (
-            <NoticeBanner
-              tone="warn"
-              title={
-                <>
-                  {duplicateLines.length} รายการเคยสั่งไปแล้วใน{" "}
-                  {recentOrders?.days ?? 14} วัน — ตรวจสอบก่อนส่งซ้ำ
-                </>
-              }
-              items={duplicateLines.map(({ line, info }) => ({
-                key: line.row.skuId,
-                node: (
-                  <span className="vmi-cell-text block">
-                    <span className="font-mono font-semibold">
-                      {line.row.skuCode}
-                    </span>{" "}
-                    {line.row.skuName} · สั่งไปแล้ว{" "}
-                    {formatNumber(info.totalQty, 0)} หีบ เมื่อ{" "}
-                    {info.daysAgo === 0
-                      ? "วันนี้"
-                      : `${formatNumber(info.daysAgo, 0)} วันก่อน`}
-                    {info.status === "pending_approval" && " (ยังรออนุมัติ)"}
-                  </span>
-                ),
-              }))}
-              footer={
-                <a
-                  href={appPath("/history")}
-                  className="font-semibold underline underline-offset-2"
-                >
-                  ดูประวัติการสั่งทั้งหมด
-                </a>
-              }
-            />
-          )}
-
-          {submitError && (
-            <div className="flex shrink-0 flex-wrap items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
-              <AlertTriangle className="h-4 w-4 shrink-0" />
-              <span className="min-w-0 flex-1">{submitError}</span>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={submitOrder}
-                disabled={submitMutation.isPending}
-              >
-                ลองใหม่
-              </Button>
-            </div>
-          )}
-        </div>
+        {/* ไม่ยุบเป็นชิป — เป็น error ปิดกั้นที่มีปุ่มกดต่อ และเกิดทีละครั้ง ไม่กองกัน */}
+        {submitError && (
+          <div className="mb-2 flex shrink-0 flex-wrap items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            <span className="min-w-0 flex-1">{submitError}</span>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={submitOrder}
+              disabled={submitMutation.isPending}
+            >
+              ลองใหม่
+            </Button>
+          </div>
+        )}
 
         <OrderSummaryList
-          lines={displayLines}
+          lines={visibleLines}
+          duplicateBySku={duplicateBySku}
           promoStagedQty={promoStagedQty}
           groupMemberSkusMap={groupMemberSkusMap}
           onFocusStock={focusSkuOnStock}
@@ -921,8 +987,37 @@ function OrderSummaryPromo({
   );
 }
 
+interface DuplicateInfo {
+  totalQty: number;
+  daysAgo: number;
+  status: string;
+  orderCount: number;
+}
+
+/**
+ * ป้ายสั่งซ้ำข้างรหัส SKU
+ *
+ * ตอนคำเตือนยังเป็นแบนเนอร์ รายชื่อ SKU อยู่ข้างบนตาราง พอย่อเหลือชิปแล้ว
+ * แถวต้องบอกได้ด้วยตัวเองว่าตัวไหนเข้าข่าย ไม่งั้นกรองแล้วก็ยังไม่รู้ว่าทำไม
+ */
+function DuplicateMark({ info }: { info: DuplicateInfo }) {
+  return (
+    <span
+      className="ml-1 inline-flex shrink-0 items-center text-amber-600 dark:text-amber-400"
+      title={`สั่งไปแล้ว ${formatNumber(info.totalQty, 0)} หีบ เมื่อ${
+        info.daysAgo === 0
+          ? "วันนี้"
+          : ` ${formatNumber(info.daysAgo, 0)} วันก่อน`
+      }${info.status === "pending_approval" ? " (ยังรออนุมัติ)" : ""}`}
+    >
+      <RotateCcw className="h-3 w-3" />
+    </span>
+  );
+}
+
 function OrderSummaryList({
   lines,
+  duplicateBySku,
   promoStagedQty,
   groupMemberSkusMap,
   onFocusStock,
@@ -930,6 +1025,7 @@ function OrderSummaryList({
   onQtyChange,
 }: {
   lines: EnrichedLine[];
+  duplicateBySku: Map<string, DuplicateInfo>;
   promoStagedQty: Record<string, number>;
   groupMemberSkusMap: Map<string, string[]>;
   onFocusStock: (skuCode: string) => void;
@@ -971,8 +1067,13 @@ function OrderSummaryList({
                     {index + 1}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="font-bold text-teal-700 dark:text-teal-400">
-                      {line.row.skuCode}
+                    <p className="flex items-center font-bold text-teal-700 dark:text-teal-400">
+                      <span className="truncate">{line.row.skuCode}</span>
+                      {duplicateBySku.has(line.row.skuCode) && (
+                        <DuplicateMark
+                          info={duplicateBySku.get(line.row.skuCode)!}
+                        />
+                      )}
                     </p>
                     <p className="mt-0.5 line-clamp-2 text-sm text-slate-800 dark:text-slate-200">
                       {line.row.skuName}
@@ -1124,11 +1225,19 @@ function OrderSummaryList({
                   {line.row.skuCode}
                 </td>
                 <td className="px-3 py-2.5 text-slate-700 dark:text-slate-300">
+                  {/* ป้ายสั่งซ้ำอยู่ในคอลัมน์ชื่อ ไม่ใช่คอลัมน์ SKU — SKU กว้าง 7%
+                      ซึ่งพอดีกับรหัส 6 หลักเป๊ะ ๆ ใส่ไอคอนเพิ่มแล้วโดน overflow:hidden ตัด
+                      ส่วนคอลัมน์ชื่อเป็น line-clamp-2 อยู่แล้ว จึงรับตัวเพิ่มได้ */}
                   <span
                     className="vmi-cell-text line-clamp-2 block"
                     title={line.row.skuName}
                   >
                     {line.row.skuName}
+                    {duplicateBySku.has(line.row.skuCode) && (
+                      <DuplicateMark
+                        info={duplicateBySku.get(line.row.skuCode)!}
+                      />
+                    )}
                   </span>
                 </td>
                 <td className="px-2 py-2 text-right">
