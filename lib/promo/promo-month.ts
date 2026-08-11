@@ -12,7 +12,11 @@ import {
   getSkuMasterDirectory,
 } from "@/lib/fabric";
 import { bangkokDateStr, isoDateStr } from "@/lib/fabric/bkk-date";
-import { promoServesRegion, type PromoRow } from "@/lib/fabric/promotion-credit";
+import {
+  promoActiveOn,
+  promoServesRegion,
+  type PromoRow,
+} from "@/lib/fabric/promotion-credit";
 import { resolvePromoContext } from "@/lib/fabric/promotion-context";
 import { normalizeRegion, promoRowsToTiers } from "@/lib/fabric/promotion-lookup";
 import { listStockFromDbSources } from "@/lib/fabric/stock-rows";
@@ -70,6 +74,8 @@ export interface PromoMonthGroup {
   minPurchase: number;
   fromDate: string;
   toDate: string;
+  /** ใช้ได้อยู่ ณ วันที่สร้างรายงาน — กลุ่มที่มีหลายช่วงจะมีอันเดียวที่เป็น true */
+  activeNow: boolean;
   rowCount: number;
 }
 
@@ -260,13 +266,22 @@ export function buildPromoMonthReport(input?: {
   const rows = contexts.length > 0 ? inMonth.filter(inStoreContext) : inMonth;
   const rowsOtherContext = inMonth.length - rows.length;
 
+  /**
+   * แยกถังตามช่วงวันที่ด้วย
+   *
+   * กลุ่มเดียวกันมีได้หลายแถวเพราะมีโปรแทรกบางช่วง/บางเดือน ถ้ายุบรวมเป็นถังเดียว
+   * promoRowsToTiers จะ dedupe ตาม minQty แล้วโยนของอีกช่วงทิ้งเงียบ ๆ ส่วนวันที่
+   * ที่โชว์ก็กลายเป็น min(from)..max(to) ซึ่งกินคร่อมทั้งสองช่วงทั้งที่ไม่ได้ใช้ได้ตลอด
+   * แยกถังแล้วแต่ละช่วงมีเงื่อนไขและวันที่ของตัวเอง ตรงกับที่บังคับใช้จริง
+   */
   const buckets = new Map<string, PromoRow[]>();
   for (const r of rows) {
     const group = (r.raw.ASSORTEDPRODUCTGROUP ?? "").trim();
+    const period = `${(r.raw.FROMDATE ?? "").slice(0, 10)}~${(r.raw.TODATE ?? "").slice(0, 10)}`;
     // ไม่มีกลุ่ม = โปรของ SKU ตัวเดียว แยกถังของตัวเองไป ไม่ควรถูกยุบรวมกับตัวอื่น
     const key = group
-      ? `${r.division}|${r.cusgroup}|${group}`
-      : `${r.division}|${r.cusgroup}|#${r.product}`;
+      ? `${r.division}|${r.cusgroup}|${group}|${period}`
+      : `${r.division}|${r.cusgroup}|#${r.product}|${period}`;
     const bucket = buckets.get(key) ?? [];
     bucket.push(r);
     buckets.set(key, bucket);
@@ -359,6 +374,7 @@ export function buildPromoMonthReport(input?: {
       minPurchase,
       fromDate: fromDates[0] ?? "",
       toDate: toDates[toDates.length - 1] ?? "",
+      activeNow: bucket.some((r) => promoActiveOn(r, input?.day ?? new Date())),
       rowCount: bucket.length,
     });
   }

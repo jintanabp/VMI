@@ -392,7 +392,7 @@ function PromoSkuTable({
     // .vmi-table-wrap เป็น overflow:hidden — ต้องมีตัวเลื่อนคั่น ไม่งั้นคอลัมน์ท้ายโดนตัด
     <div className="vmi-table-wrap">
       <div className="vmi-scroll overflow-x-auto">
-        <table className="w-full min-w-[860px] text-left text-xs">
+        <table className="w-full min-w-[1020px] text-left text-xs">
           <thead>
             <tr className="border-b border-slate-200 text-slate-500 dark:border-slate-700">
               <th className="w-10 px-2 py-2 font-semibold">#</th>
@@ -404,6 +404,8 @@ function PromoSkuTable({
                 ส่วนลด
               </th>
               <th className="w-24 px-2 py-2 text-right font-semibold">ราคา</th>
+              {/* กลุ่มเดียวกันมีได้หลายช่วง (โปรแทรกบางเดือน) — ต้องเห็นว่าอันไหนใช้เมื่อไหร่ */}
+              <th className="w-36 px-2 py-2 font-semibold">ช่วงที่ใช้ได้</th>
               {/* C4 ของเราคือตาราง cash (cft_promotion_cash.csv) ไม่ใช่ credit —
                   แบบฟอร์มเก่าเขียนหัวคอลัมน์เป็น Credit ไว้ ที่นี่ใช้ชื่อให้ตรงต้นทาง
                   ไม่ใส่ Div. ตายตัวที่หัวตาราง เพราะเดิมอ่านจากแถวแรกแถวเดียวแล้วเหมา
@@ -451,6 +453,23 @@ function PromoSkuTable({
                 <td className="whitespace-nowrap px-2 py-2 text-right font-semibold tabular-nums">
                   {fmtBaht(sku.netPrice ?? sku.unitPrice)}
                 </td>
+                <td className="whitespace-nowrap px-2 py-2 tabular-nums text-slate-500">
+                  {group.fromDate ? (
+                    <>
+                      {group.fromDate} – {group.toDate}
+                      {!group.activeNow && (
+                        <span
+                          className="ml-1 font-semibold text-amber-700 dark:text-amber-400"
+                          title="ช่วงนี้ไม่ได้ใช้อยู่ ณ วันนี้ — หน้าร้านจะยังไม่เห็นโปรนี้"
+                        >
+                          ยังไม่ถึง/หมดแล้ว
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    "—"
+                  )}
+                </td>
                 <td className="px-2 py-2">
                   <span className="vmi-cell-text">
                     {group.promoLabel || (
@@ -464,7 +483,7 @@ function PromoSkuTable({
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-2 py-4 text-center text-slate-500">
+                <td colSpan={7} className="px-2 py-4 text-center text-slate-500">
                   ไม่มีรายการ
                 </td>
               </tr>
@@ -531,6 +550,11 @@ function PromoGroupCard({
           <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">
             {g.skus.length} SKU · {g.rowCount} แถว · {g.division}|{g.cusgroup}
             {g.fromDate && ` · ${g.fromDate} ถึง ${g.toDate}`}
+            {g.fromDate && !g.activeNow && (
+              <span className="ml-1 font-semibold text-amber-700 dark:text-amber-400">
+                · ยังไม่ถึง/หมดแล้ว
+              </span>
+            )}
           </p>
         </div>
       </button>
