@@ -141,9 +141,13 @@ export function lookupC4(
   >();
 
   for (const ln of lines) {
-    const cands = opts.promo
-      .rowsFor(opts.division, opts.cusgroup, ln.product)
-      .filter((r) => promoActiveOn(r, day) && promoServesRegion(r, region));
+    // ต้องกรองช่วงแบบเดียวกับ filterCandidateRows — ไม่งั้นหน้าสต็อกกับตอนคิดจริง
+    // จะใช้คนละโปรเมื่อมีโปรแทรก แล้วตัวเลขที่ร้านเห็นกับที่ส่งไม่ตรงกัน
+    const cands = preferInsertedWindow(
+      opts.promo
+        .rowsFor(opts.division, opts.cusgroup, ln.product)
+        .filter((r) => promoActiveOn(r, day) && promoServesRegion(r, region))
+    );
 
     if (cands.length === 0) {
       result.skipped.push({
@@ -275,6 +279,42 @@ export function isEmptyBenefitRow(row: PromoRow): boolean {
   return row.discAmt <= 0 && row.discPct <= 0 && !hasPremium(row);
 }
 
+/** ความยาวช่วงโปรเป็นวัน — ไม่มีวันที่ = เปิดปลาย ถือว่ากว้างสุด */
+function windowSpanDays(row: PromoRow): number {
+  if (!row.fromDate || !row.toDate) return Number.POSITIVE_INFINITY;
+  return Math.round(
+    (row.toDate.getTime() - row.fromDate.getTime()) / 86_400_000
+  );
+}
+
+/**
+ * โปรที่แทรกเข้ามาชนะโปรช่วงกว้าง
+ *
+ * สินค้าตัวหนึ่งมีได้หลายแถวที่ active พร้อมกัน — ช่วงยาวคือโปรประจำเดือน ส่วนช่วงสั้น
+ * คือโปรที่แทรกเข้ามาทีหลังสำหรับบางสัปดาห์ ตัวที่แทรกคือตัวที่ต้องใช้
+ *
+ * เดิมไม่มีกฎเลย: promoRowsToTiers dedupe ตาม minQty แบบใครมาก่อนได้ก่อน ผลลัพธ์จึง
+ * ขึ้นกับลำดับแถวในไฟล์ ซึ่งเดาไม่ได้และสลับกันเองได้ระหว่างรอบ sync
+ *
+ * เลือกยกช่วง ไม่ใช่เลือกทีละขั้น — โปรที่แทรกมาแทนเงื่อนไขเดิมทั้งก้อน ถ้าหยิบขั้นแรก
+ * จากโปรใหม่แล้วขั้นสูงจากโปรเก่า จะได้บันไดผสมที่ไม่มีอยู่จริงสักอัน
+ */
+export function preferInsertedWindow(rows: PromoRow[]): PromoRow[] {
+  if (rows.length <= 1) return rows;
+  const spans = rows.map(windowSpanDays);
+  const narrowest = Math.min(...spans);
+  if (!Number.isFinite(narrowest)) return rows;
+
+  const winners = rows.filter((_, i) => spans[i] === narrowest);
+
+  // ยาวเท่ากันแต่คนละช่วง = อันที่เริ่มทีหลังคือตัวที่แทรกเข้ามาล่าสุด
+  // ส่วนขั้นบันไดของโปรเดียวกันมี from/to เท่ากันหมด จึงรอดครบทุกขั้นเอง
+  const latestStart = Math.max(
+    ...winners.map((r) => r.fromDate?.getTime() ?? 0)
+  );
+  return winners.filter((r) => (r.fromDate?.getTime() ?? 0) === latestStart);
+}
+
 export function filterCandidateRows(
   promo: PromotionCredit,
   division: string,
@@ -284,11 +324,11 @@ export function filterCandidateRows(
   day: Date = new Date()
 ): PromoRow[] {
   const normRegion = normalizeRegion(region);
-  return promo
-    .rowsFor(division, cusgroup, product)
-    .filter(
-      (r) => promoActiveOn(r, day) && promoServesRegion(r, normRegion)
-    );
+  return preferInsertedWindow(
+    promo
+      .rowsFor(division, cusgroup, product)
+      .filter((r) => promoActiveOn(r, day) && promoServesRegion(r, normRegion))
+  );
 }
 
 export function tierKind(row: PromoRow): PromoTierKind {
