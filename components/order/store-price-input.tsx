@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 interface StorePriceInputProps {
   /** ราคาที่ร้านแก้เอง (null = ยังไม่แก้) */
   value: number | null;
-  /** ราคา/หีบ จากระบบ (C4 + CreditPrice) */
+  /** ราคา/หีบ จากระบบ (C4 + ราคาเงินสดจาก SKU master) */
   c4UnitPrice: number | null;
   expired?: boolean;
   mismatch?: boolean;

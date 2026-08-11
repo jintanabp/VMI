@@ -42,8 +42,8 @@ export interface PromoInspectorTier {
 export interface PromoInspectorProduct {
   product: string;
   name: string;
-  creditPrice: number | null;
-  creditPriceExpired: boolean;
+  unitPrice: number | null;
+  unitPriceExpired: boolean;
   rows: PromoInspectorTier[];
 }
 
@@ -133,7 +133,7 @@ export function buildPromoInspector(input: {
       price: null,
       expired: false,
     };
-    return { creditPrice: p.price, creditPriceExpired: p.expired };
+    return { unitPrice: p.price, unitPriceExpired: p.expired };
   };
 
   const empty: PromoInspectorResult = {

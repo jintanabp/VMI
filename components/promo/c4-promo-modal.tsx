@@ -227,7 +227,7 @@ export function C4PromoModal({
                 )}
                 {mix.mixedPrice && (
                   <p className="mt-1 text-[11px] text-violet-700 dark:text-violet-300">
-                    SKU ในกลุ่มมีราคา credit ต่างกัน — net แสดงเป็นค่าเฉลี่ยถ่วงน้ำหนัก
+                    SKU ในกลุ่มมีราคา/หีบ ต่างกัน — net แสดงเป็นค่าเฉลี่ยถ่วงน้ำหนัก
                   </p>
                 )}
               </div>
@@ -303,9 +303,9 @@ export function C4PromoModal({
                           </p>
                         </div>
                         <div className="text-right text-xs">
-                          <p className="text-slate-500">credit</p>
+                          <p className="text-slate-500">ราคา/หีบ</p>
                           <p className="font-semibold tabular-nums">
-                            {p.creditPrice != null ? `฿${fmt(p.creditPrice)}` : "—"}
+                            {p.unitPrice != null ? `฿${fmt(p.unitPrice)}` : "—"}
                           </p>
                         </div>
                         {readOnly ? (

@@ -174,7 +174,7 @@ model OrderItem {
   // ตอนร้านกดส่ง ราคาต่างกันจริงหรือไม่ (เหตุผลเดียวกับที่แช่ minDays/maxDays ไว้)
   /// ราคา/หีบ ที่ร้านพิมพ์เอง (null = ไม่ได้แก้ ใช้ราคาระบบ)
   unitPriceOverride Float?
-  /// ราคา/หีบ จาก SKU master (CreditPrice) ณ เวลาส่ง
+  /// ราคา/หีบ จาก SKU master (CASHUNITPRICE) ณ เวลาส่ง
   c4UnitPrice       Float?
   c4DiscountBaht    Float?
   c4DiscountPct     Float?

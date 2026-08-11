@@ -38,14 +38,7 @@ export interface PromoMonthSku {
   code: string;
   name: string;
   inSkuMaster: boolean;
-  /**
-   * ราคา/หีบ ที่ระบบใช้อยู่ (จาก getLookupPrice → คอลัมน์ CreditPrice ของ SKU master)
-   *
-   * หมายเหตุ: โปร C4 ที่หน้านี้รายงานมาจากตาราง cash (cft_promotion_cash.csv) แต่ราคา
-   * ที่ทั้งแอปใช้ยังเป็น CreditPrice — ในไฟล์ master มีแค่ 112 จาก ~103,000 แถวที่
-   * CREDITUNITPRICE กับ CASHUNITPRICE ไม่ตรงกัน จึงยังไม่เปลี่ยนแหล่งราคาโดยพลการ
-   * เพราะกระทบยอดสั่งจริงทั้งระบบ ไม่ใช่แค่หน้ารายงานนี้
-   */
+  /** ราคาเงินสด/หีบ จาก SKU master (getLookupPrice) — เข้าชุดกับโปร C4 cash */
   unitPrice: number | null;
   /** ส่วนลดของขั้นแรกที่ให้ประโยชน์ (โปรของแถมไม่มีส่วนลด → null) */
   discountBaht: number | null;

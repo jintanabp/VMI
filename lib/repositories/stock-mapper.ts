@@ -57,7 +57,7 @@ export function mapStockRow(
   }
 ): StockRowComputed {
   // แปลง ชิ้น → หีบ ที่นี่จุดเดียว แล้วปลายน้ำเป็นหีบล้วน
-  // (ราคา CreditPrice และ promo tier C4 นับเป็นหีบ ส่วน stock_cover_day นับเป็นชิ้น)
+  // (ราคาเงินสดจาก SKU master และ promo tier C4 นับเป็นหีบ ส่วน stock_cover_day นับเป็นชิ้น)
   const packSize = item.packSize && item.packSize > 0 ? item.packSize : 1;
   const stockPieces = item.stock;
   const { cases: stockCases, remainder: stockRemainder } = piecesToCases(

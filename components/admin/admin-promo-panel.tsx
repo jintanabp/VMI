@@ -160,16 +160,29 @@ export function AdminPromoPanel() {
    *
    * SKU เดียวอาจอยู่หลายกลุ่ม (คนละ division|cusgroup) จึงเป็นหนึ่งแถวต่อ (SKU × กลุ่ม)
    * ไม่ยุบรวม — ไม่งั้นเงื่อนไขของอีกบริบทจะหายไปเงียบ ๆ
+   *
+   * ตัวกรองต้องลงถึงระดับแถวด้วย ไม่ใช่แค่ระดับกลุ่ม — เดิมค้นรหัสเดียว (426577)
+   * แล้วได้สมาชิกทั้งกลุ่ม 17 ตัวที่ชื่อคล้ายกันหมด อ่านแล้วนึกว่าสินค้าตัวเดียว
+   * มีหลายโปร ส่วนการค้นด้วยชื่อ/รหัสกลุ่มยังเห็นทั้งกลุ่มเหมือนเดิม
    */
-  const visibleSkuRows = useMemo(
-    () =>
-      visibleGroups
-        .flatMap((g) => g.skus.map((s) => ({ sku: s, group: g })))
-        .sort((a, b) =>
-          a.sku.code.localeCompare(b.sku.code, undefined, { numeric: true })
-        ),
-    [visibleGroups]
-  );
+  const visibleSkuRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const rows = visibleGroups.flatMap((g) =>
+      g.skus.map((s) => ({ sku: s, group: g }))
+    );
+    const filtered = q
+      ? rows.filter(
+          ({ sku, group }) =>
+            sku.code.toLowerCase().includes(q) ||
+            sku.name.toLowerCase().includes(q) ||
+            group.group.toLowerCase().includes(q) ||
+            group.groupName.toLowerCase().includes(q)
+        )
+      : rows;
+    return filtered.sort((a, b) =>
+      a.sku.code.localeCompare(b.sku.code, undefined, { numeric: true })
+    );
+  }, [visibleGroups, search]);
 
   // เปลี่ยนคำค้น/ตัวกรอง/มุมมอง = ชุดผลลัพธ์คนละชุด ต้องเริ่มนับหน้าใหม่
   useEffect(() => setLimit(PAGE_SIZE), [search, filter, view, data]);

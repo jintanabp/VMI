@@ -13,16 +13,16 @@ export function activeStepIndex(
 }
 
 export function calcNetCase(
-  creditPrice: number | null,
+  unitPrice: number | null,
   discBaht: number | null,
   discPct: number | null
 ): number | null {
-  if (creditPrice == null) return null;
-  if (discBaht != null && discBaht > 0) return Math.max(0, creditPrice - discBaht);
+  if (unitPrice == null) return null;
+  if (discBaht != null && discBaht > 0) return Math.max(0, unitPrice - discBaht);
   if (discPct != null && discPct > 0) {
-    return Math.max(0, creditPrice * (1 - discPct / 100));
+    return Math.max(0, unitPrice * (1 - discPct / 100));
   }
-  return creditPrice;
+  return unitPrice;
 }
 
 export function pooledQtyFromStaged(
@@ -47,7 +47,7 @@ export function blendedNetForStep(
   for (const p of products) {
     const qty = Number(staged[p.product]) || 0;
     if (qty <= 0) continue;
-    const net = calcNetCase(p.creditPrice, step.discBaht, step.discPct);
+    const net = calcNetCase(p.unitPrice, step.discBaht, step.discPct);
     if (net == null) continue;
     nets.add(Math.round(net * 100));
     totalQty += qty;
