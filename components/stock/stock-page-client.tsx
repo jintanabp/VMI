@@ -699,8 +699,8 @@ export function StockPageClient({
     let target = 0;
     let all = 0;
     for (const r of enrichedRows) {
-      // สินค้าจากเป้าขายไม่ได้อยู่ในคลัง — นับแยกอย่างเดียว ไม่ปนกับตัวเลขคลังจริง
-      if (r.fromTarget) {
+      // ของที่ร้านยังไม่มีในคลัง (เป้าขาย / มีโปร) นับแยกอย่างเดียว ไม่ปนกับตัวเลขคลังจริง
+      if (r.fromTarget || r.fromPromo) {
         target++;
         continue;
       }
@@ -1037,7 +1037,7 @@ export function StockPageClient({
     for (const r of rows) {
       // สินค้าจากเป้าขายยังไม่มีในคลัง (ทุกค่าเป็น 0) — นับรวมจะทำให้ "จำนวน SKU"
       // และ CVD เฉลี่ยของคลังเพี้ยนโดยไม่มีอะไรบนจอบอกว่าทำไม
-      if (r.fromTarget) continue;
+      if (r.fromTarget || r.fromPromo) continue;
       total++;
       // หน่วยหีบทั้งหมด — stockCases (หีบเต็ม) สำหรับแสดง, stock (ทศนิยม) สำหรับมูลค่า/CVD
       totalStock += r.stockCases;
@@ -1578,10 +1578,20 @@ export function StockPageClient({
                               title="อยู่ในเป้าขายเดือนนี้ แต่ร้านยังไม่เคยสต็อก — สั่งได้เลย"
                             >
                               <Star className="h-2.5 w-2.5" />
-                              ยังไม่มีในคลัง
+                              เป้าขาย
                             </span>
                           )}
-                          {row.isNew && !row.fromTarget && (
+                          {/* มาคนละทางกับเป้าขาย ต้องแยกป้ายให้รู้ว่าทำไมของตัวนี้ถึงโผล่มา */}
+                          {row.fromPromo && (
+                            <span
+                              className="inline-flex shrink-0 items-center gap-0.5 rounded bg-violet-100 px-1 py-0.5 vmi-t-xs font-bold text-violet-700 dark:bg-violet-950/50 dark:text-violet-300"
+                              title="กำลังมีโปร C4 อยู่ แต่ร้านยังไม่เคยสต็อก — สั่งได้เลย"
+                            >
+                              <Sparkles className="h-2.5 w-2.5" />
+                              มีโปร
+                            </span>
+                          )}
+                          {row.isNew && !row.fromTarget && !row.fromPromo && (
                             <span
                               className="inline-flex shrink-0 items-center gap-0.5 rounded bg-sky-100 px-1 py-0.5 vmi-t-xs font-bold text-sky-700 dark:bg-sky-950/50 dark:text-sky-300"
                               title="สินค้าใหม่ในระบบ"
@@ -1604,7 +1614,7 @@ export function StockPageClient({
                           {recentBySku[row.skuCode] && (
                             <OrderedBadge info={recentBySku[row.skuCode]!} />
                           )}
-                          {row.noSales30 && !row.blocked && !row.fromTarget && (
+                          {row.noSales30 && !row.blocked && !row.fromTarget && !row.fromPromo && (
                             <span
                               className="inline-flex shrink-0 items-center gap-0.5 rounded bg-slate-200 px-1 py-0.5 vmi-t-xs font-semibold text-slate-500 dark:bg-slate-700 dark:text-slate-400"
                               title="ไม่มียอดขายใน 1 เดือนที่ผ่านมา"
@@ -2114,7 +2124,16 @@ const StockMobileRow = memo(function StockMobileRow({
               title="อยู่ในเป้าขายเดือนนี้ แต่ร้านยังไม่เคยสต็อก — สั่งได้เลย"
             >
               <Star className="h-2.5 w-2.5" />
-              ยังไม่มีในคลัง
+              เป้าขาย · ยังไม่มีในคลัง
+            </span>
+          )}
+          {row.fromPromo && (
+            <span
+              className="mt-1 inline-flex items-center gap-0.5 rounded bg-violet-100 px-1 py-0.5 vmi-t-xs font-bold text-violet-700 dark:bg-violet-950/50 dark:text-violet-300"
+              title="กำลังมีโปร C4 อยู่ แต่ร้านยังไม่เคยสต็อก — สั่งได้เลย"
+            >
+              <Sparkles className="h-2.5 w-2.5" />
+              มีโปร · ยังไม่มีในคลัง
             </span>
           )}
           {recentOrder && (

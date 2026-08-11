@@ -177,6 +177,21 @@ export class PromotionCredit {
     return out;
   }
 
+  /**
+   * รหัสสินค้าทั้งหมดที่มีแถว C4 ในบริบทนี้
+   *
+   * ใช้หา "สินค้าที่มีโปรแต่ร้านไม่เคยสต็อก" ซึ่งหน้าสต็อกสร้างแถวจาก stock_cover_day
+   * อย่างเดียวจึงไม่เคยเห็น — อ่านจากคีย์ของ byKey ตรง ๆ ไม่ต้องไล่ทุกแถว
+   */
+  productsFor(division: string, cusgroup: string): string[] {
+    const prefix = `${division}|${cusgroup}|`;
+    const out: string[] = [];
+    for (const key of this.byKey.keys()) {
+      if (key.startsWith(prefix)) out.push(key.slice(prefix.length));
+    }
+    return out;
+  }
+
   /** All tier rows under (division, cusgroup) whose ASSORTEDPRODUCTGROUP equals group. */
   rowsForGroup(division: string, cusgroup: string, group: string): PromoRow[] {
     const g = group.trim();

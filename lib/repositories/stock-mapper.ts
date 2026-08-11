@@ -50,6 +50,8 @@ export function mapStockRow(
     poolQtyForDiscount?: number;
     isNew?: boolean;
     fromTarget?: boolean;
+    /** มีโปร C4 อยู่ แต่ร้านไม่เคยสต็อก — เห็นในแท็บ "ควรมีขาย" เหมือนกัน */
+    fromPromo?: boolean;
     blocked?: boolean;
     blockReason?: string | null;
     blockEffectiveFrom?: string | null;
@@ -175,6 +177,7 @@ export function mapStockRow(
     fromDb: item.fromDb,
     isNew: item.isNew ?? false,
     fromTarget: item.fromTarget ?? false,
+    fromPromo: item.fromPromo ?? false,
     blocked: item.blocked ?? false,
     blockReason: item.blockReason ?? null,
     blockEffectiveFrom: item.blockEffectiveFrom ?? null,

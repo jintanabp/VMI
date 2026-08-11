@@ -44,6 +44,8 @@ interface FilterableStockRow {
   stock?: number;
   /** มาจากเป้าขายเดือนนี้ ไม่ได้อยู่ในคลัง — เห็นเฉพาะมุมมอง "ควรมีขาย" */
   fromTarget?: boolean;
+  /** มีโปร C4 อยู่ แต่ร้านไม่เคยสต็อก — เห็นเฉพาะมุมมอง "ควรมีขาย" เหมือนกัน */
+  fromPromo?: boolean;
 }
 
 /** สต็อกวิกฤต: จะหมดก่อนถึงจำนวนวันขั้นต่ำ (CVD < MIN) ทั้งที่ยังมีการขาย → เสี่ยงขาดสต็อก
@@ -96,9 +98,10 @@ export function filterStockRows<T extends FilterableStockRow>(
   const hide = hideNoSales && view !== "noSales" && view !== "deadStock";
 
   return rows.filter((r) => {
-    // สินค้าจากเป้าขายไม่ได้อยู่ในคลังจริง (คงเหลือ/ยอดขาย 0 ทั้งแถว) ถ้าปล่อยปนกับ
-    // แถวปกติจะไปโผล่ใน "ไม่ขาย 1 เดือน" และทำตัวเลขทุกแท็บเพี้ยน — แยกขาดทั้งสองทาง
-    if (Boolean(r.fromTarget) !== (view === "target")) return false;
+    // ของที่ร้านยังไม่มีในคลัง (เป้าขาย / มีโปร) คงเหลือกับยอดขายเป็น 0 ทั้งแถว
+    // ปล่อยปนกับแถวปกติจะไปโผล่ใน "ไม่ขาย 1 เดือน" และทำตัวเลขทุกแท็บเพี้ยน
+    const notStocked = Boolean(r.fromTarget) || Boolean(r.fromPromo);
+    if (notStocked !== (view === "target")) return false;
     if (!matchesView(r, view)) return false;
     if (hide && r.noSales30) return false;
     if (brand && (r.brand ?? "") !== brand) return false;

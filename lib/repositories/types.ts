@@ -89,6 +89,8 @@ export interface StockRowComputed {
    * ไม่ใช่ "ของหมด" — ห้ามเอาไปคิดรวมในสรุปมูลค่า/CVD ของคลัง
    */
   fromTarget?: boolean;
+  /** มีโปร C4 อยู่ แต่ร้านไม่เคยสต็อก */
+  fromPromo?: boolean;
   /** อยู่ใน blocklist และถึงกำหนดหยุดสั่งแล้ว (effectiveFrom <= now) */
   blocked?: boolean;
   /** เหตุผลที่หยุดสั่ง */

@@ -13,6 +13,7 @@ import { storeDataVersion } from "./data-version";
 import { resolvePromoContext } from "./promotion-context";
 import {
   filterCandidateRows,
+  isEmptyBenefitRow,
   promoRowsToTiers,
 } from "./promotion-lookup";
 import { calcSuggestOrder } from "@/lib/calculations";
@@ -281,7 +282,45 @@ export async function buildFabricStockPayload(
     );
     targetCodes = [];
   }
-  const targetRows: StockCoverRow[] = targetCodes.map((code) => ({
+  /**
+   * สินค้าที่มีโปร C4 อยู่ตอนนี้ แต่ร้านไม่เคยสต็อก
+   *
+   * เหตุผลเดียวกับสินค้าจากเป้าขาย: หน้าสต็อกสร้างแถวจาก stock_cover_day อย่างเดียว
+   * ของที่ร้านไม่เคยขายจึงไม่มีแถวให้กดสั่ง ทั้งที่กำลังมีโปรอยู่และร้านอาจสนใจ
+   *
+   * เอาเฉพาะที่ "มีสิทธิประโยชน์จริงและ active วันนี้" — ไฟล์ C4 มีแถวที่ไม่มีทั้ง
+   * ส่วนลดและของแถมอยู่เกินหนึ่งในสาม เอามาหมดจะได้แท็บที่เต็มไปด้วยของที่ไม่มีโปร
+   */
+  let promoOnlyCodes: string[] = [];
+  try {
+    if (skuDir && promoDir) {
+      const targetSet = new Set(targetCodes);
+      promoOnlyCodes = promoDir
+        .productsFor(promoCtx.division, promoCtx.cusgroup)
+        .filter(
+          (code) =>
+            !coverCodes.has(code) &&
+            !targetSet.has(code) &&
+            Boolean(skuDir.nameForSku(code)) &&
+            filterCandidateRows(
+              promoDir,
+              promoCtx.division,
+              promoCtx.cusgroup,
+              code,
+              promoCtx.region
+            ).some((r) => !isEmptyBenefitRow(r))
+        );
+    }
+  } catch (err) {
+    console.error(
+      `[StockRows] หาสินค้าที่มีโปรไม่สำเร็จ (${storeCode}) — แท็บ "ควรมีขาย" จะมีแต่ของจากเป้าขาย:`,
+      err
+    );
+    promoOnlyCodes = [];
+  }
+
+  /** แถวปลอมสำหรับของที่ร้านยังไม่มีในคลัง — คงเหลือ 0 / ไม่มียอดขาย */
+  const catalogRow = (code: string): StockCoverRow => ({
     productCode: code,
     productName: skuDir!.nameForSku(code) || code,
     fromDb: activeFromDb,
@@ -292,9 +331,12 @@ export async function buildFabricStockPayload(
     avgQtyOutL30: 0,
     coverDayL7: null,
     coverDayL30: null,
-  }));
+  });
+  const targetRows = targetCodes.map(catalogRow);
+  const promoRows = promoOnlyCodes.map(catalogRow);
   const targetCodeSet = new Set(targetCodes);
-  const allRows = [...coverRows, ...targetRows];
+  const promoCodeSet = new Set(promoOnlyCodes);
+  const allRows = [...coverRows, ...targetRows, ...promoRows];
 
   const skus = await ensureSkus(allRows);
   const skuByCode = new Map(skus.map((s) => [s.code, s]));
@@ -492,6 +534,7 @@ export async function buildFabricStockPayload(
         poolQtyForDiscount: poolQty,
         isNew: item.isNew,
         fromTarget: targetCodeSet.has(item.cover.productCode),
+        fromPromo: promoCodeSet.has(item.cover.productCode),
         blocked: item.blocked,
         blockReason: item.block?.reason ?? null,
         blockEffectiveFrom: item.block?.effectiveFrom?.toISOString() ?? null,
