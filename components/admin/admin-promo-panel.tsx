@@ -240,9 +240,31 @@ export function AdminPromoPanel() {
                   : `รายสินค้า ${monthLabel(data?.month ?? "")} (${visibleSkuRows.length.toLocaleString("th-TH")})`}
               </CardTitle>
               <CardDescription>
-                {data
-                  ? `รวม ${data.totals.rows.toLocaleString("th-TH")} แถวจากไฟล์ C4 · ช่วง ${data.from} ถึง ${data.to} · ไฟล์อัปเดตเดือนละครั้ง`
-                  : "กำลังอ่านไฟล์โปร C4"}
+                {data ? (
+                  <>
+                    {data.totals.rows.toLocaleString("th-TH")} แถวจากไฟล์ C4 ·
+                    ช่วง {data.from} ถึง {data.to} · ไฟล์อัปเดตเดือนละครั้ง
+                    {/* บอกให้ชัดว่ากรองอะไรออกไป — ไม่ใช่ตัดเงียบ ๆ แล้วให้เดาเอง
+                        ว่าทำไมแถวที่เปิดเจอในไฟล์ถึงไม่อยู่ในนี้ */}
+                    <br />
+                    เฉพาะบริบทที่คลังใช้จริง:{" "}
+                    {data.contexts
+                      .map(
+                        (c) =>
+                          `Div.${c.division} · กลุ่มลูกค้า ${c.cusgroup} · ${c.region} (${c.stores.join(", ")})`
+                      )
+                      .join(" | ") || "—"}
+                    {data.totals.rowsOtherContext > 0 && (
+                      <>
+                        {" "}
+                        · ตัดแถวบริบทอื่นออก{" "}
+                        {data.totals.rowsOtherContext.toLocaleString("th-TH")} แถว
+                      </>
+                    )}
+                  </>
+                ) : (
+                  "กำลังอ่านไฟล์โปร C4"
+                )}
               </CardDescription>
             </div>
             {/* สลับมุมมอง — "รายสินค้า" จัดคอลัมน์ให้ตรงกับแบบฟอร์มสั่งสินค้าที่ทีมใช้จริง
@@ -369,10 +391,11 @@ function PromoSkuTable({
               </th>
               <th className="w-24 px-2 py-2 text-right font-semibold">ราคา</th>
               {/* C4 ของเราคือตาราง cash (cft_promotion_cash.csv) ไม่ใช่ credit —
-                  แบบฟอร์มเก่าเขียนหัวคอลัมน์เป็น Credit ไว้ ที่นี่ใช้ชื่อให้ตรงต้นทาง */}
+                  แบบฟอร์มเก่าเขียนหัวคอลัมน์เป็น Credit ไว้ ที่นี่ใช้ชื่อให้ตรงต้นทาง
+                  ไม่ใส่ Div. ตายตัวที่หัวตาราง เพราะเดิมอ่านจากแถวแรกแถวเดียวแล้วเหมา
+                  ทั้งตาราง พอมีหลาย division ปนมาจะติดป้ายผิดทันที */}
               <th className="px-2 py-2 font-semibold">
-                รายการโปรโมชั่น C4 VDA (Div.{rows[0]?.group.division ?? "E"}{" "}
-                Cash)
+                รายการโปรโมชั่น C4 VDA (Cash)
               </th>
             </tr>
           </thead>

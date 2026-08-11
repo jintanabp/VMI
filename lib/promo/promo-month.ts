@@ -12,8 +12,10 @@ import {
   getSkuMasterDirectory,
 } from "@/lib/fabric";
 import { bangkokDateStr, isoDateStr } from "@/lib/fabric/bkk-date";
-import type { PromoRow } from "@/lib/fabric/promotion-credit";
-import { promoRowsToTiers } from "@/lib/fabric/promotion-lookup";
+import { promoServesRegion, type PromoRow } from "@/lib/fabric/promotion-credit";
+import { resolvePromoContext } from "@/lib/fabric/promotion-context";
+import { normalizeRegion, promoRowsToTiers } from "@/lib/fabric/promotion-lookup";
+import { listStockFromDbSources } from "@/lib/fabric/stock-rows";
 import { buildPromoTitle } from "./promo-title";
 
 /**
@@ -82,7 +84,11 @@ export interface PromoMonthReport {
     skus: number;
     noBenefitRows: number;
     skusMissingFromMaster: number;
+    /** แถวที่ตัดทิ้งเพราะเป็นบริบทที่ไม่มีคลังไหนใช้ (เช่น division อื่น) */
+    rowsOtherContext: number;
   };
+  /** บริบทที่รายงานนี้ครอบ — เท่ากับบริบทที่คลังในระบบใช้จริง */
+  contexts: { division: string; cusgroup: string; region: string; stores: string[] }[];
   groups: PromoMonthGroup[];
 }
 
@@ -220,9 +226,50 @@ export function buildPromoMonthReport(input?: {
   const names = getAssortedMapping();
   const skuDir = fabricSkuMasterReady() ? getSkuMasterDirectory() : null;
 
-  const rows = promo
+  /**
+   * ครอบเฉพาะบริบทที่คลังในระบบใช้จริง (วันนี้คือ Div.E กลุ่มลูกค้า 98)
+   *
+   * ไฟล์ C4 ที่ sync มามีแถวของ division อื่นปนอยู่ด้วย ซึ่งการ lookup ของหน้าร้าน
+   * ไม่มีทางแตะถึงเลย เพราะผูกกับ (division, cusgroup, region) ของร้านนั้น
+   * ถ้าเอามาโชว์ทั้งหมด หน้ารายงานจะขัดกับหน้าสต็อก — เห็นโปรในแอดมินแต่ร้านไม่ได้
+   * จำนวนที่ตัดทิ้งรายงานไว้ใน totals.rowsOtherContext ไม่ได้หายไปเงียบ ๆ
+   */
+  const contexts = listStockFromDbSources()
+    .map((storeCode) => ({ storeCode, ...resolvePromoContext(storeCode) }))
+    .reduce<
+      { division: string; cusgroup: string; region: string; stores: string[] }[]
+    >((acc, c) => {
+      const hit = acc.find(
+        (x) =>
+          x.division === c.division &&
+          x.cusgroup === c.cusgroup &&
+          x.region === c.region
+      );
+      if (hit) hit.stores.push(c.storeCode);
+      else
+        acc.push({
+          division: c.division,
+          cusgroup: c.cusgroup,
+          region: c.region,
+          stores: [c.storeCode],
+        });
+      return acc;
+    }, []);
+
+  const inStoreContext = (r: PromoRow) =>
+    contexts.some(
+      (c) =>
+        c.division === r.division &&
+        c.cusgroup === r.cusgroup &&
+        promoServesRegion(r, normalizeRegion(c.region))
+    );
+
+  const inMonth = promo
     .allRows()
     .filter((r) => promoOverlapsMonth(r, range.from, range.to));
+  // ไม่มีคลังในระบบเลย (stock cover ยังไม่โหลด) → ไม่กรอง ดีกว่าโชว์หน้าว่างโดยไม่บอกอะไร
+  const rows = contexts.length > 0 ? inMonth.filter(inStoreContext) : inMonth;
+  const rowsOtherContext = inMonth.length - rows.length;
 
   const buckets = new Map<string, PromoRow[]>();
   for (const r of rows) {
@@ -349,7 +396,9 @@ export function buildPromoMonthReport(input?: {
       skus: allSkus.size,
       noBenefitRows,
       skusMissingFromMaster: missingSkus.size,
+      rowsOtherContext,
     },
+    contexts,
     groups,
   };
 }
