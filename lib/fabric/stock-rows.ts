@@ -269,10 +269,10 @@ export async function buildFabricStockPayload(
   let targetCodes: string[] = [];
   try {
     if (skuDir) {
+      // เซลล์ทุกคนในระบบ VDA ไม่ใช่แค่คนที่ดูแลคลังนี้ — ของที่เซลล์คลังอื่นมีเป้า
+      // ร้านนี้ก็สั่งได้ ถ้าจำกัดแค่ผู้ดูแลตัวเอง vda1 (S091) จะไม่มีวันเห็นของของ S361/S594
       targetCodes = getCrossTargetRegistry()
-        .productsForSalesmen(
-          getVdaAosBillRegistry().getSalesmanCodesForVda(storeCode)
-        )
+        .productsForSalesmen(getVdaAosBillRegistry().listAllSalesmanCodes())
         .filter((code) => !coverCodes.has(code) && skuDir.nameForSku(code));
     }
   } catch (err) {

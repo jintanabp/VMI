@@ -177,6 +177,17 @@ export class VdaAosBillRegistry {
     if (!set) return [];
     return [...set].sort();
   }
+
+  /**
+   * เซลล์ทุกคนที่ดูแลคลัง VDA ในระบบ ไม่จำกัดว่าคลังไหน
+   *
+   * ใช้กับแท็บ "ควรมีขาย": เป้าขายเข้าไปที่เซลล์ผู้ดูแลของแต่ละคลัง แต่ของที่เซลล์
+   * คลังอื่นมีเป้า ร้านนี้ก็อยากสั่งได้เหมือนกัน — จำกัดแค่เซลล์ผู้ดูแลคลังตัวเอง
+   * ทำให้ vda1 (S091) ไม่มีวันเห็นของที่ S361 หรือ S594 ถืออยู่
+   */
+  listAllSalesmanCodes(): string[] {
+    return [...this.bySalesman.keys()].sort();
+  }
 }
 
 let registry: VdaAosBillRegistry | null = null;
