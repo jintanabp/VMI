@@ -63,6 +63,17 @@ export interface C4LookupResult {
 export type PackSizeResolver = (productCode: string) => number;
 
 /**
+ * ตัวช่วยเติมข้อมูลสินค้าของแถมจาก SKU master
+ *
+ * ชื่อสินค้าต้องมาจากที่นี่ที่เดียว — เดิมผู้เรียกบางรายมา .map() เติม premiumName
+ * เองทีหลัง ที่ไม่ได้เติมก็เลยโชว์เป็นรหัสเปล่า ๆ ("แถม 429001 ×1") ซึ่งร้านอ่านไม่ออก
+ */
+export interface PromoTierOptions {
+  packSizeOf?: PackSizeResolver;
+  nameOf?: (productCode: string) => string;
+}
+
+/**
  * ของแถมที่ได้ต่อหนึ่งล็อต แปลงเป็นหีบเมื่อทำได้
  *
  * ต้นทางเขียนอัตราเป็น "ต่อ from หีบ ได้ premiumQty หน่วย" แต่เงื่อนไขจริงคือต้องครบ
@@ -247,14 +258,15 @@ function formatDiscPct(pct: number): string {
 
 export function formatPromoDiscount(
   row: PromoRow,
-  packSizeOf?: PackSizeResolver
+  opts?: PromoTierOptions
 ): string {
   if (row.discAmt > 0) return `${formatDiscAmt(row.discAmt)} บาท/หีบ`;
   if (row.discPct > 0) return `${formatDiscPct(row.discPct)}%`;
   if (hasPremium(row)) {
     // จำนวนต่อล็อต ไม่ใช่อัตราต่อหีบดิบ ๆ — ให้ตรงกับเงื่อนไขที่ร้านต้องทำจริง
-    const perLot = premiumPerLot(row, packSizeOf);
-    return `แถม ${row.premiumProduct} ×${perLot.qty} ${formatPremiumUnit(perLot.unit)}`;
+    const perLot = premiumPerLot(row, opts?.packSizeOf);
+    const name = opts?.nameOf?.(row.premiumProduct) || row.premiumProduct;
+    return `แถม ${name} ×${perLot.qty} ${formatPremiumUnit(perLot.unit)}`;
   }
   return "";
 }
@@ -295,7 +307,7 @@ export function tierKind(row: PromoRow): PromoTierKind {
  */
 export function promoRowsToTiers(
   rows: PromoRow[],
-  packSizeOf?: PackSizeResolver
+  opts?: PromoTierOptions
 ): PromoTierInput[] {
   const seen = new Set<number>();
   const tiers: PromoTierInput[] = [];
@@ -304,15 +316,19 @@ export function promoRowsToTiers(
     if (seen.has(minQty)) continue;
     seen.add(minQty);
     const kind = tierKind(r);
-    const perLot = kind === "premium" ? premiumPerLot(r, packSizeOf) : null;
+    const perLot = kind === "premium" ? premiumPerLot(r, opts?.packSizeOf) : null;
     tiers.push({
       minQty,
-      discount: formatPromoDiscount(r, packSizeOf),
+      discount: formatPromoDiscount(r, opts),
       sortOrder: minQty,
       kind,
       discBaht: r.discAmt > 0 ? r.discAmt : undefined,
       discPct: r.discPct > 0 ? r.discPct : undefined,
       premiumProduct: kind === "premium" ? r.premiumProduct : undefined,
+      premiumName:
+        kind === "premium"
+          ? opts?.nameOf?.(r.premiumProduct) || r.premiumProduct
+          : undefined,
       premiumQty: perLot?.qty,
       premiumUnit: perLot?.unit,
     });

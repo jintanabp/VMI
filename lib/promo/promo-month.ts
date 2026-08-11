@@ -284,17 +284,10 @@ export function buildPromoMonthReport(input?: {
     const kinds = [...new Set(bucket.map(kindOf))];
     for (const r of bucket) if (kindOf(r) === "none") noBenefitRows++;
 
-    const tiers = promoRowsToTiers(bucket, (c) =>
-      skuDir?.packSizeForSku(c) ?? 1
-    ).map((t) =>
-      t.premiumProduct
-        ? {
-            ...t,
-            premiumName:
-              skuDir?.nameForSku(t.premiumProduct) || t.premiumProduct,
-          }
-        : t
-    );
+    const tiers = promoRowsToTiers(bucket, {
+      packSizeOf: (c) => skuDir?.packSizeForSku(c) ?? 1,
+      nameOf: (c) => skuDir?.nameForSku(c) ?? "",
+    });
     const hasBenefit = tiers.some(isBenefitTier);
     const minPurchase = bucket.reduce(
       (max, r) => Math.max(max, r.minPurchase),

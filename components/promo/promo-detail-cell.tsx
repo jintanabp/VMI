@@ -332,7 +332,15 @@ export function PromoDetailCell({
     primaryLines.length > 0 ? (
       <div className={cn("flex min-w-0 flex-col", sizeMain, "leading-snug")}>
         {primaryLines.map((line) => (
-          <span key={line.key} className={cn("truncate", line.className)}>
+          <span
+            key={line.key}
+            /* ยอมตก 2 บรรทัดแทน truncate — พอของแถมบอกชื่อสินค้าเต็ม ข้อความยาวกว่า
+               คอลัมน์เสมอ (เช่น "ซื้อครบ 24 หีบ/ขั้น แถม บิสชินบัตเตอร์โคโคนัต…")
+               แล้วส่วนที่บอกว่าได้อะไรโดนตัดหายไปหมด ซึ่งเป็นใจความสำคัญของช่องนี้
+               ความสูงแถวไม่เพิ่ม เพราะคอลัมน์ชื่อสินค้าเป็น line-clamp-2 อยู่แล้ว
+               vmi-cell-text = overflow-wrap:anywhere จำเป็นเพราะภาษาไทยไม่มีเว้นวรรค */
+            className={cn("vmi-cell-text line-clamp-2", line.className)}
+          >
             {line.text}
           </span>
         ))}
