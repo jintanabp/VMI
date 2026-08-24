@@ -246,7 +246,9 @@ export async function buildFabricStockPayload(
     0
   );
   const dataDate = maxDateMs > 0 ? new Date(maxDateMs).toISOString() : null;
-  const promoCtx = resolvePromoContext(storeCode);
+  // บริบทโปรต้องมาจากคลังที่จ่ายของ ไม่ใช่รหัสร้าน — ส่ง activeFromDb ที่ resolve
+  // ไว้แล้วลงไปตรง ๆ ให้โปรกับแถวสต็อกในหน้าเดียวกันมาจากคลังเดียวกันแน่นอน
+  const promoCtx = resolvePromoContext(storeCode, { fromDb: activeFromDb });
   const promoDir = fabricPromoReady() ? getPromotionCreditDirectory() : null;
   const skuDir = fabricSkuMasterReady() ? getSkuMasterDirectory() : null;
   // มูลค่าสต็อกจริงที่คลังนี้ซื้อมา — null ทั้งคลังเมื่อยังไม่มีไฟล์/คอลัมน์
