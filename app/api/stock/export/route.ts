@@ -14,12 +14,11 @@ import {
   sortStockRows,
   type StockSortDir,
 } from "@/lib/stock/sort";
-import { filterStockRows, isStockView } from "@/lib/stock/filters";
+import { isStockView, selectStockRows } from "@/lib/stock/filters";
 import {
   blockLabel,
   buildOrderFormSheet,
 } from "@/lib/stock/export-order-form";
-import { matchesProductSearch } from "@/lib/utils";
 import {
   CUSTOMER_STORE_COOKIE,
   CUSTOMER_STORE_CODE_COOKIE,
@@ -155,13 +154,15 @@ async function buildWorkbook(
   const payload = await buildFabricStockPayload(storeId, storeCode, fromDb);
 
   // กรองแบบเดียวกับหน้าเว็บ เพื่อให้ไฟล์ตรงกับสิ่งที่ผู้ใช้เห็นบนจอ
-  let rows = payload.rows;
-  if (search) rows = rows.filter((r) => matchesProductSearch(search, r));
-  rows = filterStockRows(rows, {
-    view,
-    brand: brand || null,
-    section: section || null,
-    hideNoSales,
+  // (selectStockRows คือฟังก์ชันเดียวกับที่หน้าจอใช้ — รวมกฎ "ค้นหาชนะตัวกรอง" ไว้แล้ว)
+  let rows = selectStockRows(payload.rows, {
+    search,
+    filters: {
+      view,
+      brand: brand || null,
+      section: section || null,
+      hideNoSales,
+    },
   });
   // ส่งออกเต็นเฉพาะแถวที่ติ๊กเลือกไว้
   if (onlySelected && selectedCodes.size > 0) {

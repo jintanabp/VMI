@@ -16,6 +16,7 @@ export function StockQtyStepper({
   compact = false,
   showSuggestChip = false,
   orderedQty = 0,
+  promoStepLot = null,
 }: {
   qty: number;
   suggestOrder: number;
@@ -35,8 +36,19 @@ export function StockQtyStepper({
   /** จำนวนที่สั่งไปแล้วแต่ของยังไม่ถึงร้าน — ใช้เปลี่ยนคำบนชิปให้ตรงความจริง
    *  (suggestOrder ที่ส่งเข้ามาต้องหักตัวนี้ออกมาแล้ว) */
   orderedQty?: number;
+  /**
+   * ล็อตของโปรของแถม — จำนวนต้องเป็นทวีคูณของค่านี้ ไม่งั้นของแถมมีเศษ
+   *
+   * ตัวปรับจำนวนไม่ได้บังคับเอง (ผู้เรียกเป็นคนปัดผ่าน snapQtyToPromoStep เพราะ
+   * โปรกลุ่มคิดจากยอดรวมหลายบรรทัด) ที่นี่ใช้บอกผู้ใช้ว่าทำไมเลขถึงขยับ
+   */
+  promoStepLot?: number | null;
 }) {
   const btn = compact ? "h-6 w-6 rounded-md" : "h-8 w-8";
+  const stepHint =
+    promoStepLot && promoStepLot > 1
+      ? `โปรแถมขั้นละ ${promoStepLot} หีบ — ระบบปัดขึ้นให้ลงตัว ไม่งั้นของแถมมีเศษ`
+      : null;
   const defaultQty = suggestOrder > 0 ? suggestOrder : 0;
   // ปุ่ม ↺ ในบรรทัดกับชิป "แนะนำ" ทำหน้าที่ตรงข้ามกัน มีพร้อมกันไม่ได้
   const showReset = !showSuggestChip && qty !== defaultQty;
@@ -92,6 +104,7 @@ export function StockQtyStepper({
         }}
         disabled={qty <= 0}
         aria-label="ลดจำนวน"
+        title={stepHint ? `ลดลงหนึ่งขั้นโปร (${promoStepLot} หีบ)` : "ลด 1 หีบ"}
       >
         <Minus className={compact ? "h-3 w-3" : "h-3.5 w-3.5"} />
       </Button>
@@ -112,13 +125,16 @@ export function StockQtyStepper({
           className={cn(
             "rounded-md border border-slate-200 bg-white px-0.5 text-center font-bold tabular-nums text-slate-900 outline-none ring-teal-500/30 focus:ring-2 dark:border-slate-600 dark:bg-slate-900 dark:text-white",
             "[appearance:textfield] [&::-webkit-inner-spin-button]:m-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none",
-            compact ? "h-6 w-14 text-xs" : "h-8 w-[4.5rem] text-sm"
+            compact ? "h-6 w-11 text-xs" : "h-8 w-[4.5rem] text-sm"
           )}
-          title={
+          title={[
             suggestOrder > 0 && qty !== suggestOrder
               ? `แนะนำ ${suggestOrder} หีบ`
-              : "พิมพ์จำนวนหีบ"
-          }
+              : "พิมพ์จำนวนหีบ",
+            stepHint,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
           aria-label="จำนวนสั่ง"
         />
       ) : (
@@ -128,9 +144,14 @@ export function StockQtyStepper({
             compact ? "min-w-[1.5rem] text-xs" : "w-8 text-sm"
           )}
           title={
-            suggestOrder > 0 && qty !== suggestOrder
-              ? `แนะนำ ${suggestOrder} หีบ`
-              : undefined
+            [
+              suggestOrder > 0 && qty !== suggestOrder
+                ? `แนะนำ ${suggestOrder} หีบ`
+                : null,
+              stepHint,
+            ]
+              .filter(Boolean)
+              .join(" · ") || undefined
           }
         >
           {qty}
@@ -145,6 +166,7 @@ export function StockQtyStepper({
           onPlus();
         }}
         aria-label="เพิ่มจำนวน"
+        title={stepHint ? `เพิ่มขึ้นหนึ่งขั้นโปร (${promoStepLot} หีบ)` : "เพิ่ม 1 หีบ"}
       >
         <Plus className={compact ? "h-3 w-3" : "h-3.5 w-3.5"} />
       </Button>

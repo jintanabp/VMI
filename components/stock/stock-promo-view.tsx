@@ -34,6 +34,10 @@ import {
   type PromoBucket,
 } from "@/lib/promo/promo-browse";
 import { isFreeGoodHostRow } from "@/lib/promo/stock-pooled-promo";
+import {
+  promoGroupStepChipLabel,
+  promoGroupStepChipTitle,
+} from "@/lib/promo/promo-step";
 import type { StockRowComputed } from "@/lib/repositories/types";
 import { cn } from "@/lib/utils";
 
@@ -60,6 +64,13 @@ export interface StockPromoViewProps {
   suggestRemaining: (row: StockRowComputed) => number;
   /** สั่งไปแล้วแต่ของยังไม่ถึงร้าน — ใช้เปลี่ยนคำบนชิป */
   pendingQtyOf: (row: StockRowComputed) => number;
+  /** ล็อตโปรของแถวนั้น — บอกผู้ใช้ว่าทำไมจำนวนถูกปัด (null = ไม่มีขั้นบังคับ) */
+  promoStepLotOf: (row: StockRowComputed) => number | null;
+  /** ส่วนที่ขาดของยอดรวมกลุ่ม (null = ลงตัวแล้ว) */
+  groupStepShort: (
+    promoGroup: string
+  ) => { lot: number; pool: number; delta: number; target: number } | null;
+  onApplyGroupStepFix: (promoGroup: string) => void;
   onConfirmStaged: (
     staged: Record<string, number>,
     memberSkus?: string[]
@@ -128,6 +139,9 @@ function PromoBucketCard({
   onApplySuggest,
   suggestRemaining,
   pendingQtyOf,
+  promoStepLotOf,
+  groupStepShort,
+  onApplyGroupStepFix,
   onConfirmStaged,
 }: StockPromoViewProps & {
   bucket: PromoBucket<StockRowComputed>;
@@ -155,6 +169,11 @@ function PromoBucketCard({
     selectedQty > 0 &&
     pooledTier != null &&
     pooledTier.minQty !== selectedTier?.minQty;
+
+  const stepShort =
+    isGroup && bucket.promoGroup
+      ? groupStepShort(bucket.promoGroup.trim())
+      : null;
 
   const hiddenByFilter = bucket.totalRows - bucket.rows.length;
   const rows = showAll ? bucket.rows : bucket.rows.slice(0, ROWS_PER_BUCKET);
@@ -271,6 +290,18 @@ function PromoBucketCard({
           </span>
         )}
 
+        {/* ของแถมนับเป็นล็อต — ยอดรวมที่ไม่ลงล็อตคือจ่ายเต็มแล้วไม่ได้แถมส่วนที่เกิน */}
+        {isGroup && stepShort && (
+          <button
+            type="button"
+            onClick={() => onApplyGroupStepFix(bucket.promoGroup!.trim())}
+            title={promoGroupStepChipTitle(stepShort, true)}
+            className="inline-flex shrink-0 items-center gap-1 rounded-md bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-800 ring-1 ring-amber-300 transition-colors hover:bg-amber-200 dark:bg-amber-500/20 dark:text-amber-200 dark:ring-amber-500/40 dark:hover:bg-amber-500/30"
+          >
+            {promoGroupStepChipLabel(stepShort)} · ปรับให้
+          </button>
+        )}
+
         {/* ต่างจาก PromoGroupHeader ตรงที่เปิดดูบันไดได้ก่อนใส่จำนวน —
             มุมมองนี้มีไว้ให้ร้านเลือกของ *จาก* โปร ไม่ใช่ดูโปรหลังใส่จำนวนแล้ว */}
         {isGroup && storeCode && bucket.hostRow && (
@@ -357,6 +388,7 @@ function PromoBucketCard({
                     onApplySuggest={onApplySuggest}
                     suggestRemaining={suggestRemaining}
                     pendingQtyOf={pendingQtyOf}
+                    promoStepLotOf={promoStepLotOf}
                   />
                 ))}
               </tbody>
@@ -384,6 +416,7 @@ function PromoBucketCard({
                   onApplySuggest={onApplySuggest}
                   suggestRemaining={suggestRemaining}
                   pendingQtyOf={pendingQtyOf}
+                  promoStepLotOf={promoStepLotOf}
                 />
               ))}
             </MobileRowList>
@@ -426,6 +459,8 @@ interface SkuRowProps {
   suggestRemaining: (row: StockRowComputed) => number;
   /** สั่งไปแล้วแต่ของยังไม่ถึงร้าน — ใช้เปลี่ยนคำบนชิป */
   pendingQtyOf: (row: StockRowComputed) => number;
+  /** ล็อตโปรของแถวนั้น (null = ไม่มีขั้นบังคับ) */
+  promoStepLotOf: (row: StockRowComputed) => number | null;
 }
 
 const PromoSkuRow = memo(function PromoSkuRow({
@@ -445,6 +480,7 @@ const PromoSkuRow = memo(function PromoSkuRow({
   onApplySuggest,
   suggestRemaining,
   pendingQtyOf,
+  promoStepLotOf,
 }: SkuRowProps & { showFreeGood: boolean }) {
   return (
     <>
@@ -550,6 +586,7 @@ const PromoSkuRow = memo(function PromoSkuRow({
               qty={qty}
               suggestOrder={suggestRemaining(row)}
               orderedQty={pendingQtyOf(row)}
+              promoStepLot={promoStepLotOf(row)}
               onMinus={() => onAdjustQty(row.skuCode, -1)}
               onPlus={() => onAdjustQty(row.skuCode, 1)}
               onSetQty={(q) => onSetQty(row.skuCode, q)}
@@ -587,6 +624,7 @@ const PromoSkuMobileRow = memo(function PromoSkuMobileRow({
   onApplySuggest,
   suggestRemaining,
   pendingQtyOf,
+  promoStepLotOf,
 }: SkuRowProps) {
   return (
     <MobileRow
@@ -624,6 +662,7 @@ const PromoSkuMobileRow = memo(function PromoSkuMobileRow({
             qty={qty}
             suggestOrder={suggestRemaining(row)}
             orderedQty={pendingQtyOf(row)}
+            promoStepLot={promoStepLotOf(row)}
             onMinus={() => onAdjustQty(row.skuCode, -1)}
             onPlus={() => onAdjustQty(row.skuCode, 1)}
             onSetQty={(q) => onSetQty(row.skuCode, q)}

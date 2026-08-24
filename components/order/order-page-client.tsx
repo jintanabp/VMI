@@ -9,6 +9,7 @@ import {
   ArrowLeft,
   Banknote,
   CheckCircle2,
+  Gift,
   Pencil,
   RotateCcw,
   Send,
@@ -68,15 +69,39 @@ import { StockQtyStepper } from "@/components/stock/stock-qty-stepper";
 import { cn } from "@/lib/utils";
 import {
   annotatePromoGroupStripes,
+  isPooledPromoGroup,
   promoGroupRowBgClass,
   sortRowsByPromoGroup,
   type PromoGroupStripe,
 } from "@/lib/promo/promo-group-display";
 import { isFreeGoodHostRow } from "@/lib/promo/stock-pooled-promo";
+import {
+  hasPromoStep,
+  nextPromoStepQty,
+  planPromoGroupStepFix,
+  prevPromoStepQty,
+  promoGroupStepNote,
+  promoStepLot,
+  promoStepNote,
+  snapQtyToPromoStep,
+  type PromoGroupStepFix,
+} from "@/lib/promo/promo-step";
+import { useToast } from "@/components/ui/toast";
 
 interface OrderLine {
   row: StockRowComputed;
   qty: number;
+}
+
+/**
+ * ขั้นโปรที่บังคับกับบรรทัดนี้ได้ — null เมื่ออยู่ในโปรกลุ่ม
+ *
+ * โปรกลุ่มนับยอดรวมข้าม SKU จึงบังคับที่ยอดรวม (groupStepFixes) ไม่ใช่รายบรรทัด
+ * กติกาเดียวกับ lineStepTiers ใน stock-page-client
+ */
+function lineStepTiers(row: StockRowComputed) {
+  if (isPooledPromoGroup(row.promoGroup, row.promoGroupMembers)) return null;
+  return row.promoTiers ?? null;
 }
 
 interface OrderPageClientProps {
@@ -153,6 +178,7 @@ export function OrderPageClient({
   isVda = false,
 }: OrderPageClientProps) {
   const router = useRouter();
+  const { toast } = useToast();
   const [lines, setLines] = useState<OrderLine[]>([]);
   /** อ่าน draft จาก sessionStorage เสร็จแล้วหรือยัง — แยก "ยังโหลด" ออกจาก "โหลดแล้วว่าง" */
   const [ready, setReady] = useState(false);
@@ -160,6 +186,9 @@ export function OrderPageClient({
   const [submitError, setSubmitError] = useState<string | null>(null);
   /** ยืนยันอีกครั้งเมื่อมีรายการที่จำนวนไม่เข้าเป้าหมาย — เตือน ไม่ใช่ห้ามส่ง */
   const [confirmRiskyOpen, setConfirmRiskyOpen] = useState(false);
+  /** ยืนยันการปรับยอดกลุ่มโปรให้ลงล็อตของแถมก่อนส่ง */
+  const [confirmStepOpen, setConfirmStepOpen] = useState(false);
+  const [submitAfterStepFix, setSubmitAfterStepFix] = useState(false);
   /** ชิปคำเตือนที่กดค้างไว้ — กรองตารางให้เหลือเฉพาะรายการของคำเตือนนั้น */
   const [noticeFilter, setNoticeFilter] = useState<string | null>(null);
   /** รหัส SKU ที่ติ๊กไว้เพื่อลบออกจากคำสั่ง */
@@ -450,6 +479,72 @@ export function OrderPageClient({
     [displayLines]
   );
 
+  /**
+   * กลุ่มโปรที่ยอดรวมยังไม่ลงล็อตของแถม
+   *
+   * นับเฉพาะบรรทัดที่อยู่ในคำสั่งจริง (qty > 0) — เติมส่วนที่ขาดให้บรรทัดที่ไม่ได้สั่ง
+   * จำนวนจะหายไปตอนส่ง (API รับเฉพาะ finalQty >= 1) แล้วยอดก็ยังไม่ลงล็อตอยู่ดี
+   */
+  const groupStepFixes = useMemo(() => {
+    const byGroup = new Map<string, EnrichedLine[]>();
+    for (const line of displayLines) {
+      const group = line.promoGroup?.trim();
+      if (!group || !isPooledPromoGroup(group, line.promoGroupMembers)) continue;
+      const list = byGroup.get(group) ?? [];
+      list.push(line);
+      byGroup.set(group, list);
+    }
+    const out = new Map<string, PromoGroupStepFix>();
+    for (const [group, members] of byGroup) {
+      const tiers =
+        members
+          .map((m) => m.row.promoTiers ?? null)
+          .find((t) => hasPromoStep(t)) ?? null;
+      const fix = planPromoGroupStepFix(
+        tiers,
+        members
+          .filter((m) => m.qty > 0)
+          .map((m) => ({
+            skuCode: m.row.skuCode,
+            qty: m.qty,
+            suggestOrder: m.row.suggestOrder,
+          }))
+      );
+      if (fix) out.set(group, fix);
+    }
+    return out;
+  }, [displayLines]);
+
+  /** เพิ่มส่วนที่ขาดให้ยอดรวมกลุ่มลงล็อต — คืนจำนวนบรรทัดที่ถูกปรับ */
+  function applyGroupStepFixes(only?: string) {
+    const fixes = only
+      ? groupStepFixes.has(only)
+        ? [[only, groupStepFixes.get(only)!] as const]
+        : []
+      : [...groupStepFixes.entries()];
+    if (fixes.length === 0) return 0;
+
+    const delta = new Map<string, number>();
+    for (const [, fix] of fixes) {
+      delta.set(fix.topUpSku, (delta.get(fix.topUpSku) ?? 0) + fix.delta);
+    }
+    const next = lines.map((l) =>
+      delta.has(l.row.skuCode)
+        ? { ...l, qty: l.qty + delta.get(l.row.skuCode)! }
+        : l
+    );
+    setLines(next);
+    persistDraft(next);
+    for (const [group, fix] of fixes) {
+      toast({
+        title: promoGroupStepNote(fix, `กลุ่ม ${group}`),
+        tone: "info",
+        duration: 8000,
+      });
+    }
+    return fixes.length;
+  }
+
   /** รายการที่ธง CVD ผิดปกติ พร้อมคำอธิบายว่าทำไม — ใช้ในแบนเนอร์แทนข้อความรวมๆ เดิม */
   const cvdNotices = useMemo(
     () =>
@@ -471,14 +566,8 @@ export function OrderPageClient({
    * ซึ่งเป็นต้นตอของบั๊ก "ติดธงแดงแล้วส่งไม่ได้" — ปุ่ม «แก้ที่สต็อก» ยังอยู่
    * สำหรับคนที่อยากไปดูบริบทสต็อกเต็ม ๆ
    */
-  function setLineQty(skuCode: string, qty: number) {
-    const next = lines.map((l) =>
-      l.row.skuCode === skuCode
-        ? { ...l, qty: Math.max(0, Math.floor(qty)) }
-        : l
-    );
-    setLines(next);
-    // เขียนกลับ session ทันที — หน้า /stock อ่านคีย์นี้ตอนกดย้อนกลับ
+  /** เขียนดราฟต์กลับ session ทันที — หน้า /stock อ่านคีย์นี้ตอนกดย้อนกลับ */
+  function persistDraft(next: OrderLine[]) {
     try {
       const qtyMap: Record<string, number> = {};
       for (const l of next) qtyMap[l.row.skuCode] = l.qty;
@@ -490,6 +579,23 @@ export function OrderPageClient({
     } catch {
       // sessionStorage ปิดอยู่ — แก้ในหน้านี้ยังใช้ได้ แค่ไม่รอดข้ามหน้า
     }
+  }
+
+  function setLineQty(skuCode: string, qty: number) {
+    const requested = Math.max(0, Math.floor(qty));
+    const target = lines.find((l) => l.row.skuCode === skuCode);
+    // ของแถมนับเป็นล็อต — จำนวนที่ไม่ลงล็อตคือจ่ายเต็มแล้วไม่ได้แถมส่วนที่เกิน
+    const tiers = target ? lineStepTiers(target.row) : null;
+    const applied = snapQtyToPromoStep(tiers, requested);
+    const note = promoStepNote(tiers, requested, applied);
+    if (note) {
+      toast({ title: `${skuCode} · ${note}`, tone: "info", duration: 4500 });
+    }
+    const next = lines.map((l) =>
+      l.row.skuCode === skuCode ? { ...l, qty: applied } : l
+    );
+    setLines(next);
+    persistDraft(next);
   }
 
   function toggleSelected(skuCode: string) {
@@ -681,6 +787,42 @@ export function OrderPageClient({
       });
     }
 
+    if (groupStepFixes.size > 0) {
+      const groups2 = [...groupStepFixes.entries()];
+      const memberCodes = displayLines
+        .filter((l) => {
+          const g = l.promoGroup?.trim();
+          return Boolean(g && groupStepFixes.has(g) && l.qty > 0);
+        })
+        .map((l) => l.row.skuCode);
+      groups.push({
+        key: "promoStep",
+        tone: "warn",
+        icon: <Gift className="h-3.5 w-3.5" />,
+        label: "แถมไม่ลงตัว",
+        count: groups2.length,
+        summary: `โปรกลุ่ม ${groups2.length} กลุ่มยอดรวมไม่ลงขั้นของแถม — ส่วนที่ไม่ครบล็อตจ่ายเต็มแต่ไม่ได้ของแถมเพิ่ม`,
+        skuCodes: memberCodes,
+        items: groups2.map(([group, fix]) => ({
+          key: group,
+          node: (
+            <span className="vmi-cell-text block">
+              {promoGroupStepNote(fix, `กลุ่ม ${group}`)}
+            </span>
+          ),
+        })),
+        footer: (
+          <button
+            type="button"
+            onClick={() => applyGroupStepFixes()}
+            className="font-semibold text-teal-700 underline underline-offset-2 dark:text-teal-400"
+          >
+            ปรับให้ลงตัวทั้งหมด
+          </button>
+        ),
+      });
+    }
+
     if (duplicateLines.length > 0) {
       groups.push({
         key: "duplicate",
@@ -720,7 +862,17 @@ export function OrderPageClient({
     }
 
     return groups;
-  }, [mismatchLines, cvdNotices, duplicateLines, stats.blockingCount, recentOrders]);
+    // applyGroupStepFixes อ่าน lines/groupStepFixes ตอนถูกกดเท่านั้น จึงไม่ต้องเป็น dep
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    mismatchLines,
+    cvdNotices,
+    duplicateLines,
+    groupStepFixes,
+    displayLines,
+    stats.blockingCount,
+    recentOrders,
+  ]);
 
   /** แถวที่แสดงจริง — ทาแถบสีกลุ่มหลังกรอง หัวกลุ่มจะได้ตรงกับแถวแรกที่เห็นจริง */
   const visibleLines = useMemo(() => {
@@ -815,12 +967,31 @@ export function OrderPageClient({
    *  ทั้งที่หน้านี้ไม่มีช่องแก้จำนวนให้ปรับด้วยซ้ำ)
    */
   function requestSubmit() {
+    // ของแถมนับเป็นล็อต — ส่งยอดที่ไม่ลงล็อตคือจ่ายเต็มแล้วไม่ได้ของแถมส่วนที่เกิน
+    if (groupStepFixes.size > 0) {
+      setConfirmStepOpen(true);
+      return;
+    }
     if (stats.blockingCount > 0) {
       setConfirmRiskyOpen(true);
       return;
     }
     submitOrder();
   }
+
+  /**
+   * ส่งต่อหลังปรับขั้นโปรเสร็จ
+   *
+   * ปรับจำนวนแล้วส่งในจังหวะเดียวไม่ได้ — submitMutation ปิดทับ submittableLines
+   * ของเรนเดอร์ปัจจุบัน จะได้จำนวนก่อนปรับติดไปกับคำสั่ง เลยรอให้ lines อัปเดต
+   * ก่อนแล้วค่อยเข้า requestSubmit อีกรอบ (ซึ่งจะไปเจอด่าน CVD ต่อตามปกติ)
+   */
+  useEffect(() => {
+    if (!submitAfterStepFix) return;
+    setSubmitAfterStepFix(false);
+    requestSubmit();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [submitAfterStepFix, lines]);
 
   if (success) {
     return (
@@ -965,6 +1136,18 @@ export function OrderPageClient({
           groupMemberSkusMap={groupMemberSkusMap}
           onFocusStock={focusSkuOnStock}
           onPriceChange={setPriceOverride}
+          groupStepShortOf={(group) => {
+            const fix = groupStepFixes.get(group.trim());
+            return fix
+              ? {
+                  lot: fix.lot,
+                  pool: fix.pool,
+                  delta: fix.delta,
+                  target: fix.target,
+                }
+              : null;
+          }}
+          onApplyGroupStepFix={(group) => applyGroupStepFixes(group.trim())}
           onQtyChange={setLineQty}
         />
       </main>
@@ -1054,6 +1237,31 @@ export function OrderPageClient({
         cancelLabel="เก็บไว้"
         onConfirm={removeSelected}
         onClose={() => setConfirmRemoveOpen(false)}
+      />
+
+      <ConfirmDialog
+        open={confirmStepOpen}
+        tone="default"
+        title="ปรับจำนวนให้ได้ของแถมเต็ม"
+        body={
+          <>
+            โปรของแถมนับเป็นล็อต — ยอดรวมกลุ่มที่ไม่ลงล็อตจะจ่ายเต็มแต่ของแถมไม่ครบขั้น
+            ระบบจะปรับให้ลงล็อตที่ใกล้ที่สุด
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
+              {[...groupStepFixes.entries()].map(([group, fix]) => (
+                <li key={group}>{promoGroupStepNote(fix, `กลุ่ม ${group}`)}</li>
+              ))}
+            </ul>
+          </>
+        }
+        confirmLabel="ปรับแล้วส่งคำสั่งซื้อ"
+        cancelLabel="แก้เอง"
+        onConfirm={() => {
+          setConfirmStepOpen(false);
+          applyGroupStepFixes();
+          setSubmitAfterStepFix(true);
+        }}
+        onClose={() => setConfirmStepOpen(false)}
       />
 
       <ConfirmDialog
@@ -1150,6 +1358,8 @@ function OrderSummaryList({
   onToggleAll,
   promoStagedQty,
   groupMemberSkusMap,
+  groupStepShortOf,
+  onApplyGroupStepFix,
   onFocusStock,
   onPriceChange,
   onQtyChange,
@@ -1163,6 +1373,11 @@ function OrderSummaryList({
   onToggleAll: () => void;
   promoStagedQty: Record<string, number>;
   groupMemberSkusMap: Map<string, string[]>;
+  /** ส่วนที่ขาดของยอดรวมกลุ่มโปร (null = ลงตัวแล้ว) */
+  groupStepShortOf: (
+    promoGroup: string
+  ) => { lot: number; pool: number; delta: number; target: number } | null;
+  onApplyGroupStepFix: (promoGroup: string) => void;
   onFocusStock: (skuCode: string) => void;
   onPriceChange: (skuCode: string, price: number | null) => void;
   onQtyChange: (skuCode: string, qty: number) => void;
@@ -1194,6 +1409,10 @@ function OrderSummaryList({
                         }
                         stagedQty={promoStagedQty}
                         showPromoButton={false}
+                        stepShort={groupStepShortOf(line.promoGroup)}
+                        onApplyStepFix={() =>
+                          onApplyGroupStepFix(line.promoGroup!)
+                        }
                       />
                     </div>
                   )}
@@ -1223,10 +1442,22 @@ function OrderSummaryList({
                     <StockQtyStepper
                       qty={line.qty}
                       suggestOrder={line.row.suggestOrder}
+                      promoStepLot={promoStepLot(
+                        lineStepTiers(line.row),
+                        line.qty
+                      )}
                       onMinus={() =>
-                        onQtyChange(line.row.skuCode, line.qty - 1)
+                        onQtyChange(
+                          line.row.skuCode,
+                          prevPromoStepQty(lineStepTiers(line.row), line.qty)
+                        )
                       }
-                      onPlus={() => onQtyChange(line.row.skuCode, line.qty + 1)}
+                      onPlus={() =>
+                        onQtyChange(
+                          line.row.skuCode,
+                          nextPromoStepQty(lineStepTiers(line.row), line.qty)
+                        )
+                      }
                       onSetQty={(n) => onQtyChange(line.row.skuCode, n)}
                       onApplySuggest={() =>
                         onQtyChange(line.row.skuCode, line.row.suggestOrder)
@@ -1318,25 +1549,31 @@ function OrderSummaryList({
                   #
                 </span>
               </th>
-              <th className="w-[7%] whitespace-nowrap px-2 py-3">SKU</th>
-              <th className="w-[17%] px-2 py-3">ชื่อสินค้า</th>
-              <th className="w-[10%] whitespace-nowrap px-2 py-3 text-right">
+              <th className="w-[8%] whitespace-nowrap px-2 py-3">SKU</th>
+              <th className="w-[14%] px-2 py-3">ชื่อสินค้า</th>
+              {/* กว้างพอสำหรับตัวปรับจำนวนทั้งชุด (ปุ่ม ↺ + − + ช่อง + +) ~100px
+                  ที่ 1024px — เดิม 10% ทำให้ปุ่ม + โดน overflow:hidden ตัดหายทุกแถว
+                  ที่ผู้ใช้แก้จำนวน (ปุ่ม ↺ โผล่มาแล้วดันปุ่ม + ตกขอบ) */}
+              <th className="w-[13.5%] whitespace-nowrap px-1.5 py-3 text-right">
                 จำนวน
               </th>
               <th
                 className="hidden w-[6%] whitespace-nowrap px-2 py-3 text-right xl:table-cell"
                 title="เป้าหมาย CVD ต่ำสุด / สูงสุด (วัน) ตามที่ตั้งในหน้าจัดการ"
               >
-                MIN / MAX
+                MIN/MAX
               </th>
               <th className="w-[8%] whitespace-nowrap px-2 py-3 text-right">
                 ราคา/หีบ
               </th>
-              <th className="w-[5%] whitespace-nowrap px-2 py-3 text-right">
+              <th className="w-[6%] whitespace-nowrap px-2 py-3 text-right">
                 ส่วนลด
               </th>
-              <th className="w-[7%] whitespace-nowrap px-2 py-3 text-right">
-                ราคาสุทธิ/หีบ
+              <th
+                className="w-[7%] whitespace-nowrap px-2 py-3 text-right"
+                title="ราคาสุทธิต่อหีบหลังหักส่วนลด C4"
+              >
+                สุทธิ/หีบ
               </th>
               <th className="w-[7%] whitespace-nowrap px-2 py-3 text-right">
                 รวม
@@ -1344,7 +1581,7 @@ function OrderSummaryList({
               <th className="w-[10%] whitespace-nowrap px-1.5 py-3 text-right">
                 CVD
               </th>
-              <th className="w-[17%] px-2 py-3">โปรที่ได้</th>
+              <th className="w-[14.5%] px-2 py-3">โปรที่ได้</th>
             </tr>
           </thead>
           <tbody>
@@ -1368,6 +1605,10 @@ function OrderSummaryList({
                         }
                         stagedQty={promoStagedQty}
                         showPromoButton={false}
+                        stepShort={groupStepShortOf(line.promoGroup)}
+                        onApplyStepFix={() =>
+                          onApplyGroupStepFix(line.promoGroup!)
+                        }
                       />
                     </td>
                   </tr>
@@ -1408,17 +1649,32 @@ function OrderSummaryList({
                     )}
                   </span>
                 </td>
-                <td className="px-2 py-2 text-right">
+                <td className="px-1.5 py-2 text-right">
                   <div className="inline-flex flex-col items-end gap-0.5">
                     <StockQtyStepper
                       qty={line.qty}
                       suggestOrder={line.row.suggestOrder}
-                      onMinus={() => onQtyChange(line.row.skuCode, line.qty - 1)}
-                      onPlus={() => onQtyChange(line.row.skuCode, line.qty + 1)}
+                      promoStepLot={promoStepLot(
+                        lineStepTiers(line.row),
+                        line.qty
+                      )}
+                      onMinus={() =>
+                        onQtyChange(
+                          line.row.skuCode,
+                          prevPromoStepQty(lineStepTiers(line.row), line.qty)
+                        )
+                      }
+                      onPlus={() =>
+                        onQtyChange(
+                          line.row.skuCode,
+                          nextPromoStepQty(lineStepTiers(line.row), line.qty)
+                        )
+                      }
                       onSetQty={(n) => onQtyChange(line.row.skuCode, n)}
                       onApplySuggest={() =>
                         onQtyChange(line.row.skuCode, line.row.suggestOrder)
                       }
+                      compact
                     />
                     <button
                       type="button"

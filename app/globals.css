@@ -781,6 +781,25 @@ body {
   vertical-align: middle;
 }
 
+/**
+ * หัวตารางของตารางที่คอลัมน์กว้างตายตัว
+ *
+ * `.vmi-table-scroll thead th` ตั้ง white-space: nowrap ไว้ ซึ่งถูกกับตาราง auto
+ * (คอลัมน์ขยายตามชื่อ) แต่ตารางแบบ fixed คอลัมน์ไม่ขยายและ th มี overflow: hidden
+ * ชื่อคอลัมน์ที่ยาวกว่าช่องจึงถูกตัดหายไปเงียบ ๆ — "MIN / MAX" เหลือ "MIN / MA"
+ *
+ * แก้ด้วยการย่อหัวตารางลงหนึ่งขั้นแทนการปล่อยให้ตกบรรทัด (หัวตารางสองบรรทัดสลับ
+ * กับบรรทัดเดียวดูรก) ตัวชื่อคอลัมน์เองก็ต้องสั้นพอสำหรับ 1024px ด้วย
+ * ส่วน white-space: normal เก็บไว้เป็นตาข่ายกันตก — วันที่ชื่อยาวเกินจริง ๆ
+ * ยอมให้ตกบรรทัดดีกว่าตัดข้อความหาย
+ */
+.vmi-stock-fit-table thead th,
+.vmi-order-table thead th {
+  font-size: 0.75rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .vmi-stock-page .vmi-stock-table-scroll {
   overflow-x: hidden;
 }

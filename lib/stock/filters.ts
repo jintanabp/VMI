@@ -7,6 +7,8 @@
  *   2. ตัวกรองย่อย — แบรนด์ · กลุ่มสินค้า · ซ่อนสินค้าไม่ขาย ใช้ร่วมกับมุมมองใดก็ได้
  */
 
+import { matchesProductSearch } from "@/lib/utils";
+
 export type StockView =
   | "all"
   | "needs"
@@ -105,6 +107,28 @@ export function filterStockRows<T extends FilterableStockRow>(
     if (section && (r.section ?? "") !== section) return false;
     return true;
   });
+}
+
+/**
+ * แถวที่หน้าจอต้องแสดงจริง — ค้นหา + ตัวกรอง รวมไว้ที่เดียว
+ *
+ * **กติกา: กำลังค้นหา = ข้ามตัวกรองทั้งหมด** คนที่พิมพ์ชื่อ/รหัสสินค้าต้องการหา
+ * "ของชิ้นนั้น" ไม่ใช่ "ของชิ้นนั้นเฉพาะที่อยู่ในแท็บที่เปิดค้างไว้" — ถ้ากรองซ้อน
+ * ผลลัพธ์จะว่างโดยไม่มีอะไรบนจอบอกว่าเพราะแท็บ/แบรนด์ที่ค้างอยู่
+ *
+ * เดิมข้ามตัวกรองเฉพาะตอนที่พิมพ์เป็นรหัสตัวเลขล้วน ผลคือสินค้าเป้าขาย
+ * (fromTarget ซึ่งถูกกันออกจากทุกแท็บยกเว้น "ควรมีขาย") ค้นด้วยรหัส "435495" เจอ
+ * แต่ค้นด้วยชื่อ "ก๋วยเตี๋ยว" ไม่เจอ ทั้งที่เป็นสินค้าตัวเดียวกัน
+ */
+export function selectStockRows<
+  T extends FilterableStockRow & Parameters<typeof matchesProductSearch>[1],
+>(
+  rows: T[],
+  opts: { search: string; filters: StockFilterState }
+): T[] {
+  const q = opts.search.trim();
+  if (q) return rows.filter((r) => matchesProductSearch(q, r));
+  return filterStockRows(rows, opts.filters);
 }
 
 /** จำนวนตัวกรองที่อยู่ในเมนู "กรอง" เท่านั้น

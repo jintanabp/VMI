@@ -7,7 +7,19 @@ import { Modal, ModalBody, ModalFooter } from "@/components/ui/modal";
 import { StockQtyStepper } from "@/components/stock/stock-qty-stepper";
 import { formatDays, getOrderCvdFlag } from "@/lib/calculations";
 import { cvdFlagHint } from "@/lib/stock/cvd-hint";
+import { isPooledPromoGroup } from "@/lib/promo/promo-group-display";
+import {
+  nextPromoStepQty,
+  prevPromoStepQty,
+  promoStepLot,
+} from "@/lib/promo/promo-step";
 import type { StockRowComputed } from "@/lib/repositories/types";
+
+/** ขั้นโปรที่บังคับกับบรรทัดนี้ได้ — โปรกลุ่มคุมที่ยอดรวม ไม่ใช่รายบรรทัด */
+function stepTiersOf(row: StockRowComputed) {
+  if (isPooledPromoGroup(row.promoGroup, row.promoGroupMembers)) return null;
+  return row.promoTiers ?? null;
+}
 
 /**
  * กล่องตรวจก่อนไปหน้า order
@@ -100,8 +112,14 @@ export function OrderReviewDialog({
                       <StockQtyStepper
                         qty={qty}
                         suggestOrder={row.suggestOrder}
-                        onMinus={() => onSetQty(row.skuCode, qty - 1)}
-                        onPlus={() => onSetQty(row.skuCode, qty + 1)}
+                        promoStepLot={promoStepLot(stepTiersOf(row), qty)}
+                        // เดินทีละขั้นโปร — ±1 จะโดนหน้าแม่ปัดกลับที่เดิมจนปุ่มกดไม่ขยับ
+                        onMinus={() =>
+                          onSetQty(row.skuCode, prevPromoStepQty(stepTiersOf(row), qty))
+                        }
+                        onPlus={() =>
+                          onSetQty(row.skuCode, nextPromoStepQty(stepTiersOf(row), qty))
+                        }
                         onSetQty={(n) => onSetQty(row.skuCode, n)}
                         onApplySuggest={() =>
                           onSetQty(row.skuCode, row.suggestOrder)

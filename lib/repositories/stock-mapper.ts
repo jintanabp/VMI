@@ -47,6 +47,8 @@ export function mapStockRow(
       promoTiers: PromoTierInput[];
     };
     promoOverride?: PromoResult;
+    /** จำนวนแนะนำที่ผู้เรียกคิดมาแล้ว (เช่น ปัดตามขั้นโปรของแถม) — ใช้แทนสูตร MIN/MAX */
+    suggestOverride?: number;
     poolQtyForDiscount?: number;
     isNew?: boolean;
     fromTarget?: boolean;
@@ -74,7 +76,8 @@ export function mapStockRow(
   // calcSuggestOrder ปัด Math.ceil อยู่แล้ว — พอเป็นหน่วยหีบจึงได้ "ปัดขึ้นเป็นหีบเต็ม"
   const suggestOrder = item.blocked
     ? 0
-    : calcSuggestOrder(stock, avgSales, item.minDays, item.maxDays);
+    : (item.suggestOverride ??
+      calcSuggestOrder(stock, avgSales, item.minDays, item.maxDays));
 
   let discountBaht: number | null = null;
   let discountPct: number | null = null;

@@ -7,6 +7,10 @@ import {
   type PromoGroupStripe,
 } from "@/lib/promo/promo-group-display";
 import { buildPromoTitle } from "@/lib/promo/promo-title";
+import {
+  promoGroupStepChipLabel,
+  promoGroupStepChipTitle,
+} from "@/lib/promo/promo-step";
 import { usePromoGroupNames } from "@/hooks/use-promo-group-names";
 import type { PromoTierInput } from "@/lib/calculations";
 import { cn } from "@/lib/utils";
@@ -64,6 +68,19 @@ interface PromoGroupHeaderProps {
   tiers?: PromoTierInput[];
   /** จำนวนวันที่โปรจะหมด — ใช้ประกอบชื่อ */
   endsInDays?: number | null;
+  /**
+   * ยอดรวมกลุ่มยังไม่ลงล็อตโปรของแถม — ส่วนที่ขาดกับเป้าที่ต้องไปให้ถึง
+   *
+   * คำนวณจากหน้าแม่ ไม่ใช่จาก stagedQty ที่นี่ เพราะต้องอิง "จำนวนที่สั่งจริง"
+   * ชุดเดียวกับตอนกดตรวจสอบคำสั่ง ไม่งั้นหัวกลุ่มบอกว่าลงตัวแล้วแต่ระบบยังปรับให้อีก
+   */
+  stepShort?: {
+    lot: number;
+    pool: number;
+    delta: number;
+    target: number;
+  } | null;
+  onApplyStepFix?: () => void;
   className?: string;
 }
 
@@ -81,6 +98,8 @@ export function PromoGroupHeader({
   showPromoButton = true,
   tiers,
   endsInDays,
+  stepShort = null,
+  onApplyStepFix,
   className,
 }: PromoGroupHeaderProps) {
   const { names, tooltip } = usePromoGroupNames();
@@ -140,6 +159,27 @@ export function PromoGroupHeader({
         <span className="text-[10px] font-medium tabular-nums text-slate-600 dark:text-slate-400">
           รวม {pooledQty} หีบ
         </span>
+      )}
+      {stepShort && (
+        // ของแถมนับเป็นล็อต — ยอดรวมที่ไม่ลงล็อตคือจ่ายเต็มโดยไม่ได้ของแถมส่วนที่เกิน
+        // กดได้เมื่อหน้าแม่ส่งวิธีปรับมาให้ (หน้า order ตรวจสอบเป็นแบบดูอย่างเดียว)
+        <button
+          type="button"
+          disabled={!onApplyStepFix}
+          onClick={(e) => {
+            e.stopPropagation();
+            onApplyStepFix?.();
+          }}
+          title={promoGroupStepChipTitle(stepShort, Boolean(onApplyStepFix))}
+          className={cn(
+            "inline-flex shrink-0 items-center gap-1 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-800 ring-1 ring-amber-300 dark:bg-amber-500/20 dark:text-amber-200 dark:ring-amber-500/40",
+            onApplyStepFix &&
+              "transition-colors hover:bg-amber-200 dark:hover:bg-amber-500/30"
+          )}
+        >
+          {promoGroupStepChipLabel(stepShort)}
+          {onApplyStepFix && <span className="font-semibold">· ปรับให้</span>}
+        </button>
       )}
       {showButton && storeCode && (
         <PromoInspectorTrigger

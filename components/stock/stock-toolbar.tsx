@@ -867,11 +867,14 @@ export function StockToolbar({
   /** แท็บที่ซ่อนในโหมดนี้ — เช่น "สต็อกวิกฤต" ซึ่งนิยามด้วย CVD ล้วน */
   hiddenViews?: StockView[];
 }) {
-  const filtering =
+  const anyFilterOn =
     countActiveFilters(filters) > 0 ||
     filters.view !== "all" ||
-    filters.hideNoSales ||
-    Boolean(search.trim());
+    filters.hideNoSales;
+  const filtering = anyFilterOn || Boolean(search.trim());
+  /** กำลังค้นหาทั้งที่มีตัวกรองเปิดอยู่ — ผลลัพธ์จะข้ามตัวกรอง ต้องบอกให้รู้
+   *  ไม่งั้นผู้ใช้เห็นของนอกแท็บโผล่มาแล้วงงว่าแท็บเสียหรือเปล่า */
+  const searchIgnoresFilters = Boolean(search.trim()) && anyFilterOn;
 
   return (
     <div className="vmi-stock-toolbar shrink-0">
@@ -953,6 +956,15 @@ export function StockToolbar({
             />
           )}
         </div>
+
+        {searchIgnoresFilters && (
+          <span
+            className="hidden shrink-0 items-center rounded-md bg-sky-50 px-1.5 py-0.5 text-[11px] font-semibold text-sky-700 ring-1 ring-sky-200 sm:inline-flex dark:bg-sky-500/10 dark:text-sky-300 dark:ring-sky-500/25"
+            title="กำลังค้นหา — ระบบค้นทั้งคลัง ไม่จำกัดตามแท็บ/ตัวกรองที่เปิดไว้ จะได้ไม่พลาดสินค้าที่อยู่นอกแท็บ เช่น สินค้าที่ควรมีขายแต่ยังไม่มีในคลัง"
+          >
+            ค้นทั้งคลัง
+          </span>
+        )}
 
         <p className="hidden shrink-0 text-[11px] tabular-nums text-slate-400 sm:block dark:text-slate-500">
           {filtering ? (

@@ -80,7 +80,7 @@ import {
   MobileRowTop,
   MobileStat,
 } from "@/components/ui/mobile-row";
-import { cn, looksLikeProductCodeQuery, matchesProductSearch } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import {
   formatDays,
   formatNumber,
@@ -99,15 +99,16 @@ import {
 } from "@/lib/stock/sort";
 import {
   DEFAULT_STOCK_FILTERS,
-  filterStockRows,
   isCriticalStock,
   isDeadStock,
   isStockView,
+  selectStockRows,
   type StockFilterState,
 } from "@/lib/stock/filters";
 import {
   annotatePromoGroupStripes,
   followsPooledPromoGroup,
+  isPooledPromoGroup,
   promoGroupBorderClass,
   type PromoGroupStripe,
 } from "@/lib/promo/promo-group-display";
@@ -118,6 +119,17 @@ import {
   mapGroupStagedToMemberSkus,
   mapStagedQtyToSkuCodes,
 } from "@/lib/promo/stock-pooled-promo";
+import {
+  hasPromoStep,
+  nextPromoStepQty,
+  planPromoGroupStepFix,
+  prevPromoStepQty,
+  promoGroupStepNote,
+  promoStepLot,
+  promoStepNote,
+  snapQtyToPromoStep,
+} from "@/lib/promo/promo-step";
+import { useToast } from "@/components/ui/toast";
 import type { StockRowComputed } from "@/lib/repositories/types";
 
 interface StockPageClientProps {
@@ -173,6 +185,7 @@ export function StockPageClient({
 }: StockPageClientProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search);
@@ -487,17 +500,11 @@ export function StockPageClient({
     return next;
   }, [rows, promoStagedQty]);
 
-  const filtered = useMemo(() => {
-    const q = deferredSearch.trim();
-    const skuLookup = looksLikeProductCodeQuery(q);
-    let out = enrichedRows;
-    if (q) {
-      out = out.filter((r) => matchesProductSearch(q, r));
-    }
-    // ค้นหารหัส SKU ตรง ๆ — ไม่กรองซ้อน (กัน filter ค้างทำให้ไม่เจอ)
-    if (skuLookup) return out;
-    return filterStockRows(out, filters);
-  }, [enrichedRows, deferredSearch, filters]);
+  const filtered = useMemo(
+    () =>
+      selectStockRows(enrichedRows, { search: deferredSearch, filters }),
+    [enrichedRows, deferredSearch, filters]
+  );
 
   function toggleExpand(skuId: string) {
     setExpanded((prev) => {
@@ -728,6 +735,28 @@ export function StockPageClient({
     [rows]
   );
 
+  const rowByCode = useMemo(
+    () => new Map(rows.map((r) => [r.skuCode, r])),
+    [rows]
+  );
+
+  /**
+   * ขั้นโปรที่บังคับกับ "บรรทัดนี้" ได้ — null = ไม่บังคับรายบรรทัด
+   *
+   * โปรกลุ่มนับยอดรวมข้าม SKU ถ้าบังคับทีละบรรทัดจะได้กลุ่มละหลายเท่าของล็อต
+   * (สมาชิก 5 ตัว × ล็อต 24 = 120 หีบ) ซึ่งไม่ใช่เงื่อนไขของโปร — กลุ่มไปคุมที่
+   * ยอดรวมแทน (applyGroupStepFix / ตอนกดตรวจสอบคำสั่ง)
+   */
+  const lineStepTiers = useCallback(
+    (skuCode: string) => {
+      const row = rowByCode.get(skuCode);
+      if (!row) return null;
+      if (isPooledPromoGroup(row.promoGroup, row.promoGroupMembers)) return null;
+      return row.promoTiers ?? null;
+    },
+    [rowByCode]
+  );
+
   const applyGroupStaged = useCallback(
     (staged: Record<string, number>, memberSkus?: string[]) => {
       const mapped =
@@ -800,7 +829,11 @@ export function StockPageClient({
     (row: StockRowComputed): number => {
       const base = row.suggestOrder > 0 ? row.suggestOrder : 0;
       const pending = recentBySku[row.skuCode]?.pendingQty ?? 0;
-      return Math.max(0, base - pending);
+      const left = Math.max(0, base - pending);
+      // หักของที่สั่งค้างแล้วมักเหลือเศษที่ไม่ลงล็อตโปร — ชิป "แนะนำ N" ต้องกดแล้ว
+      // ได้จำนวนที่สั่งได้จริง ไม่ใช่เลขที่ระบบปัดทิ้งทันทีที่กด
+      if (isPooledPromoGroup(row.promoGroup, row.promoGroupMembers)) return left;
+      return snapQtyToPromoStep(row.promoTiers, left);
     },
     [recentBySku]
   );
@@ -811,6 +844,11 @@ export function StockPageClient({
 
   function lineQty(row: StockRowComputed): number {
     return orderQty(row);
+  }
+
+  /** ล็อตโปรของบรรทัดนี้ — ใช้บอกผู้ใช้ใน tooltip ของตัวปรับจำนวน */
+  function stepLotOf(row: StockRowComputed): number | null {
+    return promoStepLot(lineStepTiers(row.skuCode), orderQty(row));
   }
 
   /** จำนวนที่ใช้ประเมิน CVD — แถวที่ยังไม่แตะใช้ค่าแนะนำ ไม่งั้นธงสี/คอลัมน์
@@ -835,7 +873,14 @@ export function StockPageClient({
    */
   const setLineQty = useCallback(
     (skuCode: string, qty: number) => {
-      const nextQty = Math.max(0, Math.floor(qty));
+      const requested = Math.max(0, Math.floor(qty));
+      // ของแถมนับเป็นล็อต — จำนวนที่ไม่ลงล็อตคือจ่ายเต็มแล้วไม่ได้แถมส่วนที่เกิน
+      const tiers = lineStepTiers(skuCode);
+      const nextQty = snapQtyToPromoStep(tiers, requested);
+      const note = promoStepNote(tiers, requested, nextQty);
+      if (note) {
+        toast({ title: `${skuCode} · ${note}`, tone: "info", duration: 4500 });
+      }
       setQtyOverrides((prev) => ({ ...prev, [skuCode]: nextQty }));
       const skuId = skuIdByCode.get(skuCode);
       if (!skuId) return;
@@ -849,7 +894,7 @@ export function StockPageClient({
         return next;
       });
     },
-    [skuIdByCode]
+    [skuIdByCode, lineStepTiers, toast]
   );
 
   /** ลบค่าที่ผู้ใช้ตั้ง → ช่องกลับไปเป็น 0 และชิป "แนะนำ" โผล่กลับมา */
@@ -865,7 +910,77 @@ export function StockPageClient({
   function adjustLineQty(skuCode: string, delta: number) {
     const row = rows.find((r) => r.skuCode === skuCode);
     if (!row) return;
-    setLineQty(skuCode, orderQty(row) + delta);
+    const current = orderQty(row);
+    // มีโปรของแถม = ปุ่ม +/− เดินทีละขั้นโปร ไม่ใช่ทีละหีบ (กดทีละหีบก็โดนปัดอยู่ดี)
+    const tiers = lineStepTiers(skuCode);
+    if (hasPromoStep(tiers)) {
+      setLineQty(
+        skuCode,
+        delta > 0
+          ? nextPromoStepQty(tiers, current)
+          : prevPromoStepQty(tiers, current)
+      );
+      return;
+    }
+    setLineQty(skuCode, current + delta);
+  }
+
+  /**
+   * แผนปรับยอดรวมโปรกลุ่มให้ลงล็อต — คิดจากสมาชิกที่อยู่ในคำสั่งจริงเท่านั้น
+   *
+   * ห้ามเติมส่วนที่ขาดให้ SKU ที่ไม่ได้สั่ง — บรรทัดนั้นไม่ได้อยู่ในดราฟต์
+   * จำนวนที่เติมจะหายไปเงียบ ๆ แล้วยอดรวมก็ยังไม่ลงล็อตอยู่ดี
+   */
+  function planGroupStep(
+    memberSkus: string[],
+    qtyBySku: Record<string, number>,
+    excludeSku?: string
+  ) {
+    const members = memberSkus
+      .filter((code) => (qtyBySku[code] ?? 0) > 0 && rowByCode.has(code))
+      .map((code) => ({
+        skuCode: code,
+        qty: qtyBySku[code] ?? 0,
+        suggestOrder: rowByCode.get(code)!.suggestOrder,
+      }));
+    if (members.length === 0) return null;
+    const tiers =
+      members
+        .map((m) => rowByCode.get(m.skuCode)?.promoTiers ?? null)
+        .find((t) => hasPromoStep(t)) ?? null;
+    return planPromoGroupStepFix(tiers, members, { excludeSku });
+  }
+
+  /** ปุ่ม «ปรับให้ลงตัว» ที่หัวกลุ่มโปร — เพิ่มส่วนที่ขาดให้ SKU ที่ควรสั่งมากสุด */
+  function applyGroupStepFix(promoGroup: string) {
+    const memberSkus = groupMemberSkusMap.get(promoGroup.trim()) ?? [];
+    const qtyBySku: Record<string, number> = {};
+    for (const code of memberSkus) {
+      const row = rowByCode.get(code);
+      if (row) qtyBySku[code] = orderQty(row);
+    }
+    const fix = planGroupStep(memberSkus, qtyBySku);
+    if (!fix) return;
+    setLineQty(fix.topUpSku, (qtyBySku[fix.topUpSku] ?? 0) + fix.delta);
+    toast({
+      title: promoGroupStepNote(fix, `กลุ่ม ${promoGroup.trim()}`),
+      tone: "info",
+      duration: 6000,
+    });
+  }
+
+  /** ส่วนที่ขาดของยอดรวมกลุ่ม — ใช้ขึ้นป้ายเตือนบนหัวกลุ่ม (null = ลงตัวแล้ว) */
+  function groupStepShort(promoGroup: string) {
+    const memberSkus = groupMemberSkusMap.get(promoGroup.trim()) ?? [];
+    const qtyBySku: Record<string, number> = {};
+    for (const code of memberSkus) {
+      const row = rowByCode.get(code);
+      if (row) qtyBySku[code] = orderQty(row);
+    }
+    const fix = planGroupStep(memberSkus, qtyBySku);
+    return fix
+      ? { lot: fix.lot, pool: fix.pool, delta: fix.delta, target: fix.target }
+      : null;
   }
 
   /** ติ๊กแถวแล้วต้องได้จำนวนที่สั่งได้จริง — แถวที่ระบบไม่แนะนำใช้ 1 หีบ (ขั้นต่ำ)
@@ -875,7 +990,11 @@ export function StockPageClient({
       if (prev[row.skuCode] != null && prev[row.skuCode]! > 0) return prev;
       return {
         ...prev,
-        [row.skuCode]: defaultLineQty(row) || 1,
+        // ต้องลงล็อตโปรเหมือนช่องกรอก ไม่งั้นติ๊กแล้วได้ 1 หีบในโปรที่ขั้นละ 3
+        [row.skuCode]: snapQtyToPromoStep(
+          lineStepTiers(row.skuCode),
+          defaultLineQty(row) || 1
+        ),
       };
     });
   }
@@ -957,7 +1076,10 @@ export function StockPageClient({
       const next = { ...prev };
       for (const r of selectableRows) {
         if (next[r.skuCode] == null || next[r.skuCode] === 0) {
-          next[r.skuCode] = suggestRemaining(r) || 1;
+          next[r.skuCode] = snapQtyToPromoStep(
+            lineStepTiers(r.skuCode),
+            suggestRemaining(r) || 1
+          );
         }
       }
       return next;
@@ -1152,11 +1274,42 @@ export function StockPageClient({
 
   function goToOrder() {
     if (selectedItems.length === 0) return;
-    sessionStorage.setItem("vmi_order_draft", JSON.stringify(selectedItems));
     const qtyMap: Record<string, number> = {};
     for (const item of selectedItems) {
       qtyMap[item.skuCode] = orderQty(item);
     }
+
+    /**
+     * โปรกลุ่มบังคับที่ "ยอดรวม" จึงรอมาปรับตรงนี้ — ระหว่างที่ผู้ใช้ไล่ใส่จำนวน
+     * ทีละบรรทัด ยอดรวมยังไม่ลงล็อตเป็นเรื่องปกติ ถ้าไปเด้งแก้บรรทัดอื่นให้ทุกครั้ง
+     * ที่พิมพ์ จะกลายเป็นแย่งกันแก้จนใส่เลขที่ต้องการไม่ได้
+     */
+    const applied: { group: string; fix: ReturnType<typeof planGroupStep> }[] = [];
+    for (const [group, memberSkus] of groupMemberSkusMap) {
+      const fix = planGroupStep(memberSkus, qtyMap);
+      if (!fix) continue;
+      qtyMap[fix.topUpSku] = (qtyMap[fix.topUpSku] ?? 0) + fix.delta;
+      applied.push({ group, fix });
+    }
+    if (applied.length > 0) {
+      setQtyOverrides((prev) => {
+        const next = { ...prev };
+        for (const { fix } of applied) {
+          if (fix) next[fix.topUpSku] = qtyMap[fix.topUpSku] ?? 0;
+        }
+        return next;
+      });
+      for (const { group, fix } of applied) {
+        if (!fix) continue;
+        toast({
+          title: promoGroupStepNote(fix, `กลุ่ม ${group}`),
+          tone: "info",
+          duration: 8000,
+        });
+      }
+    }
+
+    sessionStorage.setItem("vmi_order_draft", JSON.stringify(selectedItems));
     sessionStorage.setItem("vmi_order_qty", JSON.stringify(qtyMap));
     router.push("/order");
   }
@@ -1267,6 +1420,9 @@ export function StockPageClient({
                   onApplySuggest={setLineQty}
                   suggestRemaining={suggestRemaining}
                   pendingQtyOf={(r) => recentBySku[r.skuCode]?.pendingQty ?? 0}
+                  promoStepLotOf={stepLotOf}
+                  groupStepShort={groupStepShort}
+                  onApplyGroupStepFix={applyGroupStepFix}
                   onConfirmStaged={applyGroupStaged}
                 />
               )
@@ -1313,6 +1469,15 @@ export function StockPageClient({
                           ? benefitGroups.has(row.promoGroup.trim())
                           : false
                       }
+                      groupStepShort={
+                        row.promoGroup ? groupStepShort(row.promoGroup) : null
+                      }
+                      onApplyGroupStepFix={
+                        row.promoGroup
+                          ? () => applyGroupStepFix(row.promoGroup!)
+                          : undefined
+                      }
+                      promoStepLot={stepLotOf(row)}
                       onAdjustQty={(d) => adjustLineQty(row.skuCode, d)}
                       onSetQty={(q) => setLineQty(row.skuCode, q)}
                       suggestRemaining={suggestRemaining(row)}
@@ -1333,8 +1498,12 @@ export function StockPageClient({
             </div>
             ) : (
             <table className="vmi-data-table vmi-stock-fit-table w-full table-fixed text-left">
-            {/* ชื่อสินค้า 21% — วัดจากข้อมูลจริงแล้วชื่อที่ยาวสุดใช้ ~271px พอดีหนึ่งบรรทัด
-                ที่เหลือยกให้คอลัมน์โปร (19%) ซึ่งต้องวาง 3 บรรทัดของข้อมูลโปร
+            {/* สัดส่วนคุมด้วยเงื่อนไขสองข้อ: ที่ 1024px ทุกเซลล์ต้องไม่ถูก overflow:hidden ตัด
+                และตั้งแต่ 1280px ขึ้นไปชื่อคอลัมน์ต้องอยู่บรรทัดเดียว (หัวตารางที่ตกบรรทัด
+                บ้างไม่ตกบ้างดูรก) — วัดจากความกว้างข้อความจริงที่ 12px
+                คอลัมน์ตัวเลขต้องกว้างพอสำหรับค่าที่ยาวสุดจริง (สต็อก "0 / 168",
+                จำนวนสั่ง = ตัวปรับจำนวนทั้งชุด ~100px) ส่วนชื่อสินค้ากับโปรตัดบรรทัดได้
+                จึงเป็นสองคอลัมน์ที่ยอมให้แคบลงเมื่อจอเล็ก
 
                 ⚠️ ความกว้างอิง "ตำแหน่ง" ไม่ใช่ชื่อคอลัมน์ — ย้ายคอลัมน์เมื่อไหร่
                 ต้องย้าย <col> ให้ตรงกันทุกครั้ง ไม่งั้นความกว้างสลับมั่วทั้งตาราง */}
@@ -1342,19 +1511,19 @@ export function StockPageClient({
                 text node ช่องว่างใน <colgroup> ซึ่ง React เตือนว่าจะทำ hydration พัง */}
             <colgroup>
               {/* checkbox */}
-              <col className="w-[2.5%]" />
+              <col className="w-[3%]" />
               {/* SKU */}
               <col className="w-[6.5%]" />
               {/* ชื่อสินค้า */}
-              <col className="w-[21%]" />
+              <col className="w-[17%]" />
               {/* สต็อก */}
-              <col className="w-[5%]" />
+              <col className="w-[6.5%]" />
               {/* ขายเฉลี่ย */}
-              <col className="w-[5.5%]" />
+              <col className="w-[6.5%]" />
               {/* CVD */}
-              <col className="w-[4.5%]" />
-              {/* MIN / MAX */}
               <col className="w-[5%]" />
+              {/* MIN / MAX */}
+              <col className="w-[5.5%]" />
               {/* ราคา/หีบ */}
               <col className="w-[5%]" />
               {/* ส่วนลด */}
@@ -1362,9 +1531,9 @@ export function StockPageClient({
               {/* ราคาสุทธิ/หีบ */}
               <col className="w-[5.5%]" />
               {/* โปร */}
-              <col className="w-[19%]" />
+              <col className="w-[16.5%]" />
               {/* จำนวนสั่ง */}
-              <col className="w-[9%]" />
+              <col className="w-[11.5%]" />
               {/* CVD หลังสั่ง */}
               <col className="w-[6.5%]" />
             </colgroup>
@@ -1409,7 +1578,7 @@ export function StockPageClient({
                 />
                 <SortableTh
                   label="ขายเฉลี่ย"
-                  sub="7 วัน · หีบ (ชิ้น)"
+                  sub="7 วัน"
                   align="right"
                   sortKey="avgSales"
                   firstDir="desc"
@@ -1429,13 +1598,18 @@ export function StockPageClient({
                   className="px-1 py-2 text-right"
                   title="เป้าหมาย CVD ต่ำสุด / สูงสุด (วัน) ตามที่ตั้งในหน้าจัดการ"
                 >
-                  MIN / MAX
+                  MIN/MAX
                 </th>
                 <th className="px-1 py-2 text-right">ราคา/หีบ</th>
                 <th className="px-1 py-2 text-right">ส่วนลด</th>
                 {/* ตัวเลขชิดขวาชนข้อความโปรที่ชิดซ้าย — เว้นช่องให้ห่างขึ้น
                     เขียน pl/pr แยกแทน px-1 เพราะ px กับ pl ทับกันเองตามลำดับ CSS */}
-                <th className="py-2 pl-1 pr-2 text-right">ราคาสุทธิ/หีบ</th>
+                <th
+                  className="py-2 pl-1 pr-2 text-right"
+                  title="ราคาสุทธิต่อหีบหลังหักส่วนลด C4"
+                >
+                  สุทธิ/หีบ
+                </th>
                 <th className="py-2 pl-3 pr-1">โปร</th>
                 <SortableTh
                   label="จำนวนสั่ง"
@@ -1526,6 +1700,10 @@ export function StockPageClient({
                             )}
                             tiers={row.promoTiers}
                             endsInDays={row.currentPromoEndsInDays}
+                            stepShort={groupStepShort(row.promoGroup)}
+                            onApplyStepFix={() =>
+                              applyGroupStepFix(row.promoGroup!)
+                            }
                           />
                         </td>
                       </tr>
@@ -1720,6 +1898,7 @@ export function StockPageClient({
                           qty={lineQty(row)}
                           suggestOrder={suggestRemaining(row)}
                           orderedQty={recentBySku[row.skuCode]?.pendingQty ?? 0}
+                          promoStepLot={stepLotOf(row)}
                           onMinus={() => adjustLineQty(row.skuCode, -1)}
                           onPlus={() => adjustLineQty(row.skuCode, 1)}
                           onSetQty={(q) => setLineQty(row.skuCode, q)}
@@ -1983,6 +2162,9 @@ const StockMobileRow = memo(function StockMobileRow({
   promoApplyVersion,
   groupMemberSkus,
   groupHasBenefit = false,
+  groupStepShort = null,
+  onApplyGroupStepFix,
+  promoStepLot: rowStepLot = null,
   afterPromoGroup = false,
   onAdjustQty,
   onSetQty,
@@ -2013,6 +2195,16 @@ const StockMobileRow = memo(function StockMobileRow({
   groupMemberSkus: string[];
   /** กลุ่มโปรนี้ให้ส่วนลด/ของแถมจริงหรือไม่ — false = ไม่ต้องมีปุ่มดูโปรบนหัวกลุ่ม */
   groupHasBenefit?: boolean;
+  /** ยอดรวมกลุ่มยังไม่ลงล็อตโปรของแถม */
+  groupStepShort?: {
+    lot: number;
+    pool: number;
+    delta: number;
+    target: number;
+  } | null;
+  onApplyGroupStepFix?: () => void;
+  /** ล็อตโปรของบรรทัดนี้ — ใช้บอกเหตุผลที่จำนวนถูกปัด */
+  promoStepLot?: number | null;
   afterPromoGroup?: boolean;
   onAdjustQty: (delta: number) => void;
   onSetQty: (qty: number) => void;
@@ -2068,6 +2260,8 @@ const StockMobileRow = memo(function StockMobileRow({
             showPromoButton={groupHasBenefit}
             tiers={row.promoTiers}
             endsInDays={row.currentPromoEndsInDays}
+            stepShort={groupStepShort}
+            onApplyStepFix={onApplyGroupStepFix}
           />
         </div>
       )}
@@ -2127,6 +2321,7 @@ const StockMobileRow = memo(function StockMobileRow({
           qty={qty}
           suggestOrder={suggestRemaining}
           orderedQty={pendingQty}
+          promoStepLot={rowStepLot}
           onMinus={() => onAdjustQty(-1)}
           onPlus={() => onAdjustQty(1)}
           onSetQty={onSetQty}
@@ -2292,10 +2487,13 @@ function SortableTh({
         title={title}
         className={cn(
           "group inline-flex max-w-full items-center gap-0.5 rounded transition-colors hover:text-teal-700 dark:hover:text-teal-400",
-          active && "font-semibold text-teal-700 dark:text-teal-400"
+          // เว้นที่ให้ลูกศรเฉพาะคอลัมน์ที่เรียงอยู่ — คอลัมน์ที่เหลือได้ความกว้างเต็ม
+          active && "pr-0.5"
         )}
       >
-        <span className="min-w-0">
+        {/* ชื่อคอลัมน์ห้ามหักกลางคำ — คอลัมน์แคบแล้วได้ "CV / D" ซึ่งอ่านไม่ออก
+            (ตกบรรทัดที่ช่องว่างได้ปกติ) */}
+        <span className="min-w-0 whitespace-nowrap">
           {label}
           {sub && (
             <>
@@ -2318,7 +2516,9 @@ function SortableTh({
             <ArrowDown className="h-3 w-3 shrink-0" />
           )
         ) : (
-          <ChevronsUpDown className="h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover:opacity-40" />
+          // ยังไม่ได้เรียงด้วยคอลัมน์นี้ — กว้าง 0 จนกว่าจะชี้เมาส์ ไม่งั้นไอคอนที่มองไม่เห็น
+          // กินคอลัมน์ละ 16px ทุกคอลัมน์ที่กดเรียงได้ แล้วชื่อคอลัมน์ตกบรรทัดตั้งแต่จอ 1100px
+          <ChevronsUpDown className="pointer-events-none h-3 w-0 shrink-0 opacity-0 transition-all group-hover:w-3 group-hover:opacity-40" />
         )}
       </button>
     </th>

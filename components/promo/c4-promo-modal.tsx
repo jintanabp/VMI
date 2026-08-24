@@ -13,6 +13,8 @@ import {
   seedModalStaged,
 } from "@/lib/promo/stock-pooled-promo";
 import { plannerView, blendedNetForStep } from "@/lib/promo/planner-utils";
+import { planPromoGroupStepFix } from "@/lib/promo/promo-step";
+import type { PromoTierInput } from "@/lib/calculations";
 import { usePromoGroupNames } from "@/hooks/use-promo-group-names";
 
 function fmt(n: number | null | undefined) {
@@ -115,6 +117,53 @@ export function C4PromoModal({
     return plannerView(visibleProducts, data.ladder, staged);
   }, [data, staged, visibleProducts]);
 
+  /**
+   * บันได C4 → รูปที่ promo-step ใช้ (สนใจเฉพาะ "ขั้นไหนเป็นของแถมและล็อตเท่าไร")
+   *
+   * ขั้นต่ำจริงคือ max(from, MINIMUMPURCHASE) แบบเดียวกับ tierMinQty ฝั่ง server —
+   * บางกลุ่มเขียน from = 1 ไว้เฉย ๆ แล้วบอกเงื่อนไขจริงที่ MINIMUMPURCHASE (BSWN = 24)
+   */
+  const stepTiers = useMemo<PromoTierInput[]>(() => {
+    return (data?.ladder ?? []).map((step) => {
+      const minQty = Math.max(step.fromQty, step.minPurchase ?? 0);
+      const premium =
+        step.isStepTier &&
+        step.premiumQty > 0 &&
+        Boolean(step.premiumProduct) &&
+        step.premiumProduct.toUpperCase() !== "NULL" &&
+        step.premiumProduct !== "0";
+      return {
+        minQty,
+        discount: step.discountLabel,
+        sortOrder: minQty,
+        kind: premium
+          ? ("premium" as const)
+          : step.discBaht
+            ? ("discount_baht" as const)
+            : step.discPct
+              ? ("discount_pct" as const)
+              : ("none" as const),
+        premiumProduct: premium ? step.premiumProduct : undefined,
+        premiumName: premium ? step.premiumName : undefined,
+        premiumQty: premium ? step.premiumQty : undefined,
+      };
+    });
+  }, [data]);
+
+  /** ยอดรวมที่ตั้งไว้ยังไม่ลงล็อตของแถม — กด "ใช้จำนวนนี้" แล้วระบบจะปรับให้ */
+  const stepFix = useMemo(
+    () =>
+      planPromoGroupStepFix(
+        stepTiers,
+        visibleProducts.map((p) => ({
+          skuCode: p.product,
+          qty: staged[p.product] ?? 0,
+          suggestOrder: suggestByProduct?.[p.product] ?? 0,
+        }))
+      ),
+    [stepTiers, visibleProducts, staged, suggestByProduct]
+  );
+
   const canConfirmQty = Boolean(
     !readOnly && onConfirm && visibleProducts.length > 0
   );
@@ -134,7 +183,12 @@ export function C4PromoModal({
 
   function handleConfirm() {
     if (!onConfirm || !hasChanges) return;
-    onConfirm({ ...staged });
+    const next = { ...staged };
+    // ของแถมนับเป็นล็อต — ส่งยอดที่ไม่ลงล็อตออกไปคือจ่ายเต็มแล้วไม่ได้ของแถมส่วนเกิน
+    if (stepFix) {
+      next[stepFix.topUpSku] = (next[stepFix.topUpSku] ?? 0) + stepFix.delta;
+    }
+    onConfirm(next);
     onClose();
   }
 
@@ -223,6 +277,16 @@ export function C4PromoModal({
                     {nextStep
                       ? ` (ขั้นแรก ${nextStep.fromQty} หีบ)`
                       : ""}
+                  </p>
+                )}
+                {stepFix && (
+                  <p className="mt-1.5 rounded-lg bg-amber-100 px-2 py-1 text-[11px] font-semibold text-amber-900 ring-1 ring-amber-300 dark:bg-amber-500/20 dark:text-amber-100 dark:ring-amber-500/40">
+                    ของแถมนับเป็นล็อตละ {stepFix.lot} หีบ — กด «ใช้จำนวนนี้»
+                    ระบบจะ
+                    {stepFix.delta > 0
+                      ? `เพิ่มอีก ${stepFix.delta}`
+                      : `ลด ${-stepFix.delta}`}{" "}
+                    หีบที่ {stepFix.topUpSku} ให้ยอดรวมเป็น {stepFix.target} หีบ
                   </p>
                 )}
                 {mix.mixedPrice && (
@@ -394,12 +458,12 @@ export function C4PromoModal({
                                 : "+"}{" "}
                               {step.unitLabel}
                               {/* ไฟล์ C4 ประกาศ MINIMUMPURCHASE แยกจาก from/to และบางกลุ่ม
-                                  ไม่ตรงกัน (BSWN: from/to = 1/1 แต่ขั้นต่ำ 24) ระบบยังไม่
-                                  บังคับใช้ตัวเลขนี้ จึงบอกไว้เฉย ๆ ให้เห็นว่ามีเงื่อนไขอื่น */}
+                                  ไม่ตรงกัน (BSWN: from/to = 1/1 แต่ขั้นต่ำ 24) — ตัวเลขนี้
+                                  คือเงื่อนไขจริงที่ระบบใช้ทั้งตอนคิดขั้นและตอนนับล็อตของแถม */}
                               {step.minPurchase > step.fromQty && (
                                 <span
                                   className="ml-1 whitespace-nowrap font-normal text-amber-700 dark:text-amber-400"
-                                  title="ยอดสั่งขั้นต่ำที่ระบุมาในไฟล์ C4 — ระบบยังไม่นำมาคิดส่วนลดให้"
+                                  title="ยอดสั่งขั้นต่ำจริงของขั้นนี้ — ต้องสั่งครบถึงจะได้สิทธิ์"
                                 >
                                   (ขั้นต่ำ {step.minPurchase})
                                 </span>
