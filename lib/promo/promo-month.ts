@@ -11,9 +11,10 @@ import {
   getPromotionCreditDirectory,
   getSkuMasterDirectory,
 } from "@/lib/fabric";
-import { bangkokDateStr, isoDateStr } from "@/lib/fabric/bkk-date";
 import {
+  bangkokMonthRange,
   promoActiveOn,
+  promoOverlapsMonth,
   promoServesRegion,
   type PromoRow,
 } from "@/lib/fabric/promotion-credit";
@@ -103,51 +104,13 @@ export interface PromoMonthReport {
   groups: PromoMonthGroup[];
 }
 
-/** ต้นเดือน-สิ้นเดือนตามปฏิทินโซนไทย (YYYY-MM-DD) */
-export function bangkokMonthRange(day: Date): {
-  month: string;
-  from: string;
-  to: string;
-} {
-  // ห้ามใช้ toISOString() ที่นี่ — ก่อน 07:00 ICT มันยังเป็นวันก่อนหน้าในโซน UTC
-  // ซึ่งต้นเดือน/สิ้นเดือนจะเลื่อนไปทั้งเดือนในวันที่ 1
-  const today = bangkokDateStr(day);
-  return monthRangeFromMonth(today.slice(0, 7));
-}
-
-/** ต้นเดือน-สิ้นเดือนจาก "YYYY-MM" */
-function monthRangeFromMonth(month: string): {
-  month: string;
-  from: string;
-  to: string;
-} {
-  const [y, m] = month.split("-").map((s) => Number.parseInt(s, 10));
-  if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) {
-    throw new Error("BAD_MONTH");
-  }
-  // Date.UTC(y, m, 0) = วันสุดท้ายของเดือน m (เดือนใน JS เริ่มที่ 0)
-  const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
-  const mm = String(m).padStart(2, "0");
-  return {
-    month: `${y}-${mm}`,
-    from: `${y}-${mm}-01`,
-    to: `${y}-${mm}-${String(lastDay).padStart(2, "0")}`,
-  };
-}
-
 /**
- * แถวนี้ใช้ได้ช่วงใดก็ได้ในเดือน (ทับซ้อน) — ไม่ใช่ "เริ่มเดือนนี้" หรือ "active วันนี้"
- * โปรที่คร่อมเดือน เช่น 25 ก.ค.–10 ส.ค. ต้องนับเป็นโปรของทั้งสองเดือน
+ * ต้นเดือน-สิ้นเดือน และตัวเทียบว่าแถวทับเดือนไหน — นิยามจริงอยู่ที่ promotion-credit
+ *
+ * เคย define ซ้ำที่นี่ ผลคือหน้าแอดมินกับหน้าร้านถามคนละคำถามโดยไม่มีใครสังเกต
+ * re-export ไว้ให้ที่เรียกเดิมไม่ต้องแก้ ไม่ใช่เพื่อให้มีสองนิยาม
  */
-export function promoOverlapsMonth(
-  row: PromoRow,
-  from: string,
-  to: string
-): boolean {
-  if (row.fromDate && isoDateStr(row.fromDate) > to) return false;
-  if (row.toDate && isoDateStr(row.toDate) < from) return false;
-  return true;
-}
+export { bangkokMonthRange, promoOverlapsMonth };
 
 /**
  * ข้อความเงื่อนไขแบบเดียวกับคอลัมน์ "รายการโปรโมชั่น C4 VDA (Div.E Credit)" ในแบบฟอร์มสั่งสินค้า

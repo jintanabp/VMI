@@ -12,6 +12,7 @@ import {
 import { getPromotionCsvPath } from "@/lib/fabric/paths";
 import {
   promoActiveOn,
+  promoServesMonthOf,
   promoServesRegion,
   tierMinQty,
   type PromoRow,
@@ -51,8 +52,8 @@ function rejectionOf(
   if (row.division !== ctx.division || row.cusgroup !== ctx.cusgroup) {
     return `คนละบริบท — แถวนี้เป็น ${row.division}|${row.cusgroup} แต่คลังนี้ค้นด้วย ${ctx.division}|${ctx.cusgroup}`;
   }
-  if (!promoActiveOn(row, day)) {
-    return `นอกช่วงวันที่ — แถวนี้ใช้ได้ ${row.fromDate?.toISOString().slice(0, 10) ?? "ไม่ระบุ"} ถึง ${row.toDate?.toISOString().slice(0, 10) ?? "ไม่ระบุ"}`;
+  if (!promoServesMonthOf(row, day)) {
+    return `คนละเดือน — แถวนี้ใช้ได้ ${row.fromDate?.toISOString().slice(0, 10) ?? "ไม่ระบุ"} ถึง ${row.toDate?.toISOString().slice(0, 10) ?? "ไม่ระบุ"} ซึ่งไม่ทับเดือนปัจจุบัน`;
   }
   if (!promoServesRegion(row, region)) {
     const flags = REGIONS.filter((r) => row.regions.has(r));
@@ -162,7 +163,14 @@ export async function GET(request: Request) {
 
   const rows = rowsAnyContext.map((r) => {
     const rejectedBy = rejectionOf(r, ctx, region, day);
-    return { ...describe(r), used: rejectedBy === null, rejectedBy };
+    return {
+      ...describe(r),
+      used: rejectedBy === null,
+      rejectedBy,
+      // ผ่านด่านแล้วแต่ช่วงวันที่ไม่คลุมวันนี้ — ไม่ตีตก (ด่านเป็นรายเดือน) แต่ต้องบอก
+      // เพราะเป็นตัวที่ preferInsertedWindow จะไม่เลือกถ้ามีแถวที่ยังวิ่งอยู่
+      liveToday: promoActiveOn(r, day),
+    };
   });
 
   const benefitTiers = tiers.filter(isBenefitTier);
