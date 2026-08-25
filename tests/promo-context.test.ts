@@ -22,9 +22,15 @@ const CUSTOMER_99 = {
 async function loadResolver(opts: {
   sources: string[];
   mastersReady?: boolean;
+  /** บริบทที่ "ไฟล์ที่โหลดอยู่" มี — undefined = ยังไม่โหลดไฟล์โปร */
+  fileContexts?: { division: string; cusgroup: string }[];
 }) {
   vi.doMock("@/lib/fabric", () => ({
     fabricMastersReady: () => opts.mastersReady ?? true,
+    fabricPromoReady: () => opts.fileContexts != null,
+    getPromotionCreditDirectory: () => ({
+      contexts: () => opts.fileContexts ?? [],
+    }),
     getCustomerDirectory: () => CUSTOMER_99,
     getSalesmanRegistry: () => ({ getCurrentByEmail: () => null }),
   }));
@@ -105,5 +111,65 @@ describe("resolvePromoContext", () => {
     expect(ctx.cusgroup).toBe("99");
     expect(ctx.region).toBe("SOUTH");
     expect(ctx.vdaCode).toBeUndefined();
+  });
+});
+
+/**
+ * บริบทต้องอ่านจากไฟล์ได้เองเมื่อไม่มี env
+ *
+ * บั๊กที่ต้องกันไม่ให้กลับมา: production ไม่มีบล็อก C4_* ใน .env เลย โค้ดจึงถอยไปใช้
+ * ค่าฮาร์ดโค้ด S|99 ซึ่งไม่มีในตาราง cash (มีชุดเดียวคือ E|98) ร้านไม่เห็นโปรแบบเงียบ ๆ
+ * ทั้งที่ไฟล์บอกอยู่แล้วว่าตัวเองมีบริบทอะไร — VDA ของเราเป็น division E ทั้งหมด
+ * การให้คนมาตั้ง env จึงไม่ได้ให้ทางเลือกอะไร มีแต่ช่องพลาด
+ */
+describe("resolvePromoContext — เดาบริบทจากไฟล์", () => {
+  const CASH = [{ division: "E", cusgroup: "98" }];
+
+  it("ไม่มี env เลย → ใช้บริบทเดียวที่มีในไฟล์", async () => {
+    vi.unstubAllEnvs();
+    const resolve = await loadResolver({
+      sources: ["vda1"],
+      fileContexts: CASH,
+    });
+    expect(resolve("vda1")).toMatchObject({ division: "E", cusgroup: "98" });
+  });
+
+  it("ร้านค้าก็ได้บริบทเดียวกับคลัง โดยไม่ต้องมี env", async () => {
+    vi.unstubAllEnvs();
+    const resolve = await loadResolver({
+      sources: ["vda1"],
+      fileContexts: CASH,
+    });
+    expect(resolve("6043757")).toMatchObject({ division: "E", cusgroup: "98" });
+  });
+
+  it("env ที่ตั้งไว้ชัดเจนยังชนะไฟล์ — เผื่อวันที่ต้นทางซอยหลายชุดจริง", async () => {
+    vi.unstubAllEnvs();
+    vi.stubEnv("C4_DEFAULT_DIVISION", "B");
+    vi.stubEnv("C4_DEFAULT_CUSGROUP", "22");
+    const resolve = await loadResolver({
+      sources: ["vda1"],
+      fileContexts: CASH,
+    });
+    expect(resolve("vda1")).toMatchObject({ division: "B", cusgroup: "22" });
+  });
+
+  it("ไฟล์มีหลายบริบท (ตาราง credit ที่หยิบมาผิดใบ) → เดาไม่ได้ ไม่มั่วเลือกให้", async () => {
+    vi.unstubAllEnvs();
+    const resolve = await loadResolver({
+      sources: ["vda1"],
+      fileContexts: [
+        { division: "S", cusgroup: "99" },
+        { division: "E", cusgroup: "99" },
+      ],
+    });
+    // ถอยไปค่าเดิม ไม่ใช่หยิบชุดแรกมาใช้ — ตอน boot มียามร้องแยกอยู่แล้ว
+    expect(resolve("vda1")).toMatchObject({ division: "S", cusgroup: "99" });
+  });
+
+  it("ยังไม่ได้โหลดไฟล์โปร → ไม่พังและไม่มั่ว", async () => {
+    vi.unstubAllEnvs();
+    const resolve = await loadResolver({ sources: ["vda1"] });
+    expect(resolve("vda1")).toMatchObject({ division: "S", cusgroup: "99" });
   });
 });

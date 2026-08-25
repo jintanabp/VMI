@@ -142,6 +142,8 @@ export class PromotionCredit {
   private byKey = new Map<string, PromoRow[]>();
   // (division|cusgroup|ASSORTEDPRODUCTGROUP) → rows, สร้างตอน load เพื่อให้ rowsForGroup เป็น O(1)
   private byGroup = new Map<string, PromoRow[]>();
+  /** (division, cusgroup) ที่มีจริงในไฟล์ — เก็บตอนโหลด ปลายทางถามบ่อยแต่ไม่เคยเปลี่ยนระหว่างรอบ */
+  private ctxList: { division: string; cusgroup: string }[] = [];
   private csvPath: string | null = null;
   private lastError: string | null = null;
 
@@ -203,10 +205,21 @@ export class PromotionCredit {
     );
   }
 
+  /**
+   * บริบททั้งหมดที่มีในไฟล์ — ยาวเท่ากับจำนวนชุดที่ต้นทางซอยไว้
+   *
+   * ตาราง cash ที่ใช้จริงมีชุดเดียว (E|98) ปลายทางจึงเดาบริบทถูกเองได้โดยไม่ต้องตั้ง env
+   * ส่วนตาราง credit เก่ามี 7 ชุด — ถ้าเห็นความยาวมากกว่า 1 แปลว่ากำลังถือไฟล์ผิดใบอยู่
+   */
+  contexts(): { division: string; cusgroup: string }[] {
+    return this.ctxList;
+  }
+
   private fail(message: string): void {
     this.lastError = message;
     this.byKey = new Map();
     this.byGroup = new Map();
+    this.ctxList = [];
     console.error(`[PromotionCredit] ${message}`);
   }
 
@@ -297,8 +310,17 @@ export class PromotionCredit {
     this.byGroup = byGroup;
 
     this.byKey = byKey;
+    this.ctxList = [
+      ...new Set(
+        [...byKey.values()].map((b) => `${b[0]!.division}|${b[0]!.cusgroup}`)
+      ),
+    ].map((k) => {
+      const [division, cusgroup] = k.split("|");
+      return { division: division!, cusgroup: cusgroup! };
+    });
     console.info(
-      `[PromotionCredit] Loaded ${rows.length} rows / ${byKey.size} keys / ${byGroup.size} groups from ${csvPath}`
+      `[PromotionCredit] Loaded ${rows.length} rows / ${byKey.size} keys / ${byGroup.size} groups / ` +
+        `${this.ctxList.length} บริบท (${this.ctxList.map((c) => `${c.division}|${c.cusgroup}`).join(", ")}) from ${csvPath}`
     );
   }
 

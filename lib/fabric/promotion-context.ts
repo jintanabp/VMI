@@ -1,6 +1,8 @@
 import {
   fabricMastersReady,
+  fabricPromoReady,
   getCustomerDirectory,
+  getPromotionCreditDirectory,
   getSalesmanRegistry,
 } from "./index";
 import { getStockFilterConfig, resolveActiveFromDb } from "./stock-filter-config";
@@ -29,6 +31,22 @@ function parseVdaDivisionMap(): Map<string, string> {
     if (vda && div) map.set(vda.toLowerCase(), div);
   }
   return map;
+}
+
+/**
+ * บริบทที่อ่านได้จากไฟล์เอง — null เมื่อเดาไม่ได้ (ยังไม่โหลด หรือมีหลายชุด)
+ *
+ * ตาราง C4 cash ที่ใช้จริงมีชุดเดียวคือ E|98 ทั้งไฟล์ และ VDA ของเราเป็น division E
+ * ทุกตัว การให้คนมาตั้ง C4_DEFAULT_DIVISION / C4_VDA_DIVISION_MAP จึงไม่ได้ให้ทางเลือกอะไร
+ * แต่ให้ช่องพลาดเต็ม ๆ: ถ้าลืมตั้งบน server ตัวใดตัวหนึ่ง โค้ดจะถอยไป S|99 ซึ่งไม่มีในไฟล์
+ * แล้วร้านไม่เห็นโปรเลยแบบเงียบ ๆ (เกิดจริงบน production 25 ส.ค. 2026)
+ *
+ * อ่านจากไฟล์แทน แล้วปล่อยให้ env เป็นตัว override เมื่อวันหนึ่งต้นทางซอยหลายชุดจริง ๆ
+ */
+function contextFromFile(): { division: string; cusgroup: string } | null {
+  if (!fabricPromoReady()) return null;
+  const ctxs = getPromotionCreditDirectory().contexts();
+  return ctxs.length === 1 ? ctxs[0]! : null;
 }
 
 function isVdaCode(code: string): boolean {
@@ -62,9 +80,14 @@ export function resolvePromoContext(
   options?: { salesRepEmail?: string | null; fromDb?: string | null }
 ): PromoLookupContext {
   const code = storeCode.trim();
-  const defaultCusgroup = trimEnv("C4_DEFAULT_CUSGROUP") || "99";
+  // ลำดับ: env ที่ตั้งไว้ชัดเจน → บริบทที่อ่านได้จากไฟล์ → ค่าเดิมที่เคยฮาร์ดโค้ดไว้
+  // ค่าสุดท้ายเหลือไว้เผื่อไฟล์มีหลายชุดและไม่มีใครตั้ง env — ซึ่งควรดังตั้งแต่ตอน boot แล้ว
+  const fromFile = contextFromFile();
+  const defaultCusgroup =
+    trimEnv("C4_DEFAULT_CUSGROUP") || fromFile?.cusgroup || "99";
   const defaultRegion = trimEnv("C4_DEFAULT_REGION") || "COUNTRY";
-  const defaultDivision = trimEnv("C4_DEFAULT_DIVISION") || "S";
+  const defaultDivision =
+    trimEnv("C4_DEFAULT_DIVISION") || fromFile?.division || "S";
   const vdaMap = parseVdaDivisionMap();
 
   if (isVdaCode(code)) {

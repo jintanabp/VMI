@@ -402,7 +402,12 @@ export function buildPromotionCreditSpec(localPath: string): RefreshSpec | null 
     workspaceId: cfg.workspaceId,
     onelakeItemId: cfg.lakehouseId,
     scanDir: cfg.scanDir,
-    ...fixedOrAuto("CFT_ONELAKE_PATH", cfg.scanDir),
+    // ระบุชื่อไฟล์ตรง ๆ ไม่ใช่ auto-scan ทั้งโฟลเดอร์ — cft_promotion_credit.csv มีคอลัมน์
+    // ตรง signature เดียวกันทุกตัว การสแกนจึงหยิบตารางเก่ามาแทนได้โดยไม่มีใครรู้
+    // ฝั่ง local ฮาร์ดโค้ดชื่อ cft_promotion_cash.csv อยู่แล้ว (paths.ts) ต้นทางก็ควรตรงกัน
+    onelakePath:
+      process.env.CFT_ONELAKE_PATH?.trim() ||
+      `${cfg.scanDir}cft_promotion_cash.csv`,
     columnSignature: ["DIVISIONSALE", "PURCHASEQUANTITYFROM"],
     requiredColumns: [
       "DIVISIONSALE",
@@ -412,8 +417,9 @@ export function buildPromotionCreditSpec(localPath: string): RefreshSpec | null 
       "PURCHASEQUANTITYTO",
     ],
     minRows: min.promotion,
+    // ตาราง C4 อยู่ workspace Bronze ซึ่ง service principal ของ masters เข้าไม่ถึง
     authProfile:
-      (process.env.CFT_AUTH_PROFILE as OnelakeAuthProfile) ?? "masters",
+      (process.env.CFT_AUTH_PROFILE as OnelakeAuthProfile) ?? "stock",
   };
 }
 

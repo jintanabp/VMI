@@ -126,11 +126,23 @@ export function getSoldHistoryOnelakeConfig(): MastersOnelakeTarget | null {
 
 /** ตาราง C4 (cft_promotion_*) — อยู่คนละ workspace กับ masters
  *  ใช้ CFT_* ก่อน ไม่งั้น fallback ไป masters config */
+/**
+ * ที่อยู่จริงของตาราง C4 cash — Bronze_OrderAgent ซึ่งเป็นคนละ workspace กับ masters
+ *
+ * ต้องเป็นค่า default ไม่ใช่ปล่อยให้ถอยไป ONELAKE_* ของ masters: lakehouse ของ masters
+ * มี cft_promotion_credit.csv (ตารางเก่า 7 บริบท S|99 E|99 ...) วางอยู่ด้วย พอถอยไปที่นั่น
+ * แล้ว auto-scan ก็หยิบไฟล์ credit มาเป็นตาราง C4 แบบเงียบ ๆ — ระบบโหลดสำเร็จ ไม่มี error
+ * และโปรขึ้นบางตัวเพราะ S|99 มีจริงในไฟล์นั้น จึงไม่มีอะไรฟ้องเลยว่ากำลังใช้ตารางผิดใบ
+ * (เกิดจริงบน production 25 ส.ค. 2026 กว่าจะจับได้ก็ไล่กันทั้งวัน)
+ *
+ * ยัง override ด้วย CFT_WORKSPACE_ID / CFT_LAKEHOUSE_ID ได้ตามเดิมเมื่อย้าย workspace
+ */
+const C4_CASH_WORKSPACE_ID = "18ff6d42-8639-48a9-acd2-14a0c6b8ac9d";
+const C4_CASH_LAKEHOUSE_ID = "92789a85-4269-411f-ad0c-f63ad7733fe2";
+
 export function getPromotionOnelakeConfig(): MastersOnelakeTarget | null {
-  const workspaceId =
-    trimEnv("CFT_WORKSPACE_ID") || trimEnv("ONELAKE_WORKSPACE_ID");
-  const lakehouseId =
-    trimEnv("CFT_LAKEHOUSE_ID") || trimEnv("ONELAKE_LAKEHOUSE_ID");
+  const workspaceId = trimEnv("CFT_WORKSPACE_ID") || C4_CASH_WORKSPACE_ID;
+  const lakehouseId = trimEnv("CFT_LAKEHOUSE_ID") || C4_CASH_LAKEHOUSE_ID;
   const scanDir =
     process.env.CFT_SCAN_DIR ??
     process.env.ONELAKE_SCAN_DIR ??

@@ -1,4 +1,7 @@
+import { fabricPromoReady, getPromotionCreditDirectory } from "./index";
 import { measurePromoCoverage } from "./promo-coverage";
+import { resolvePromoContext } from "./promotion-context";
+import { listStockFromDbSources } from "./stock-rows";
 
 /**
  * ตรวจตอน boot ว่า (division, cusgroup) ที่ระบบใช้ค้นหา มีอยู่จริงในตาราง C4 ที่โหลดมา
@@ -13,6 +16,8 @@ import { measurePromoCoverage } from "./promo-coverage";
  * พอดีในรอบที่ต้องส่งเสียงดังที่สุด ตอนนี้ถอยไปใช้คลังที่มีจริงใน stock cover แทน
  */
 export function checkPromoContextCoverage(): void {
+  checkPromoFileIsTheCashTable();
+
   const coverage = measurePromoCoverage();
   if (!coverage) return;
 
@@ -35,4 +40,39 @@ export function checkPromoContextCoverage(): void {
     `[PromotionCredit] โปรพร้อมใช้ — SKU ที่มีโปร ${coverage.skusWithPromo}/${coverage.skusChecked} ` +
       `จาก ${Object.keys(coverage.byStore).length} คลัง`
   );
+}
+
+/**
+ * ไฟล์ที่โหลดมาใช่ตาราง cash จริงหรือเปล่า
+ *
+ * cft_promotion_cash.csv มีบริบทเดียวคือ E|98 ทั้งไฟล์ ส่วน cft_promotion_credit.csv
+ * (ตารางเก่าที่เลิกใช้แล้ว) มี 7-8 ชุด จำนวนบริบทจึงแยกสองไฟล์นี้ออกจากกันได้ทันที
+ *
+ * ต้องเช็คแยกจากการนับ SKU ที่มีโปร: ตอนหยิบไฟล์ credit มาผิดใบบน production
+ * บริบทที่ resolve ได้คือ S|99 ซึ่ง**มีอยู่จริง**ในไฟล์นั้น โปรจึงขึ้นบางตัวและยามที่นับ
+ * ความครอบคลุมก็เงียบสนิท ทั้งที่ทั้งระบบกำลังใช้ตารางผิดใบอยู่
+ */
+function checkPromoFileIsTheCashTable(): void {
+  if (!fabricPromoReady()) return;
+  const ctxs = getPromotionCreditDirectory().contexts();
+  if (ctxs.length <= 1) return;
+
+  const label = ctxs.map((c) => `${c.division}|${c.cusgroup}`).join(", ");
+  console.error(
+    `[PromotionCredit] ไฟล์โปรมี ${ctxs.length} บริบท (${label}) — ตาราง C4 cash ต้องมีชุดเดียว ` +
+      `นี่คือลายนิ้วมือของ cft_promotion_credit.csv (ตารางเก่า) ` +
+      `ตรวจ CFT_WORKSPACE_ID / CFT_LAKEHOUSE_ID / CFT_ONELAKE_PATH ว่าชี้ไฟล์ถูกใบหรือไม่`
+  );
+
+  // บริบทที่ระบบจะใช้จริง อยู่ในไฟล์นั้นไหม — ถ้าไม่อยู่ ร้านจะไม่เห็นโปรเลยสักตัว
+  const inFile = new Set(ctxs.map((c) => `${c.division}|${c.cusgroup}`));
+  for (const store of listStockFromDbSources()) {
+    const ctx = resolvePromoContext(store);
+    const key = `${ctx.division}|${ctx.cusgroup}`;
+    if (!inFile.has(key)) {
+      console.error(
+        `[PromotionCredit] ${store} จะค้นด้วย ${key} ซึ่งไม่มีอยู่ในไฟล์เลย — โปรจะไม่ขึ้นทั้งคลังนี้`
+      );
+    }
+  }
 }
