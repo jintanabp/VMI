@@ -14,7 +14,7 @@ import {
 import {
   hasPremium,
   isStepTier,
-  promoServesMonthOf,
+  promoActiveOn,
   promoServesRegion,
   type PromoRow,
 } from "@/lib/fabric/promotion-credit";
@@ -94,7 +94,7 @@ function activeRows(
   // กรองช่วงแบบเดียวกับหน้าสต็อก — หน้าต่างดูโปรต้องบอกเงื่อนไขชุดเดียวกับที่คิดจริง
   return preferInsertedWindow(
     rows.filter(
-      (r) => promoServesMonthOf(r, day) && promoServesRegion(r, normRegion)
+      (r) => promoActiveOn(r, day) && promoServesRegion(r, normRegion)
     )
   );
 }

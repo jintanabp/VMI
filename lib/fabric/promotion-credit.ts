@@ -103,59 +103,6 @@ export function promoServesRegion(row: PromoRow, region: string): boolean {
   return row.regions.has("COUNTRY") || row.regions.has(region);
 }
 
-/** ต้นเดือน-สิ้นเดือนตามปฏิทินโซนไทย (YYYY-MM-DD) */
-export function bangkokMonthRange(day: Date): {
-  month: string;
-  from: string;
-  to: string;
-} {
-  // ห้ามใช้ toISOString() ที่นี่ — ก่อน 07:00 ICT มันยังเป็นวันก่อนหน้าในโซน UTC
-  // ซึ่งต้นเดือน/สิ้นเดือนจะเลื่อนไปทั้งเดือนในวันที่ 1
-  const [y, m] = bangkokDateStr(day)
-    .slice(0, 7)
-    .split("-")
-    .map((x) => Number.parseInt(x, 10));
-  // Date.UTC(y, m, 0) = วันสุดท้ายของเดือน m (เดือนใน JS เริ่มที่ 0)
-  const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
-  const mm = String(m).padStart(2, "0");
-  return {
-    month: `${y}-${mm}`,
-    from: `${y}-${mm}-01`,
-    to: `${y}-${mm}-${String(lastDay).padStart(2, "0")}`,
-  };
-}
-
-/**
- * แถวนี้ใช้ได้ช่วงใดก็ได้ในเดือน (ทับซ้อน) — ไม่ใช่ "เริ่มเดือนนี้" หรือ "active วันนี้"
- * โปรที่คร่อมเดือน เช่น 25 ก.ค.-10 ส.ค. ต้องนับเป็นโปรของทั้งสองเดือน
- */
-export function promoOverlapsMonth(
-  row: PromoRow,
-  from: string,
-  to: string
-): boolean {
-  if (row.fromDate && isoDateStr(row.fromDate) > to) return false;
-  if (row.toDate && isoDateStr(row.toDate) < from) return false;
-  return true;
-}
-
-/**
- * ด่านวันที่ที่ทุกหน้าจอใช้ร่วมกัน — "อยู่ในเดือนปัจจุบัน" ไม่ใช่ "active วันนี้"
- *
- * ไฟล์ C4 หนึ่งไฟล์ถือโปรของเดือนที่กำลังใช้อยู่เท่านั้น เดือนจึงเป็นหน่วยของชุดข้อมูลนี้
- * และต้องเป็นหน่วยเดียวกันทุกที่ที่ถาม เดิมหน้าแอดมินถามแบบ "ทับเดือนนี้" ส่วนหน้าสต็อก
- * กับหน้าออเดอร์ถามแบบ "active วันนี้" — โปรที่ช่วงแคบกว่าเดือนจึงโผล่ในหน้าแอดมินพร้อม
- * ราคาหลังลด แต่หน้าร้านขึ้น "-" โดยทั้งสองหน้าถูกต้องตามกติกาของตัวเอง
- * ไม่มีอะไรบอกได้เลยว่าสองหน้านี้ไม่ได้ตอบคำถามเดียวกัน
- *
- * promoActiveOn ยังอยู่ และยังใช้ตัดสินว่าแถวไหน "วันนี้ยังวิ่งอยู่" — แต่ใช้เป็นตัวจัดลำดับ
- * ใน preferInsertedWindow ไม่ใช่ประตูเข้า-ออกอีกต่อไป
- */
-export function promoServesMonthOf(row: PromoRow, day: Date): boolean {
-  const range = bangkokMonthRange(day);
-  return promoOverlapsMonth(row, range.from, range.to);
-}
-
 function parsePromoRow(norm: Record<string, string>): PromoRow | null {
   const division = norm.DIVISIONSALE ?? "";
   const product = norm.PRODUCTCODE ?? "";
@@ -252,7 +199,7 @@ export class PromotionCredit {
   ): boolean {
     const normRegion = region.toUpperCase().replace(/\s+/g, "");
     return this.rowsFor(division, cusgroup, product).some(
-      (r) => promoServesMonthOf(r, day) && promoServesRegion(r, normRegion)
+      (r) => promoActiveOn(r, day) && promoServesRegion(r, normRegion)
     );
   }
 

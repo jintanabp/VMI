@@ -9,7 +9,6 @@ import {
   hasPremium,
   isStepTier,
   promoActiveOn,
-  promoServesMonthOf,
   promoServesRegion,
   tierMinQty,
   type PromoRow,
@@ -147,8 +146,7 @@ export function lookupC4(
     const cands = preferInsertedWindow(
       opts.promo
         .rowsFor(opts.division, opts.cusgroup, ln.product)
-        .filter((r) => promoServesMonthOf(r, day) && promoServesRegion(r, region)),
-      day
+        .filter((r) => promoActiveOn(r, day) && promoServesRegion(r, region))
     );
 
     if (cands.length === 0) {
@@ -301,25 +299,8 @@ function windowSpanDays(row: PromoRow): number {
  * เลือกยกช่วง ไม่ใช่เลือกทีละขั้น — โปรที่แทรกมาแทนเงื่อนไขเดิมทั้งก้อน ถ้าหยิบขั้นแรก
  * จากโปรใหม่แล้วขั้นสูงจากโปรเก่า จะได้บันไดผสมที่ไม่มีอยู่จริงสักอัน
  */
-export function preferInsertedWindow(
-  rows: PromoRow[],
-  day: Date = new Date()
-): PromoRow[] {
+export function preferInsertedWindow(rows: PromoRow[]): PromoRow[] {
   if (rows.length <= 1) return rows;
-
-  /**
-   * แถวที่ยังวิ่งอยู่วันนี้มาก่อนเสมอ
-   *
-   * ตั้งแต่ด่านวันที่เปลี่ยนเป็น "ทั้งเดือน" แถวที่จบไปแล้วต้นเดือนก็รอดมาถึงตรงนี้ได้
-   * และมันมักเป็นโปรแทรกช่วงสั้น ซึ่งกฎ "ช่วงแคบชนะ" ด้านล่างจะยกให้มันทันที
-   * ผลคือโปรสัปดาห์ที่หมดอายุไปแล้วไปบังโปรประจำเดือนที่ยังวิ่งอยู่ ร้านจะเห็นเงื่อนไข
-   * ที่ใช้ไม่ได้แทนเงื่อนไขจริง — คัดตัวที่ active วันนี้ก่อน แล้วค่อยหาตัวที่แทรกในนั้น
-   */
-  const live = rows.filter((r) => promoActiveOn(r, day));
-  if (live.length > 0 && live.length < rows.length) {
-    return preferInsertedWindow(live, day);
-  }
-
   const spans = rows.map(windowSpanDays);
   const narrowest = Math.min(...spans);
   if (!Number.isFinite(narrowest)) return rows;
@@ -346,8 +327,7 @@ export function filterCandidateRows(
   return preferInsertedWindow(
     promo
       .rowsFor(division, cusgroup, product)
-      .filter((r) => promoServesMonthOf(r, day) && promoServesRegion(r, normRegion)),
-    day
+      .filter((r) => promoActiveOn(r, day) && promoServesRegion(r, normRegion))
   );
 }
 
