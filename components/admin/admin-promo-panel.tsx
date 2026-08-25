@@ -195,6 +195,9 @@ export function AdminPromoPanel() {
       ? visibleGroups.length - shownGroups.length
       : visibleSkuRows.length - shownSkuRows.length;
 
+  /** กลุ่มที่อยู่ในเดือนนี้แต่วันนี้ยังใช้ไม่ได้ — ตัวเลขที่อธิบายว่าทำไมหน้าร้านเห็นน้อยกว่า */
+  const inactiveGroups = (data?.groups ?? []).filter((g) => !g.activeNow).length;
+
   return (
     <div className="space-y-4">
       {error && (
@@ -230,6 +233,16 @@ export function AdminPromoPanel() {
           }
         />
       </div>
+
+      {/* หน้านี้แสดงโปรทั้งเดือน ส่วนหน้าร้านแสดงเฉพาะที่ใช้ได้วันนี้ — ต่างกันโดยตั้งใจ
+          แต่ถ้าไม่บอกไว้ตรงนี้ คนอ่านจะเหมาเอาว่าทุกแถวที่เห็นคือสิ่งที่ร้านได้ */}
+      {inactiveGroups > 0 && (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300">
+          <b>{inactiveGroups.toLocaleString("th-TH")}</b> กลุ่มในเดือนนี้{" "}
+          <b>ร้านยังไม่เห็น</b> เพราะช่วงวันที่ยังไม่เริ่มหรือหมดไปแล้ว —
+          หน้านี้แสดงโปรทั้งเดือน ส่วนหน้าสต็อกและหน้าออเดอร์แสดงเฉพาะที่ใช้ได้วันนี้
+        </p>
+      )}
 
       <Card>
         <CardHeader className="pb-3">
@@ -392,7 +405,7 @@ function PromoSkuTable({
     // .vmi-table-wrap เป็น overflow:hidden — ต้องมีตัวเลื่อนคั่น ไม่งั้นคอลัมน์ท้ายโดนตัด
     <div className="vmi-table-wrap">
       <div className="vmi-scroll overflow-x-auto">
-        <table className="w-full min-w-[1020px] text-left text-xs">
+        <table className="w-full min-w-[1080px] text-left text-xs">
           <thead>
             <tr className="border-b border-slate-200 text-slate-500 dark:border-slate-700">
               <th className="w-10 px-2 py-2 font-semibold">#</th>
@@ -400,10 +413,21 @@ function PromoSkuTable({
               <th className="w-24 px-2 py-2 text-right font-semibold">
                 ราคา/หีบ
               </th>
-              <th className="w-24 px-2 py-2 text-right font-semibold">
+              {/* สองคอลัมน์นี้เป็น "ถ้าซื้อครบขั้น" ไม่ใช่ "ตอนนี้ได้เท่านี้" — หัวคอลัมน์เดิม
+                  เขียนแค่ "ส่วนลด/ราคา" ทำให้อ่านได้ว่าร้านจ่ายราคานี้เลย แล้วพอหน้าสต็อก
+                  โชว์ราคาเต็ม (เพราะยังไม่ได้ใส่จำนวน) ก็ดูเหมือนสองหน้าขัดกัน ทั้งที่ถูกทั้งคู่ */}
+              <th className="w-28 px-2 py-2 text-right font-semibold">
                 ส่วนลด
+                <span className="block font-normal text-[10px] leading-tight text-slate-400">
+                  ถ้าซื้อครบขั้น
+                </span>
               </th>
-              <th className="w-24 px-2 py-2 text-right font-semibold">ราคา</th>
+              <th className="w-28 px-2 py-2 text-right font-semibold">
+                ราคา
+                <span className="block font-normal text-[10px] leading-tight text-slate-400">
+                  หลังลดขั้นแรก
+                </span>
+              </th>
               {/* กลุ่มเดียวกันมีได้หลายช่วง (โปรแทรกบางเดือน) — ต้องเห็นว่าอันไหนใช้เมื่อไหร่ */}
               <th className="w-36 px-2 py-2 font-semibold">ช่วงที่ใช้ได้</th>
               {/* C4 ของเราคือตาราง cash (cft_promotion_cash.csv) ไม่ใช่ credit —
@@ -443,14 +467,33 @@ function PromoSkuTable({
                 <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums">
                   {fmtBaht(sku.unitPrice)}
                 </td>
-                <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums text-orange-600 dark:text-orange-400">
+                <td
+                  className={cn(
+                    "whitespace-nowrap px-2 py-2 text-right tabular-nums",
+                    group.activeNow
+                      ? "text-orange-600 dark:text-orange-400"
+                      : "text-slate-400 line-through dark:text-slate-500"
+                  )}
+                  title={
+                    group.activeNow
+                      ? "ส่วนลดที่ได้เมื่อซื้อครบขั้นแรก"
+                      : "ช่วงนี้ไม่ได้ใช้อยู่ ณ วันนี้ — หน้าร้านจะไม่เห็นส่วนลดนี้"
+                  }
+                >
                   {sku.discountBaht != null
                     ? fmtBaht(sku.discountBaht)
                     : sku.discountPct != null
                       ? `${sku.discountPct}%`
                       : ""}
                 </td>
-                <td className="whitespace-nowrap px-2 py-2 text-right font-semibold tabular-nums">
+                <td
+                  className={cn(
+                    "whitespace-nowrap px-2 py-2 text-right tabular-nums",
+                    group.activeNow
+                      ? "font-semibold"
+                      : "text-slate-400 line-through dark:text-slate-500"
+                  )}
+                >
                   {fmtBaht(sku.netPrice ?? sku.unitPrice)}
                 </td>
                 <td className="whitespace-nowrap px-2 py-2 tabular-nums text-slate-500">
@@ -459,10 +502,10 @@ function PromoSkuTable({
                       {group.fromDate} – {group.toDate}
                       {!group.activeNow && (
                         <span
-                          className="ml-1 font-semibold text-amber-700 dark:text-amber-400"
-                          title="ช่วงนี้ไม่ได้ใช้อยู่ ณ วันนี้ — หน้าร้านจะยังไม่เห็นโปรนี้"
+                          className="ml-1 whitespace-nowrap rounded bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800 dark:bg-amber-500/15 dark:text-amber-300"
+                          title="ช่วงนี้ไม่ได้ใช้อยู่ ณ วันนี้ — หน้าร้านจะไม่เห็นโปรนี้"
                         >
-                          ยังไม่ถึง/หมดแล้ว
+                          ร้านยังไม่เห็น
                         </span>
                       )}
                     </>
