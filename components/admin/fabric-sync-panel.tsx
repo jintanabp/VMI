@@ -61,6 +61,15 @@ interface SyncStatus {
   datasets: DatasetRow[];
   promoReady: boolean;
   promoError: string | null;
+  promoCoverage: PromoCoverage | null;
+}
+
+/** จำนวน SKU ที่ได้โปรจริงจากรอบ sync ล่าสุด — วัดหลังโหลดไฟล์เข้าหน่วยความจำแล้ว */
+interface PromoCoverage {
+  at: string;
+  skusWithPromo: number;
+  skusChecked: number;
+  byStore: Record<string, { withPromo: number; checked: number }>;
 }
 
 const TRIGGER_LABEL: Record<string, string> = {
@@ -292,6 +301,10 @@ export function FabricSyncPanel() {
             </p>
           )}
 
+          {data?.promoCoverage && (
+            <PromoCoverageLine coverage={data.promoCoverage} />
+          )}
+
           <div className="flex flex-wrap items-center gap-2">
             <Button
               onClick={() => void refresh()}
@@ -485,5 +498,47 @@ export function FabricSyncPanel() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+/**
+ * ตัวเลขที่บอกว่า "โปรยังมาถึงร้านอยู่ไหม" ไม่ใช่แค่ "ไฟล์มาไหม"
+ *
+ * ต้องแยกจากป้าย promoReady: ไฟล์ที่โหลดผ่านแต่ resolve เป็นโปรไม่ได้สักตัว
+ * ขึ้นเขียวทุกป้ายอยู่ดี — ที่ผ่านมาจึงไม่มีใครเห็นว่าโปรหายไปทั้งระบบเป็นวัน ๆ
+ */
+function PromoCoverageLine({ coverage }: { coverage: PromoCoverage }) {
+  const dark = Object.entries(coverage.byStore)
+    .filter(([, c]) => c.withPromo === 0)
+    .map(([store]) => store);
+  const pct =
+    coverage.skusChecked > 0
+      ? Math.round((coverage.skusWithPromo / coverage.skusChecked) * 100)
+      : 0;
+
+  if (coverage.skusWithPromo === 0) {
+    return (
+      <p className="rounded-lg bg-red-50 px-3 py-2 text-sm font-medium text-red-700 dark:bg-red-950/30 dark:text-red-300">
+        ⚠ ไฟล์ C4 โหลดได้ แต่ไม่มี SKU ไหนได้โปรเลยสักตัวจาก{" "}
+        {coverage.skusChecked} ตัว — ตรวจ C4_DEFAULT_DIVISION /
+        C4_DEFAULT_CUSGROUP / C4_VDA_DIVISION_MAP ให้ตรงกับไฟล์
+      </p>
+    );
+  }
+
+  if (dark.length > 0) {
+    return (
+      <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+        ⚠ คลังที่ไม่มีโปรเลย: {dark.join(", ")} — SKU ที่มีโปรรวม{" "}
+        {coverage.skusWithPromo}/{coverage.skusChecked}
+      </p>
+    );
+  }
+
+  return (
+    <p className="text-sm text-slate-500 dark:text-slate-400">
+      SKU ที่มีโปร {coverage.skusWithPromo}/{coverage.skusChecked} ({pct}%) ·
+      วัดเมื่อ {fmtTime(coverage.at)}
+    </p>
   );
 }

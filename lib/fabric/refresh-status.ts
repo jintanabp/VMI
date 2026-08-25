@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import type { DatasetId } from "./datasets";
 import type { DatasetRefreshResult } from "./onelake-refresh";
+import type { PromoCoverageSnapshot } from "./promo-coverage";
 
 export type RefreshTrigger =
   | "scheduler"
@@ -46,6 +47,13 @@ export interface MasterRefreshStatus {
   scheduleMinute?: number;
   /** สถานะรายชุดข้อมูล */
   datasets?: Record<string, DatasetStatusEntry>;
+  /**
+   * จำนวน SKU ที่ได้โปรจริงในรอบล่าสุด — ตัวตั้งต้นให้รอบถัดไปเทียบว่าตกผิดปกติไหม
+   *
+   * rows ของ dataset บอกแค่ว่าไฟล์มากี่แถว ซึ่งไม่ขยับเลยในบั๊กที่เคยเกิดจริง
+   * (1848 แถวเท่าเดิม แต่ resolve ได้ 0 โปร) จึงต้องเก็บตัวเลขปลายทางแยกไว้
+   */
+  promoCoverage?: PromoCoverageSnapshot;
 }
 
 function statusPath() {

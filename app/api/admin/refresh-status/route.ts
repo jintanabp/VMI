@@ -57,5 +57,8 @@ export async function GET(request: Request) {
     datasets,
     promoReady: fabricPromoReady(),
     promoError: promoLoadError(),
+    // จำนวน SKU ที่ได้โปรจริงจากรอบ sync ล่าสุด — promoReady บอกได้แค่ว่าไฟล์โหลดผ่าน
+    // ซึ่งเป็น true อยู่ดีในรอบที่โปรหายเกลี้ยง ตัวเลขนี้คือตัวเดียวที่บอกความต่างได้
+    promoCoverage: status.promoCoverage ?? null,
   });
 }

@@ -7,6 +7,7 @@ import {
 } from "./onelake-refresh";
 import { bumpDataVersion } from "./data-version";
 import { reloadFabricMasters } from "./index";
+import { recordPromoCoverage } from "./promo-coverage";
 import {
   readMasterRefreshStatus,
   writeDatasetStatus,
@@ -137,6 +138,11 @@ async function doRefresh(
   reloadFabricMasters();
   await syncFabricSalesReps();
   bumpDataVersion();
+
+  // ต้องวัดหลัง reload — ไฟล์ใหม่เข้าหน่วยความจำแล้วเท่านั้นถึงจะบอกได้ว่ารอบนี้
+  // ทำให้โปรหายไปกี่ตัว ไฟล์ที่ "ดึงสำเร็จ" แต่ทำให้โปรเป็นศูนย์ ยังนับว่า ok=true
+  // ทุกประการ จึงไม่มีอะไรในผลลัพธ์ของ refresh บอกได้เลยถ้าไม่วัดตรงนี้
+  recordPromoCoverage(trigger);
 
   const ok = results.some((r) => r.ok);
   const durationMs = Date.now() - startedAt;
