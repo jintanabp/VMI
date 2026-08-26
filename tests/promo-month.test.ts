@@ -99,7 +99,11 @@ function writePromoCsv(rows: string[]): PromotionCredit {
 }
 
 /** คลังจำลองที่ resolve เป็น Div.E / กลุ่มลูกค้า 98 / COUNTRY เหมือนของจริง */
-async function loadReport(promo: PromotionCredit, stores: string[]) {
+async function loadReport(
+  promo: PromotionCredit,
+  stores: string[],
+  ctx?: { division: string; cusgroup: string }
+) {
   vi.doMock("@/lib/fabric", () => ({
     fabricPromoReady: () => true,
     fabricSkuMasterReady: () => true,
@@ -116,8 +120,8 @@ async function loadReport(promo: PromotionCredit, stores: string[]) {
   }));
   vi.doMock("@/lib/fabric/promotion-context", () => ({
     resolvePromoContext: (storeCode: string) => ({
-      division: "E",
-      cusgroup: "98",
+      division: ctx?.division ?? "E",
+      cusgroup: ctx?.cusgroup ?? "98",
       region: "COUNTRY",
       isVda: true,
       vdaCode: storeCode,
@@ -141,7 +145,13 @@ describe("buildPromoMonthReport", () => {
     expect(rep.groups).toHaveLength(1);
     expect(rep.groups[0].division).toBe("E");
     expect(rep.contexts).toEqual([
-      { division: "E", cusgroup: "98", region: "COUNTRY", stores: ["vda1"] },
+      {
+        division: "E",
+        cusgroup: "98",
+        region: "COUNTRY",
+        stores: ["vda1"],
+        inFile: true,
+      },
     ]);
   });
 
@@ -171,7 +181,13 @@ describe("buildPromoMonthReport", () => {
     expect(rep.totals.rowsOtherContext).toBe(1);
     expect(rep.groups[0].division).toBe("E");
     expect(rep.contexts).toEqual([
-      { division: "E", cusgroup: "98", region: "COUNTRY", stores: [] },
+      {
+        division: "E",
+        cusgroup: "98",
+        region: "COUNTRY",
+        stores: [],
+        inFile: true,
+      },
     ]);
   });
 
@@ -187,6 +203,24 @@ describe("buildPromoMonthReport", () => {
     expect(rep.fileContexts).toEqual(["E|98", "B|99", "W|99"]);
     // ตัวรายงานยังกรองเหลือบริบทของคลังตามเดิม ตัวเลขที่โชว์จึงไม่ปนกัน
     expect(rep.totals.rows).toBe(1);
+  });
+
+  it("คลังที่ค้นด้วยบริบทที่ไม่มีในไฟล์ ต้องถูกชี้ออกมา ไม่ใช่เงียบ", async () => {
+    // เคสจริง: C4_VDA_DIVISION_MAP ตั้ง vda3:B ไว้ ทั้งที่ตาราง cash มีแต่ E|98
+    const promo = writePromoCsv([
+      promoRow({ division: "E", product: "426577", discAmt: 20 }),
+    ]);
+
+    const rep = await loadReport(promo, ["vda1"], {
+      division: "B",
+      cusgroup: "99",
+    });
+
+    expect(rep.contexts).toHaveLength(1);
+    expect(rep.contexts[0].inFile).toBe(false);
+    expect(rep.contexts[0].stores).toEqual(["vda1"]);
+    expect(rep.fileContexts).toEqual(["E|98"]);
+    expect(rep.totals.rows).toBe(0);
   });
 
   it("ของแถมคิดต่อล็อต MINIMUMPURCHASE ไม่ใช่ต่อ 1 หีบ และบอกเป็นหีบ", async () => {

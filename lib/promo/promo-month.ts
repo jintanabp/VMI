@@ -99,7 +99,18 @@ export interface PromoMonthReport {
     rowsOtherContext: number;
   };
   /** บริบทที่รายงานนี้ครอบ — เท่ากับบริบทที่คลังในระบบใช้จริง */
-  contexts: { division: string; cusgroup: string; region: string; stores: string[] }[];
+  contexts: {
+    division: string;
+    cusgroup: string;
+    region: string;
+    stores: string[];
+    /**
+     * บริบทนี้มีอยู่จริงในไฟล์ไหม — false = คลังกลุ่มนี้ค้นด้วยคีย์ที่ไม่มีในไฟล์เลย
+     * จึงไม่เห็นโปรสักตัว โดยไม่มี error ที่ไหน (เคสจริง: C4_VDA_DIVISION_MAP ตั้ง
+     * vda3:B vda4:W ไว้ ทั้งที่ตาราง cash มีแต่ E|98 — โปรหายทั้งคลังแบบเงียบ ๆ)
+     */
+    inFile: boolean;
+  }[];
   /**
    * บริบททั้งหมดที่มีอยู่ในไฟล์ที่โหลดอยู่ ("E|98") — ไม่ใช่บริบทที่เราใช้
    *
@@ -238,9 +249,7 @@ export function buildPromoMonthReport(input?: {
    */
   const contexts = listStockFromDbSources()
     .map((storeCode) => ({ storeCode, ...resolvePromoContext(storeCode) }))
-    .reduce<
-      { division: string; cusgroup: string; region: string; stores: string[] }[]
-    >((acc, c) => {
+    .reduce<PromoMonthReport["contexts"]>((acc, c) => {
       const hit = acc.find(
         (x) =>
           x.division === c.division &&
@@ -254,6 +263,8 @@ export function buildPromoMonthReport(input?: {
           cusgroup: c.cusgroup,
           region: c.region,
           stores: [c.storeCode],
+          // เติมค่าจริงทีหลัง ตอนที่อ่านบริบทในไฟล์แล้ว
+          inFile: false,
         });
       return acc;
     }, []);
@@ -274,7 +285,15 @@ export function buildPromoMonthReport(input?: {
       cusgroup: fallback.cusgroup,
       region: fallback.region,
       stores: [],
+      inFile: false,
     });
+  }
+
+  const fileContexts = promo
+    .contexts()
+    .map((c) => `${c.division}|${c.cusgroup}`);
+  for (const c of contexts) {
+    c.inFile = fileContexts.includes(`${c.division}|${c.cusgroup}`);
   }
 
   const inStoreContext = (r: PromoRow) =>
@@ -425,7 +444,7 @@ export function buildPromoMonthReport(input?: {
       rowsOtherContext,
     },
     contexts,
-    fileContexts: promo.contexts().map((c) => `${c.division}|${c.cusgroup}`),
+    fileContexts,
     groups,
   };
 }

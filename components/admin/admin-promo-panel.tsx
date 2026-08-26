@@ -248,6 +248,28 @@ export function AdminPromoPanel() {
         </p>
       )}
 
+      {/* คลังที่ค้นด้วยคีย์ที่ไม่มีในไฟล์ = ไม่เห็นโปรสักตัว และไม่มี error ที่ไหนเลย
+          ต้นเหตุเกือบทุกครั้งคือ env ที่ตั้งทับไว้ (C4_VDA_DIVISION_MAP / C4_DEFAULT_*)
+          ซึ่งชนะค่าที่โค้ดอ่านจากไฟล์เสมอ — ต้องบอกว่า "คลังไหน ใช้คีย์อะไร" ให้ครบ */}
+      {data && data.contexts.some((c) => !c.inFile) && (
+        <p className="rounded-xl border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
+          <AlertTriangle className="mr-1 inline h-4 w-4 shrink-0" />
+          คลังต่อไปนี้ค้นโปรด้วยบริบทที่{" "}
+          <b>ไม่มีอยู่ในไฟล์ C4 เลย</b> จึงไม่เห็นโปรสักตัว:{" "}
+          {data.contexts
+            .filter((c) => !c.inFile)
+            .map(
+              (c) =>
+                `${c.stores.join(", ") || "(ค่า default)"} → ${c.division}|${c.cusgroup}`
+            )
+            .join(" · ")}{" "}
+          — ในไฟล์มี {data.fileContexts.join(", ") || "(ไม่มี)"} ·
+          ตรวจ env <code>C4_VDA_DIVISION_MAP</code> /{" "}
+          <code>C4_DEFAULT_DIVISION</code> / <code>C4_DEFAULT_CUSGROUP</code>{" "}
+          (ถ้าไม่ตั้งไว้เลย ระบบจะอ่านบริบทจากไฟล์เองซึ่งถูกเสมอ)
+        </p>
+      )}
+
       {/* หน้านี้แสดงโปรทั้งเดือน ส่วนหน้าร้านแสดงเฉพาะที่ใช้ได้วันนี้ — ต่างกันโดยตั้งใจ
           แต่ถ้าไม่บอกไว้ตรงนี้ คนอ่านจะเหมาเอาว่าทุกแถวที่เห็นคือสิ่งที่ร้านได้ */}
       {inactiveGroups > 0 && (
