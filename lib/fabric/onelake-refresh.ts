@@ -340,10 +340,25 @@ function errText(err: unknown): string {
   return msg.replace(/\s+/g, " ").trim().slice(0, 300);
 }
 
-function fixedOrAuto(envKey: string, scanDir: string): { onelakePath?: string; onelakeDir?: string } {
+/**
+ * ชื่อไฟล์ต้นทางของชุดข้อมูล — env ทับได้ ไม่ตั้ง = ใช้ชื่อมาตรฐานในโค้ด
+ *
+ * เดิมเมื่อ env ไม่ได้ตั้ง จะคืน onelakeDir ให้ระบบไปสแกนทั้งโฟลเดอร์แล้วเลือกไฟล์ที่
+ * "คอลัมน์ตรง signature" ซึ่งเลือกผิดใบได้เงียบ ๆ — cft_promotion_credit.csv ถูกหยิบมา
+ * เป็นตาราง C4 ด้วยกลไกนี้ และไม่มีอะไรร้องเลยเพราะไฟล์โหลดผ่านทุกด่าน (25 ส.ค. 2026)
+ *
+ * ปักชื่อไฟล์ไว้ในโค้ดแทน: ไฟล์ผิดใบจะกลายเป็น 404 ที่เห็นทันทีบนหน้า sync แทนที่จะ
+ * เป็นข้อมูลผิดที่ดูปกติ และ .env ก็ไม่ต้องมีบรรทัด *_ONELAKE_PATH ไว้กันเรื่องนี้อีก
+ */
+function fixedOrDefault(
+  envKey: string,
+  scanDir: string,
+  fileName: string
+): { onelakePath: string } {
   const fixed = process.env[envKey]?.trim();
-  if (fixed) return { onelakePath: fixed };
-  return { onelakeDir: scanDir };
+  return {
+    onelakePath: fixed || `${scanDir.replace(/\/$/, "")}/${fileName}`,
+  };
 }
 
 /**
@@ -377,7 +392,7 @@ export function buildCustomerSpec(localPath: string): RefreshSpec | null {
     workspaceId: cfg.workspaceId,
     onelakeItemId: cfg.lakehouseId,
     scanDir: cfg.scanDir,
-    ...fixedOrAuto("CUSTOMER_ONELAKE_PATH", cfg.scanDir),
+    ...fixedOrDefault("CUSTOMER_ONELAKE_PATH", cfg.scanDir, "dim_customer.csv"),
     columnSignature: ["CustomerCode", "AddressName"],
     requiredColumns: ["CustomerCode", "AddressName"],
     minRows: min.customer,
@@ -395,7 +410,7 @@ export function buildStockCoverSpec(localPath: string): RefreshSpec | null {
     workspaceId: cfg.workspaceId,
     onelakeItemId: cfg.exportItemId,
     scanDir: cfg.scanDir,
-    ...fixedOrAuto("STOCK_COVER_ONELAKE_PATH", cfg.scanDir),
+    ...fixedOrDefault("STOCK_COVER_ONELAKE_PATH", cfg.scanDir, "stock_cover_day.csv"),
     columnSignature: ["productcode", "from_db", "qty_available"],
     requiredColumns: [
       "productcode",
@@ -421,7 +436,7 @@ export function buildSalesmanSpec(localPath: string): RefreshSpec | null {
     workspaceId: cfg.workspaceId,
     onelakeItemId: cfg.lakehouseId,
     scanDir: cfg.scanDir,
-    ...fixedOrAuto("SALESMAN_ONELAKE_PATH", cfg.scanDir),
+    ...fixedOrDefault("SALESMAN_ONELAKE_PATH", cfg.scanDir, "cross_salesman_reference_email.csv"),
     columnSignature: ["email", "sYear"],
     requiredColumns: ["Code", "email", "sYear", "sMonth", "EmployeeNo"],
     minRows: min.salesman,
@@ -494,7 +509,7 @@ export function buildSkuMasterSpec(localPath: string): RefreshSpec | null {
     workspaceId: cfg.workspaceId,
     onelakeItemId: cfg.lakehouseId,
     scanDir: cfg.scanDir,
-    ...fixedOrAuto("SKU_ONELAKE_PATH", cfg.scanDir),
+    ...fixedOrDefault("SKU_ONELAKE_PATH", cfg.scanDir, "item_barcode_map_v2.csv"),
     columnSignature: ["BARCODE", "PRODUCTCODE"],
     requiredColumns: ["BARCODE", "PRODUCTCODE"],
     minRows: min.skuMaster,
@@ -511,7 +526,7 @@ export function buildSoldHistorySpec(localPath: string): RefreshSpec | null {
     workspaceId: cfg.workspaceId,
     onelakeItemId: cfg.lakehouseId,
     scanDir: cfg.scanDir,
-    ...fixedOrAuto("SOLD_HISTORY_ONELAKE_PATH", cfg.scanDir),
+    ...fixedOrDefault("SOLD_HISTORY_ONELAKE_PATH", cfg.scanDir, "factsales_odoo.csv"),
     columnSignature: ["productcode", "date_invoice", "unit_qty"],
     requiredColumns: ["productcode", "date_invoice", "unit_qty"],
     minRows: Number(process.env.SOLD_HISTORY_MIN_ROWS ?? "1"),

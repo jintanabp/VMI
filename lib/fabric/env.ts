@@ -74,11 +74,25 @@ function normalizeScanDir(dir: string) {
   return dir.endsWith("/") ? dir : `${dir}/`;
 }
 
+/**
+ * โฟลเดอร์ต้นทางบน OneLake — ข้ามค่าว่าง ไม่ใช่แค่ค่าที่ไม่ได้ตั้ง
+ *
+ * เดิมใช้ `??` ซึ่งมองว่า SCAN_DIR= (ค่าว่างใน .env) คือค่าที่ตั้งไว้แล้ว path ที่ประกอบ
+ * ออกมาจึงกลายเป็น "/ชื่อไฟล์.csv" แล้วได้ 404 โดยไม่มีอะไรบอกว่าเพราะบรรทัดว่างบรรทัดเดียว
+ */
+function scanDirFrom(...keys: string[]): string {
+  for (const key of keys) {
+    const value = trimEnv(key);
+    if (value) return normalizeScanDir(value);
+  }
+  return "Files/exports/";
+}
+
 /** Workspace ร้านค้า + พนักงาน (lakehouse) — คนละ workspace กับ stock */
 export function getMastersOnelakeConfig(): MastersOnelakeTarget | null {
   const workspaceId = trimEnv("ONELAKE_WORKSPACE_ID");
   const lakehouseId = trimEnv("ONELAKE_LAKEHOUSE_ID");
-  const scanDir = process.env.ONELAKE_SCAN_DIR ?? "Files/exports/";
+  const scanDir = scanDirFrom("ONELAKE_SCAN_DIR");
 
   if (!workspaceId || !lakehouseId) {
     return null;
@@ -101,10 +115,7 @@ export function getStockOnelakeConfig(): StockOnelakeTarget | null {
     trimEnv("STOCK_COVER_LAKEHOUSE_ID") ||
     trimEnv("ONELAKE_WAREHOUSE_ID") ||
     trimEnv("STOCK_ONELAKE_WAREHOUSE_ID");
-  const scanDir =
-    process.env.STOCK_ONELAKE_SCAN_DIR ??
-    process.env.ONELAKE_SCAN_DIR ??
-    "Files/exports/";
+  const scanDir = scanDirFrom("STOCK_ONELAKE_SCAN_DIR", "ONELAKE_SCAN_DIR");
 
   if (!workspaceId || !exportItemId) {
     return null;
@@ -117,17 +128,20 @@ export function getStockOnelakeConfig(): StockOnelakeTarget | null {
   };
 }
 
-/** Ai_LH lakehouse — ประวัติยอดขายรายวัน (factsales_odoo)
- *  ใช้ค่าเฉพาะ AI_LH_* ก่อน ไม่งั้น fallback ไป masters config */
+/**
+ * ประวัติยอดขายรายวัน (factsales_odoo) — notebook export ลง lakehouse เดียวกับ stock_cover
+ *
+ * ถอยไปใช้ config ของ stock ไม่ใช่ของ masters: ไฟล์นี้อยู่ lakehouse ของ stock จริง ๆ
+ * การถอยไป masters ทำให้ได้ 404 ทั้งที่ทุกอย่างดูตั้งครบ แล้วต้องมาเติม AI_LH_* ใน .env
+ * ทุกเครื่องเพื่อแก้อาการที่ข้อมูลตอบเองได้อยู่แล้ว (AI_LH_* ยัง override ได้ตามเดิม)
+ */
 export function getSoldHistoryOnelakeConfig(): MastersOnelakeTarget | null {
+  const stock = getStockOnelakeConfig();
   const workspaceId =
-    trimEnv("AI_LH_WORKSPACE_ID") || trimEnv("ONELAKE_WORKSPACE_ID");
+    trimEnv("AI_LH_WORKSPACE_ID") || stock?.workspaceId || trimEnv("ONELAKE_WORKSPACE_ID");
   const lakehouseId =
-    trimEnv("AI_LH_LAKEHOUSE_ID") || trimEnv("ONELAKE_LAKEHOUSE_ID");
-  const scanDir =
-    process.env.AI_LH_SCAN_DIR ??
-    process.env.ONELAKE_SCAN_DIR ??
-    "Files/exports/";
+    trimEnv("AI_LH_LAKEHOUSE_ID") || stock?.exportItemId || trimEnv("ONELAKE_LAKEHOUSE_ID");
+  const scanDir = scanDirFrom("AI_LH_SCAN_DIR", "ONELAKE_SCAN_DIR");
 
   if (!workspaceId || !lakehouseId) {
     return null;
@@ -159,10 +173,7 @@ const C4_CASH_LAKEHOUSE_ID = "92789a85-4269-411f-ad0c-f63ad7733fe2";
 export function getPromotionOnelakeConfig(): MastersOnelakeTarget | null {
   const workspaceId = trimEnv("CFT_WORKSPACE_ID") || C4_CASH_WORKSPACE_ID;
   const lakehouseId = trimEnv("CFT_LAKEHOUSE_ID") || C4_CASH_LAKEHOUSE_ID;
-  const scanDir =
-    process.env.CFT_SCAN_DIR ??
-    process.env.ONELAKE_SCAN_DIR ??
-    "Files/exports/";
+  const scanDir = scanDirFrom("CFT_SCAN_DIR", "ONELAKE_SCAN_DIR");
 
   if (!workspaceId || !lakehouseId) {
     return null;
