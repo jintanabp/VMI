@@ -327,6 +327,26 @@ function fixedOrAuto(envKey: string, scanDir: string): { onelakePath?: string; o
   return { onelakeDir: scanDir };
 }
 
+/**
+ * profile ของ service principal ที่อ่าน lakehouse ของตาราง C4 (Bronze_OrderAgent)
+ *
+ * SP ของ masters เข้า workspace นั้นไม่ได้ (403) ทุกชุดข้อมูลที่อยู่ lakehouse เดียวกับ
+ * ตาราง C4 จึงต้องใช้ profile เดียวกันหมด — เดิม assorted_mapping ตั้ง default เป็น
+ * "masters" ซึ่งถูกอยู่ตอนที่ getPromotionOnelakeConfig ยังถอยไป lakehouse ของ masters
+ * เมื่อ .env ไม่มีบล็อก CFT_* พอปักที่อยู่จริงเป็น Bronze (73147a8) มันจึงยิงไป Bronze
+ * ด้วย SP ของ masters แล้วได้ 403 ทั้งที่เมื่อวานยังดึงได้ (เกิดจริงบน production 26 ส.ค. 2026)
+ *
+ * รับหลาย env key ตามลำดับ และข้ามค่าว่าง — `??` เดิมปล่อยให้ CFT_AUTH_PROFILE= (ค่าว่าง)
+ * ผ่านไปเป็น profile ว่าง ซึ่งจะกลายเป็น auth ของ masters อีกทางหนึ่ง
+ */
+function c4AuthProfile(...envKeys: string[]): OnelakeAuthProfile {
+  for (const key of envKeys) {
+    const value = process.env[key]?.trim();
+    if (value) return value as OnelakeAuthProfile;
+  }
+  return "stock";
+}
+
 export function buildCustomerSpec(localPath: string): RefreshSpec | null {
   const cfg = getMastersOnelakeConfig();
   if (!cfg) return null;
@@ -418,8 +438,7 @@ export function buildPromotionCreditSpec(localPath: string): RefreshSpec | null 
     ],
     minRows: min.promotion,
     // ตาราง C4 อยู่ workspace Bronze ซึ่ง service principal ของ masters เข้าไม่ถึง
-    authProfile:
-      (process.env.CFT_AUTH_PROFILE as OnelakeAuthProfile) ?? "stock",
+    authProfile: c4AuthProfile("CFT_AUTH_PROFILE"),
   };
 }
 
@@ -440,8 +459,8 @@ export function buildAssortedMappingSpec(localPath: string): RefreshSpec | null 
     columnSignature: ["ASSORTEDPRODUCTGROUP", "DESCRIPTIONASSORTED"],
     requiredColumns: ["ASSORTEDPRODUCTGROUP", "DESCRIPTIONASSORTED"],
     minRows: Number(process.env.ASSORTED_MIN_ROWS ?? "50"),
-    authProfile:
-      (process.env.CFT_AUTH_PROFILE as OnelakeAuthProfile) ?? "masters",
+    // lakehouse เดียวกับตาราง C4 → SP ชุดเดียวกัน (default "masters" เดิมได้ 403)
+    authProfile: c4AuthProfile("ASSORTED_AUTH_PROFILE", "CFT_AUTH_PROFILE"),
   };
 }
 
@@ -563,9 +582,7 @@ export function buildCrossTargetSpec(localPath: string): RefreshSpec | null {
     requiredColumns: ["SalesManCode", "ProductCode"],
     minRows: Number(process.env.CROSS_TARGET_MIN_ROWS ?? "100"),
     // default เป็น stock ไม่ใช่ masters — SP ของ masters ได้ 403 ใน workspace นี้
-    authProfile:
-      ((process.env.CROSS_TARGET_AUTH_PROFILE ||
-        process.env.CFT_AUTH_PROFILE) as OnelakeAuthProfile) ?? "stock",
+    authProfile: c4AuthProfile("CROSS_TARGET_AUTH_PROFILE", "CFT_AUTH_PROFILE"),
   };
 }
 
