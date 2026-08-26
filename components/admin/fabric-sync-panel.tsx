@@ -481,20 +481,29 @@ export function FabricSyncPanel() {
             })}
           </MobileRowList>
 
-          {(data?.datasets ?? []).some((d) => d.lastError) && (
+          {/* ต้องเห็น "ไฟล์ไหนถูกดึงมา" แม้รอบนั้นจะสำเร็จ — รอบที่สำเร็จนั่นแหละคือรอบ
+              ที่อันตรายที่สุด: cft_promotion_credit.csv ถูกดึงมาลงในชื่อ cash แล้วขึ้นเขียว
+              ทุกตัวชี้วัด คนที่เข้าไม่ถึง log ของเซิร์ฟเวอร์จึงไม่มีทางรู้เลยว่าไปเอามาจากไหน */}
+          {(data?.datasets ?? []).some((d) => d.lastError || d.lastRemotePath) && (
             <details className="mt-3 text-xs">
               <summary className="cursor-pointer text-slate-500">
-                ดูข้อความ error ดิบ
+                ดูต้นทางที่ดึงมาจริง + ข้อความ error ดิบ
               </summary>
               <ul className="mt-2 space-y-1">
                 {(data?.datasets ?? [])
-                  .filter((d) => d.lastError)
+                  .filter((d) => d.lastError || d.lastRemotePath)
                   .map((d) => (
                     <li key={d.id} className="break-all text-slate-500">
-                      <span className="font-mono">{d.id}</span>: {d.lastError}
-                      {d.lastRemotePath && (
-                        <span className="block text-slate-400">
-                          ต้นทางรอบล่าสุด: {d.lastRemotePath}
+                      <span className="font-mono">{d.id}</span>
+                      {d.lastRemotePath ? (
+                        <>
+                          {" ← "}
+                          <span className="font-mono">{d.lastRemotePath}</span>
+                        </>
+                      ) : null}
+                      {d.lastError && (
+                        <span className="block text-red-600 dark:text-red-400">
+                          {d.lastError}
                         </span>
                       )}
                     </li>
