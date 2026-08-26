@@ -10,7 +10,10 @@ import {
   getStockOnelakeConfig,
   type OnelakeAuthProfile,
 } from "./env";
-import { getOnelakeToken } from "./onelake-credential";
+import {
+  describeOnelakeIdentity,
+  getOnelakeToken,
+} from "./onelake-credential";
 
 const ONELAKE_HOST = "https://onelake.dfs.fabric.microsoft.com";
 
@@ -305,11 +308,27 @@ export async function refreshOne(
       return fail({
         remotePath,
         skipped: true,
-        error: `no_remote_file: ยังไม่มี ${remotePath} ใน OneLake`,
+        error:
+          `no_remote_file: ไม่พบ ${remotePath} ใน ` +
+          `workspace ${spec.workspaceId} / item ${spec.onelakeItemId}`,
       });
     }
     if (err instanceof DownloadError && (err.status === 401 || err.status === 403)) {
-      return fail({ remotePath, error: `forbidden (${err.status}) — ตรวจสิทธิ์ SP` });
+      // บอกให้ครบว่า "ใคร" เข้า "ที่ไหน" ไม่ได้ — ข้อความเดิม ("ตรวจสิทธิ์ SP")
+      // ไม่ได้บอกว่า SP ตัวไหน ซึ่งเป็นข้อมูลชิ้นเดียวที่ต้องใช้แก้ เพราะ profile
+      // ที่ตั้งไว้กับ SP ที่ยิงจริงเป็นคนละตัวได้เมื่อ env ของ profile นั้นไม่ครบ
+      const who = describeOnelakeIdentity(spec.authProfile ?? "masters");
+      return fail({
+        remotePath,
+        error:
+          `forbidden (${err.status}) — SP ${who.clientId ?? "(ไม่ได้ตั้ง client_id)"} ` +
+          `ไม่มีสิทธิ์ workspace ${spec.workspaceId} · ${remotePath} ` +
+          `[profile ${who.profile}${
+            who.fellBackToMasters
+              ? " แต่ STOCK_ONELAKE_* ไม่ได้ตั้ง → ใช้ SP ของ masters แทน"
+              : ""
+          }${who.mode === "service_principal" ? "" : " — env ไม่ครบ ถอยไปใช้ default credential"}]`,
+      });
     }
     return fail({ remotePath, error: errText(err) });
   }

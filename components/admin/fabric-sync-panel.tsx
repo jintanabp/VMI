@@ -41,6 +41,8 @@ interface DatasetRow {
   lastDurationMs: number | null;
   lastAt: string | null;
   lastTrigger: string | null;
+  /** path ต้นทางของรอบล่าสุด — ชื่อไฟล์ในเครื่องบอกไม่ได้ว่าเนื้อในมาจากไฟล์ไหน */
+  lastRemotePath: string | null;
   skipped: boolean;
 }
 
@@ -490,6 +492,11 @@ export function FabricSyncPanel() {
                   .map((d) => (
                     <li key={d.id} className="break-all text-slate-500">
                       <span className="font-mono">{d.id}</span>: {d.lastError}
+                      {d.lastRemotePath && (
+                        <span className="block text-slate-400">
+                          ต้นทางรอบล่าสุด: {d.lastRemotePath}
+                        </span>
+                      )}
                     </li>
                   ))}
               </ul>

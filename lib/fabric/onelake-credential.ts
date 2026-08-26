@@ -6,6 +6,7 @@ import {
 } from "@azure/identity";
 import {
   getOnelakeAuthEnvForProfile,
+  stockAuthEnvIsSet,
   type OnelakeAuthProfile,
 } from "./env";
 
@@ -67,6 +68,38 @@ export async function getOnelakeToken(
   const token = await cred.getToken(TOKEN_RESOURCE);
   if (!token?.token) throw new Error("Failed to acquire OneLake token");
   return token.token;
+}
+
+/**
+ * ใครกำลังยิงไป OneLake — เอาไว้ใส่ในข้อความ error ตอน 401/403
+ *
+ * "forbidden (403) — ตรวจสิทธิ์ SP" ตอบไม่ได้ว่า SP **ตัวไหน** ไม่มีสิทธิ์ **workspace ไหน**
+ * ซึ่งเป็นคำถามเดียวที่ต้องรู้เพื่อแก้: ถ้า STOCK_ONELAKE_* ไม่ได้ตั้งบนเซิร์ฟเวอร์
+ * profile "stock" จะถอยไปใช้ SP ของ masters เงียบ ๆ แล้วได้ 403 ที่ workspace Bronze
+ * ทั้งที่ SP ของ stock มีสิทธิ์อยู่แล้ว (เกิดจริงบน production 26 ส.ค. 2026)
+ *
+ * client_id ไม่ใช่ความลับ (เป็น id ของ app registration) — ต่างจาก client secret
+ * ที่ห้ามหลุดออกมาเด็ดขาด จึงเอามาแสดงบนหน้าแอดมินได้
+ */
+export function describeOnelakeIdentity(
+  profile: OnelakeAuthProfile = "masters"
+): {
+  profile: OnelakeAuthProfile;
+  clientId: string | null;
+  mode: OnelakeAuthMode;
+  /** profile นี้ถอยไปใช้ credential ของ masters เพราะ env ของตัวเองไม่ได้ตั้ง */
+  fellBackToMasters: boolean;
+} {
+  const { tenantId, clientId, clientSecret } = getOnelakeAuthEnvForProfile(profile);
+  return {
+    profile,
+    clientId: clientId || null,
+    mode:
+      tenantId && clientId && clientSecret
+        ? "service_principal"
+        : "default_credential",
+    fellBackToMasters: profile === "stock" && !stockAuthEnvIsSet(),
+  };
 }
 
 export function describeOnelakeAuthMode(

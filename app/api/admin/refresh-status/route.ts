@@ -43,6 +43,7 @@ export async function GET(request: Request) {
       lastDurationMs: entry?.durationMs ?? null,
       lastAt: entry?.at ?? null,
       lastTrigger: entry?.trigger ?? null,
+      lastRemotePath: entry?.remotePath ?? null,
       skipped: entry?.skipped ?? !row.configured,
     };
   });

@@ -21,6 +21,11 @@ export interface DatasetStatusEntry {
   durationMs: number;
   error: string | null;
   minRows: number;
+  /**
+   * ไฟล์ต้นทางที่รอบนี้ยิงไปจริง — ชื่อไฟล์ปลายทางในเครื่องไม่ได้พิสูจน์อะไรเลย
+   * (cft_promotion_cash.csv ในเครื่องเคยมีเนื้อของ cft_promotion_credit.csv อยู่ทั้งใบ)
+   */
+  remotePath: string | null;
   /** เวลาที่บันทึกผลนี้ */
   at: string;
   trigger: RefreshTrigger;
@@ -108,6 +113,7 @@ export function writeDatasetStatus(
       durationMs: r.durationMs,
       error: r.error,
       minRows: r.minRows,
+      remotePath: r.remotePath,
       at,
       trigger,
     };

@@ -35,6 +35,22 @@ export function getStockOnelakeAuthEnv() {
   return getOnelakeAuthEnv();
 }
 
+/**
+ * profile "stock" มี credential ของตัวเองจริงไหม — false = getStockOnelakeAuthEnv()
+ * กำลังถอยไปใช้ SP ของ masters อยู่
+ *
+ * การถอยแบบนี้เงียบสนิทและถูกต้องมาตลอด ตราบใดที่ทุก workspace ที่ profile stock ยิงไป
+ * ยอมรับ SP ของ masters ด้วย พอตาราง C4 ย้ายไป Bronze_OrderAgent (ซึ่ง SP ของ masters
+ * ไม่มีสิทธิ์) มันจึงกลายเป็น 403 ที่หน้าจอบอกได้แค่ "ตรวจสิทธิ์ SP"
+ */
+export function stockAuthEnvIsSet(): boolean {
+  return Boolean(
+    trimEnv("STOCK_ONELAKE_TENANT_ID") ||
+      trimEnv("STOCK_ONELAKE_CLIENT_ID") ||
+      trimEnv("STOCK_ONELAKE_CLIENT_SECRET")
+  );
+}
+
 export type OnelakeAuthProfile = "masters" | "stock";
 
 export function getOnelakeAuthEnvForProfile(profile: OnelakeAuthProfile = "masters") {
