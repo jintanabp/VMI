@@ -158,7 +158,8 @@ describe("buildPromoMonthReport", () => {
     expect(rep.groups[0].cusgroup).toBe("98");
   });
 
-  it("ไม่มีคลังในระบบ → ไม่กรอง ดีกว่าโชว์หน้าว่างโดยไม่บอกอะไร", async () => {
+  it("ไม่มีคลังในระบบ → ยังกรองด้วยบริบท default ไม่ใช่โชว์ทั้งไฟล์", async () => {
+    // เดิมเคสนี้ปล่อยผ่านทั้งไฟล์ หน้าแอดมินจึงโชว์โปร Div. อื่นที่คลัง VDA ไม่มีวันได้
     const promo = writePromoCsv([
       promoRow({ division: "E", product: "426577", discAmt: 20 }),
       promoRow({ division: "B", product: "426577", discAmt: 40 }),
@@ -166,8 +167,26 @@ describe("buildPromoMonthReport", () => {
 
     const rep = await loadReport(promo, []);
 
-    expect(rep.totals.rows).toBe(2);
-    expect(rep.totals.rowsOtherContext).toBe(0);
+    expect(rep.totals.rows).toBe(1);
+    expect(rep.totals.rowsOtherContext).toBe(1);
+    expect(rep.groups[0].division).toBe("E");
+    expect(rep.contexts).toEqual([
+      { division: "E", cusgroup: "98", region: "COUNTRY", stores: [] },
+    ]);
+  });
+
+  it("บอกบริบทที่มีในไฟล์ทั้งหมด — หลายบริบท = กำลังอ่านตารางผิดใบ", async () => {
+    const promo = writePromoCsv([
+      promoRow({ division: "E", product: "426577", cusgroup: "98", discAmt: 20 }),
+      promoRow({ division: "B", product: "426577", cusgroup: "99", discAmt: 40 }),
+      promoRow({ division: "W", product: "426578", cusgroup: "99", discAmt: 40 }),
+    ]);
+
+    const rep = await loadReport(promo, ["vda1"]);
+
+    expect(rep.fileContexts).toEqual(["E|98", "B|99", "W|99"]);
+    // ตัวรายงานยังกรองเหลือบริบทของคลังตามเดิม ตัวเลขที่โชว์จึงไม่ปนกัน
+    expect(rep.totals.rows).toBe(1);
   });
 
   it("ของแถมคิดต่อล็อต MINIMUMPURCHASE ไม่ใช่ต่อ 1 หีบ และบอกเป็นหีบ", async () => {

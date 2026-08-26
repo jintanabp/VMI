@@ -100,6 +100,14 @@ export interface PromoMonthReport {
   };
   /** บริบทที่รายงานนี้ครอบ — เท่ากับบริบทที่คลังในระบบใช้จริง */
   contexts: { division: string; cusgroup: string; region: string; stores: string[] }[];
+  /**
+   * บริบททั้งหมดที่มีอยู่ในไฟล์ที่โหลดอยู่ ("E|98") — ไม่ใช่บริบทที่เราใช้
+   *
+   * ตาราง C4 cash มีชุดเดียวทั้งไฟล์ ถ้าหน้านี้เห็นมากกว่าหนึ่ง แปลว่าไฟล์ที่โหลดอยู่
+   * ไม่ใช่ตาราง cash (ลายนิ้วมือของ cft_promotion_credit.csv ตารางเก่าที่มี 7-8 ชุด)
+   * ตัวเลขนี้จึงต้องส่งขึ้นหน้าจอ ไม่ใช่อยู่แค่ใน log ตอน boot ที่ไม่มีใครเปิดดู
+   */
+  fileContexts: string[];
   groups: PromoMonthGroup[];
 }
 
@@ -250,6 +258,25 @@ export function buildPromoMonthReport(input?: {
       return acc;
     }, []);
 
+  /**
+   * ไม่มีคลังในระบบ (stock cover ยังไม่โหลด) ก็ยังต้องกรอง
+   *
+   * เดิมเคสนี้ปล่อยผ่านทั้งไฟล์ด้วยเหตุผลว่า "ดีกว่าโชว์หน้าว่าง" ผลคือหน้าแอดมินกลาย
+   * เป็นที่เดียวในระบบที่โชว์โปรของ Div. อื่น (S/B/W) ซึ่งคลัง VDA ไม่มีวันได้ — และมัน
+   * เงียบด้วย เพราะแบนเนอร์ "ระบบเราใช้ Div. ..." ผูกกับ contexts ที่ว่างอยู่พอดี
+   * ถอยไปใช้บริบท default ตัวเดียวกับที่ lookup ของหน้าร้านจะใช้แทน ผิดได้อย่างมาก
+   * คือหน้าว่าง ซึ่งอ่านออกว่ามีอะไรผิด ต่างจากการโชว์โปรที่ร้านไม่มีทางได้
+   */
+  if (contexts.length === 0) {
+    const fallback = resolvePromoContext("");
+    contexts.push({
+      division: fallback.division,
+      cusgroup: fallback.cusgroup,
+      region: fallback.region,
+      stores: [],
+    });
+  }
+
   const inStoreContext = (r: PromoRow) =>
     contexts.some(
       (c) =>
@@ -262,8 +289,7 @@ export function buildPromoMonthReport(input?: {
   const inMonth = allRows.filter((r) =>
     promoOverlapsMonth(r, range.from, range.to)
   );
-  // ไม่มีคลังในระบบเลย (stock cover ยังไม่โหลด) → ไม่กรอง ดีกว่าโชว์หน้าว่างโดยไม่บอกอะไร
-  const rows = contexts.length > 0 ? inMonth.filter(inStoreContext) : inMonth;
+  const rows = inMonth.filter(inStoreContext);
   const rowsOtherContext = inMonth.length - rows.length;
 
   /**
@@ -399,6 +425,7 @@ export function buildPromoMonthReport(input?: {
       rowsOtherContext,
     },
     contexts,
+    fileContexts: promo.contexts().map((c) => `${c.division}|${c.cusgroup}`),
     groups,
   };
 }

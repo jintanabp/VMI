@@ -234,6 +234,20 @@ export function AdminPromoPanel() {
         />
       </div>
 
+      {/* ตาราง C4 cash มีบริบทเดียวทั้งไฟล์ — มากกว่านั้นคือกำลังอ่านไฟล์ผิดใบอยู่
+          (cft_promotion_credit.csv ตารางเก่ามี 7-8 ชุด) อาการที่คนเห็นคือ "ทำไมมีโปร
+          Div. อื่นโผล่มา" ซึ่งชี้ไปที่ตัวกรอง ทั้งที่ต้นเหตุอยู่ที่ไฟล์ตั้งแต่แรก */}
+      {data && data.fileContexts.length > 1 && (
+        <p className="rounded-xl border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
+          <AlertTriangle className="mr-1 inline h-4 w-4 shrink-0" />
+          ไฟล์โปรที่โหลดอยู่มี <b>{data.fileContexts.length} บริบท</b> (
+          {data.fileContexts.join(", ")}) — ตาราง C4 cash ต้องมีชุดเดียว
+          นี่คือลายนิ้วมือของ <b>cft_promotion_credit.csv</b> (ตารางเก่า)
+          ตัวเลขในหน้านี้จึงยังไม่ใช่ของจริง — กด sync ที่หน้า
+          &ldquo;ซิงก์ข้อมูล&rdquo; ให้ promotion_c4 ได้ 1,848 แถวก่อน
+        </p>
+      )}
+
       {/* หน้านี้แสดงโปรทั้งเดือน ส่วนหน้าร้านแสดงเฉพาะที่ใช้ได้วันนี้ — ต่างกันโดยตั้งใจ
           แต่ถ้าไม่บอกไว้ตรงนี้ คนอ่านจะเหมาเอาว่าทุกแถวที่เห็นคือสิ่งที่ร้านได้ */}
       {inactiveGroups > 0 && (
@@ -281,8 +295,13 @@ export function AdminPromoPanel() {
                     )}{" "}
                     ·{" "}
                     {[...new Set(data.contexts.map((c) => c.region))].join(" / ")}{" "}
-                    · {data.contexts.flatMap((c) => c.stores).join(", ")}) —
-                    โปรของ Div. อื่นในไฟล์ไม่ได้ใช้
+                    {data.contexts.flatMap((c) => c.stores).length > 0 && (
+                      <>
+                        {" "}
+                        · {data.contexts.flatMap((c) => c.stores).join(", ")}
+                      </>
+                    )}
+                    ) — โปรของ Div. อื่นในไฟล์ไม่ได้ใช้
                     {data.totals.rowsOtherContext > 0 && (
                       <>
                         {" "}
