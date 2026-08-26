@@ -8,11 +8,11 @@ export async function register() {
     // ทะเบียนคลัง VDA ต้องพร้อมก่อน warmFabricMasters — ชั้น fabric อ่านแบบ sync
     // จาก snapshot ตัวนี้ ถ้ายังไม่ refresh มันจะถอยไปใช้ค่าใน .env ทั้งที่แอดมิน
     // แก้ทะเบียนไว้ในฐานข้อมูลแล้ว
-    const { bootstrapVdaWarehousesFromEnv } = await import(
+    const { initVdaWarehouseRegistry } = await import(
       "./lib/fabric/vda-warehouse-registry"
     );
-    await bootstrapVdaWarehousesFromEnv().catch((err) => {
-      console.warn("[VMI] VDA warehouse bootstrap skipped:", err);
+    await initVdaWarehouseRegistry().catch((err) => {
+      console.warn("[VMI] VDA warehouse registry init failed:", err);
     });
 
     const { startMasterRefreshScheduler } = await import(

@@ -79,6 +79,31 @@ describe("ทะเบียนคลัง VDA", () => {
   });
 });
 
+describe("initVdaWarehouseRegistry", () => {
+  it("โหลดทะเบียนจากฐานข้อมูลเข้า cache แม้ .env ไม่มี VDA_CUSTOMER_MAP", async () => {
+    // เคสปกติหลัง deploy รอบแรก: .env ไม่มีบรรทัดนี้แล้ว ทะเบียนจริงอยู่ในฐานข้อมูล
+    // ถ้า init ออกก่อนโหลด cache ชั้น fabric จะเห็นทะเบียนว่างทั้งระบบแบบไม่มี error
+    vi.stubEnv("VDA_CUSTOMER_MAP", "");
+    vi.doMock("@/lib/prisma", () => ({
+      prisma: {
+        vdaWarehouse: {
+          count: async () => 2,
+          findMany: async () => [
+            { code: "vda1", customerCodes: "3231847", label: "", active: true },
+            { code: "vda6", customerCodes: "1234567", label: "", active: true },
+          ],
+        },
+      },
+    }));
+    const { initVdaWarehouseRegistry, listVdaWarehouses } = await load();
+
+    const seeded = await initVdaWarehouseRegistry();
+
+    expect(seeded).toBe(0);
+    expect(listVdaWarehouses().map((w) => w.code)).toEqual(["vda1", "vda6"]);
+  });
+});
+
 describe("getVdaKeys", () => {
   async function loadKeys(opts: {
     warehouses?: { code: string; active: boolean }[];

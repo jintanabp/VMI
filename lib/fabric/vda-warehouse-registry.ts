@@ -123,17 +123,20 @@ export async function listVdaWarehousesAsync(): Promise<VdaWarehouseEntry[]> {
 }
 
 /**
- * ย้ายค่าจาก .env เข้าฐานข้อมูลตอน boot ถ้าตารางยังว่าง
+ * โหลดทะเบียนเข้า cache ตอน boot และ seed จาก .env ให้ถ้าตารางยังว่าง
  *
- * ทำครั้งเดียวโดยตั้งใจ: หลังจากนี้แอดมินแก้ผ่านหน้าเว็บได้ และการ deploy ครั้งถัดไป
+ * seed ทำครั้งเดียวโดยตั้งใจ: หลังจากนี้แอดมินแก้ผ่านหน้าเว็บได้ และการ deploy ครั้งถัดไป
  * จะไม่ย้อนค่ากลับไปเป็นของใน .env อีก (ถ้า seed ทุกรอบ การลบคลังจากหน้าเว็บจะไม่มีผล)
+ *
+ * ต้อง refresh cache ทุกเส้นทาง รวมทั้งตอนที่ไม่มีอะไรให้ seed — ปกติแล้ว .env จะไม่มี
+ * VDA_CUSTOMER_MAP อยู่แล้ว (ทะเบียนจริงอยู่ในฐานข้อมูล) ถ้า return ก่อนถึงตรงนั้น
+ * ชั้น fabric จะเห็นทะเบียนว่างทั้งระบบ แล้วยอดขายรายวันกับสิทธิ์เซลล์หายเงียบ ๆ
  */
-export async function bootstrapVdaWarehousesFromEnv(): Promise<number> {
+export async function initVdaWarehouseRegistry(): Promise<number> {
   const fromEnv = parseVdaCustomerMapFromEnv();
-  if (fromEnv.size === 0) return 0;
+  const existing = await prisma.vdaWarehouse.count().catch(() => -1);
 
-  const existing = await prisma.vdaWarehouse.count();
-  if (existing > 0) {
+  if (fromEnv.size === 0 || existing !== 0) {
     await refreshVdaWarehouseCache();
     return 0;
   }
