@@ -1,13 +1,17 @@
 import { normalizeStoreKey } from "./store-key";
 import { getCrossTargetRegistry } from "./cross-target";
+import { fabricStockReady, getStockCoverDirectory } from "./stock-cover";
+import { getStockFilterConfig } from "./stock-filter-config";
+import { listVdaWarehouses } from "./vda-warehouse-registry";
 
 /**
  * ทะเบียน VDA → พนักงานขาย / รหัสลูกค้า
  *
  * ทะเบียนนี้คือแหล่งสิทธิ์เดียวของออเดอร์/PO/โปรฝั่ง VDA (ดู lib/orders/access.ts)
  *
- * **รหัสลูกค้า** มาจาก VDA_CUSTOMER_MAP ใน .env — ตัวนี้คือนิยามว่าคลัง vdaN คือ
- * บัญชีลูกค้าใบไหน ไม่มีไฟล์ไหนบอกได้ ต้องตั้งเอง (เพิ่ม VDA ใหม่ = แก้บรรทัดนี้)
+ * **รหัสลูกค้า** มาจากทะเบียนคลังในฐานข้อมูล (แก้ที่หน้า /admin/vda) — ตัวนี้คือนิยามว่า
+ * คลัง vdaN คือบัญชีลูกค้าใบไหน ไม่มีไฟล์ไหนบอกได้ ต้องมีคนกำหนด แต่ไม่ควรต้องแก้ .env
+ * แล้ว restart ทุกครั้งที่เปิดคลังใหม่ · VDA_CUSTOMER_MAP เหลือหน้าที่ seed ตอนตารางว่าง
  *
  * **รหัสเซลล์** หามาจาก cross_target_current_month โดยจับ WarehouseCode ↔ รหัสลูกค้า
  * ไม่ได้กรอกมืออีกแล้ว เพราะการกรอกมือเคยผิด: เซลล์คนเดียวดูแลได้หลายคลัง
@@ -59,7 +63,7 @@ export class VdaAosBillRegistry {
 
   /**
    * หารหัสเซลล์จาก cross_target โดยใช้รหัสลูกค้าของแต่ละ VDA เป็นตัวจับ
-   * ต้องเรียกหลัง loadCustomerEnvFallback() เพราะต้องมีรหัสลูกค้าก่อน
+   * ต้องเรียกหลัง loadCustomerMap() เพราะต้องมีรหัสลูกค้าก่อน
    */
   loadSalesmenFromTarget(): number {
     let target: ReturnType<typeof getCrossTargetRegistry>;
@@ -127,21 +131,21 @@ export class VdaAosBillRegistry {
     return this.customersByVda.size > 0;
   }
 
-  /** map vda -> customercode จาก env VDA_CUSTOMER_MAP
-   *  รูปแบบ: "vda1:3231847,vda2:5042814,..." (หลายรหัสคั่นด้วย |) */
-  loadCustomerEnvFallback() {
-    const raw = process.env.VDA_CUSTOMER_MAP?.trim();
-    if (!raw) return;
-    for (const part of raw.split(",")) {
-      const [vda, codes] = part.split(":").map((s) => s.trim());
-      if (!vda || !codes) continue;
-      for (const c of codes.split("|")) {
-        const cc = normCustomer(c);
-        if (cc) this.addCustomer(normVda(vda), cc);
-      }
+  /**
+   * map vda -> customercode จากทะเบียนคลัง (ฐานข้อมูล + .env)
+   *
+   * อ่านจาก snapshot ที่ refresh ตอน boot และหลังแอดมินกดบันทึก — ชั้นนี้เป็น sync
+   * ทั้งเส้น (โหลด CSV) จึง await ตรงนี้ไม่ได้
+   */
+  loadCustomerMap() {
+    const warehouses = listVdaWarehouses().filter((w) => w.active);
+    for (const w of warehouses) {
+      for (const cc of w.customerCodes) this.addCustomer(normVda(w.code), cc);
     }
+    const fromDb = warehouses.filter((w) => w.source === "db").length;
     console.info(
-      `[VdaAosBill] Loaded customercodes for ${this.customersByVda.size} VDA(s) from VDA_CUSTOMER_MAP`
+      `[VdaAosBill] รหัสลูกค้าของ ${this.customersByVda.size} คลัง ` +
+        `(จากฐานข้อมูล ${fromDb} · จาก .env ${warehouses.length - fromDb})`
     );
   }
 
@@ -192,10 +196,35 @@ export class VdaAosBillRegistry {
 
 let registry: VdaAosBillRegistry | null = null;
 
+/**
+ * คลังที่ระบบต้องรู้จัก — รวมจากข้อมูลจริง ไม่ใช่รายชื่อตายตัว
+ *
+ * เดิมเป็นค่าคงที่ vda1-vda5 ในโค้ด แล้วให้ VDA_CODES ทับ ผลคือเปิดคลังที่ 6 ทีต้อง
+ * ไปแก้ .env ของทุกเครื่อง ไม่งั้นคลังใหม่จะไม่มีใครดึงไฟล์ให้และไม่โผล่ที่ไหนเลย
+ *
+ * ตอนนี้เอาสามแหล่งมารวมกัน: ทะเบียนคลังที่แอดมินตั้งไว้ · คลังที่โผล่ในไฟล์สต็อกจริง ·
+ * รายชื่อตั้งต้นในโค้ด — คลังใหม่จึงถูกนับทันทีที่มีข้อมูลของมันเข้ามา หรือทันทีที่
+ * แอดมินเพิ่มในหน้าเว็บ อย่างใดอย่างหนึ่งก็พอ
+ *
+ * VDA_CODES ยัง override ได้ (ระบุแล้วใช้ตามนั้นเป๊ะ) เผื่อวันที่ต้องตัดคลังออกชั่วคราว
+ */
 export function getVdaKeys() {
   const raw = process.env.VDA_CODES?.trim();
-  if (!raw) return [...VDA_KEYS];
-  return raw.split(",").map((s) => normVda(s)).filter(Boolean);
+  if (raw) return raw.split(",").map((s) => normVda(s)).filter(Boolean);
+
+  const codes = new Set<string>(VDA_KEYS);
+  for (const w of listVdaWarehouses()) {
+    if (w.active) codes.add(normVda(w.code));
+  }
+  if (fabricStockReady()) {
+    for (const source of getStockCoverDirectory().resolveSources(
+      getStockFilterConfig()
+    )) {
+      const code = normVda(source);
+      if (code) codes.add(code);
+    }
+  }
+  return [...codes].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 }
 
 export function getVdaAosBillRegistry(): VdaAosBillRegistry {
@@ -206,7 +235,7 @@ export function getVdaAosBillRegistry(): VdaAosBillRegistry {
 export function reloadVdaAosBillRegistry(): void {
   registry = new VdaAosBillRegistry();
   // รหัสลูกค้าก่อน — เป็นกุญแจที่ใช้ไปหารหัสเซลล์ต่อ
-  registry.loadCustomerEnvFallback();
+  registry.loadCustomerMap();
   registry.loadSalesmenFromTarget();
   registry.loadEnvFallback();
 }

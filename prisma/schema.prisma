@@ -284,3 +284,17 @@ model StoreSkuBlock {
   @@unique([storeId, skuId])
   @@index([storeId])
 }
+
+/// ทะเบียนคลัง VDA — "vda1 คือลูกค้ารหัสไหน" แก้ได้จากหน้าแอดมิน ไม่ต้องแตะ .env
+///
+/// ความรู้นี้ไม่มีไฟล์ไหนบอกได้ (ชื่อใน dim_customer เป็นชื่อบริษัท ไม่มีคำว่า VDA)
+/// เดิมจึงอยู่ใน VDA_CUSTOMER_MAP ซึ่งแปลว่าเปิดคลังใหม่ทีต้อง ssh เข้าไปแก้ไฟล์
+/// แล้ว restart — ตอนนี้ env เหลือหน้าที่แค่ seed ตอนตารางยังว่างเท่านั้น
+model VdaWarehouse {
+  code          String   @id                    // "vda1" (normalize แล้ว)
+  customerCodes String                          // รหัสลูกค้า คั่นด้วย | ถ้ามีหลายรหัส
+  label         String   @default("")           // ชื่อที่คนเรียก เช่น "คลังบางพลี"
+  active        Boolean  @default(true)         // ปิดชั่วคราวได้โดยไม่ต้องลบประวัติ
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
