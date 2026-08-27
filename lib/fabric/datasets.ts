@@ -285,6 +285,26 @@ export function getDatasetInventory(opts?: {
 }
 
 /**
+ * รอบ refresh นี้ถือว่าสำเร็จไหม — dataset ที่ **จำเป็น** ทุกตัวในผลลัพธ์ต้องดึงผ่าน
+ *
+ * เดิม scheduler ใช้ some(r.ok) → ไฟล์เล็กที่ไม่บังคับ (vda6_product ฯลฯ) สำเร็จตัวเดียว
+ * ก็ทำให้ทั้งรอบเป็น ok แม้ customer/sku/stock/promotion ล้มหมด แล้วเขียน lastSuccessAt,
+ * ไม่ retry, ไม่ alert, ปุ่ม refresh ของร้านกลายเป็น no-op โดยหน้า sync ขึ้นเขียว
+ *
+ * เช็คเฉพาะ required ที่อยู่ใน results จริง — admin กดดึงเฉพาะบางตัว (only) ได้ ถ้ารอบนั้น
+ * มีแต่ optional (ดึง vda6 อย่างเดียว) ไม่มี required ให้ตัดสิน ถอยไปใช้ some เดิม ไม่งั้น
+ * การดึงไฟล์ไม่บังคับสำเร็จจะถูกรายงานว่าล้ม
+ */
+export function requiredRefreshSucceeded(
+  results: DatasetRefreshResult[]
+): boolean {
+  const required = results.filter((r) => datasetMeta(r.name)?.required);
+  return required.length > 0
+    ? required.every((r) => r.ok)
+    : results.some((r) => r.ok);
+}
+
+/**
  * ดึงไฟล์ที่ยังไม่มีในเครื่อง — คอนเทนเนอร์ใหม่ boot มาโดยไม่มี CSV เลย
  * เดิม bootstrapIfMissing เรียกได้จาก scripts/sync-fabric-masters.ts ทางเดียว
  * ทำให้เซิร์ฟเวอร์ที่เพิ่ง deploy พังค้างจนมีคนเข้าไปสั่ง sync เอง

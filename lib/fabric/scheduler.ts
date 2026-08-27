@@ -15,7 +15,7 @@ import {
   type RefreshTrigger,
 } from "./refresh-status";
 import { syncFabricSalesReps } from "./sync-sales-reps";
-import type { DatasetId } from "./datasets";
+import { requiredRefreshSucceeded, type DatasetId } from "./datasets";
 
 const RETRY_DELAYS_MS = [5 * 60_000, 15 * 60_000, 30 * 60_000];
 
@@ -144,7 +144,9 @@ async function doRefresh(
   // ทุกประการ จึงไม่มีอะไรในผลลัพธ์ของ refresh บอกได้เลยถ้าไม่วัดตรงนี้
   recordPromoCoverage(trigger);
 
-  const ok = results.some((r) => r.ok);
+  // สำเร็จ = required ทุกตัวในรอบนี้ผ่าน (ดู requiredRefreshSucceeded — แยกไปเป็น
+  // pure function เพื่อเทสต์ได้ · เดิม some(r.ok) ทำให้ไฟล์เล็กสำเร็จตัวเดียวกลบการล้มของ master)
+  const ok = requiredRefreshSucceeded(results);
   const durationMs = Date.now() - startedAt;
 
   writeDatasetStatus(results, trigger);
