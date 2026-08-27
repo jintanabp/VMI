@@ -93,23 +93,47 @@ export function mergeVdaWarehouses(
   );
 }
 
-let cache: VdaWarehouseEntry[] | null = null;
+/**
+ * snapshot อยู่บน globalThis ไม่ใช่ตัวแปรระดับโมดูล
+ *
+ * Next แยก bundle ระหว่าง instrumentation.ts กับ route handler — state ระดับโมดูล
+ * จึงไม่ใช่ก้อนเดียวกัน ผลคือ initVdaWarehouseRegistry() ที่อุ่นไว้ตอน boot ไปอยู่คนละ
+ * ชุดกับที่ route ใช้จริง แล้ว listVdaWarehouses() ฝั่ง route คืนค่าว่างเงียบ ๆ
+ * (เห็นได้จาก log: "รหัสลูกค้าของ 5 คลัง" ตอน boot แล้วตามด้วย "0 คลัง" ทีหลัง)
+ *
+ * ผลที่ตามมาไม่ใช่แค่ภาคของโปร — getCustomerCodesForVda() ที่ใช้กรองยอดขายรายวัน
+ * และจับคู่เซลล์ก็ได้ค่าว่างไปด้วย · ใช้ globalThis แบบเดียวกับ in-flight guard
+ * ใน scheduler.ts ที่เจอปัญหาข้ามชุดโมดูลแบบเดียวกัน
+ */
+const CACHE_KEY = "__vmiVdaWarehouseCache";
+
+type CacheHolder = typeof globalThis & {
+  [CACHE_KEY]?: VdaWarehouseEntry[] | null;
+};
+
+function readCache(): VdaWarehouseEntry[] | null {
+  return (globalThis as CacheHolder)[CACHE_KEY] ?? null;
+}
+
+function writeCache(rows: VdaWarehouseEntry[]): void {
+  (globalThis as CacheHolder)[CACHE_KEY] = rows;
+}
 
 export async function refreshVdaWarehouseCache(): Promise<VdaWarehouseEntry[]> {
   try {
     const rows = await prisma.vdaWarehouse.findMany();
-    cache = mergeVdaWarehouses(rows);
+    writeCache(mergeVdaWarehouses(rows));
   } catch (err) {
     // DB ยังไม่พร้อม (migrate ยังไม่จบ) — ใช้ env ไปก่อน ดีกว่าไม่มีคลังเลยทั้งระบบ
     console.error("[VdaWarehouse] อ่านจากฐานข้อมูลไม่ได้ ใช้ค่าจาก .env แทน:", err);
-    cache = mergeVdaWarehouses([]);
+    writeCache(mergeVdaWarehouses([]));
   }
-  return cache;
+  return readCache() ?? [];
 }
 
 /** snapshot ล่าสุด — ยังไม่เคย refresh ก็ถอยไปใช้ env (ไม่ยิง DB เพราะตรงนี้ sync) */
 export function listVdaWarehouses(): VdaWarehouseEntry[] {
-  return cache ?? mergeVdaWarehouses([]);
+  return readCache() ?? mergeVdaWarehouses([]);
 }
 
 export function listActiveVdaCodes(): string[] {
@@ -119,7 +143,7 @@ export function listActiveVdaCodes(): string[] {
 }
 
 export async function listVdaWarehousesAsync(): Promise<VdaWarehouseEntry[]> {
-  return cache ?? (await refreshVdaWarehouseCache());
+  return readCache() ?? (await refreshVdaWarehouseCache());
 }
 
 /**

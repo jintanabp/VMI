@@ -6,6 +6,7 @@ import {
   getSalesmanRegistry,
 } from "./index";
 import { getStockFilterConfig, resolveActiveFromDb } from "./stock-filter-config";
+import { getVdaAosBillRegistry } from "./vda-aos-bill";
 import { fabricStockReady } from "./stock-cover";
 import { listStockFromDbSources } from "./stock-rows";
 
@@ -49,6 +50,28 @@ function contextFromFile(): { division: string; cusgroup: string } | null {
   return ctxs.length === 1 ? ctxs[0]! : null;
 }
 
+/**
+ * ภาคของลูกค้ารหัสนี้ตาม dim_customer — "" เมื่อยังไม่โหลด/หาไม่เจอ
+ *
+ * ใช้ Area_NameEnglish (BANGKOK / CENTRAL / NORTH EAST / NORTH / SOUTH) ซึ่งเป็นชุด
+ * เดียวกับหัวคอลัมน์ภูมิภาคใน cft_promotion_cash.csv (ต่างแค่ช่องว่างของอีสาน
+ * ซึ่ง promoServesRegion ตัดให้แล้ว)
+ */
+function regionForCustomer(code: string): string {
+  const c = code.trim();
+  if (!c || !fabricMastersReady()) return "";
+  return getCustomerDirectory().getByCode(c)?.area?.trim() ?? "";
+}
+
+/** ภาคของคลัง — ดูจากรหัสลูกค้าที่ผูกไว้ในทะเบียนคลัง (หน้า /admin/data/warehouses) */
+function regionForVda(vdaCode: string): string {
+  for (const cc of getVdaAosBillRegistry().getCustomerCodesForVda(vdaCode)) {
+    const region = regionForCustomer(cc);
+    if (region) return region;
+  }
+  return "";
+}
+
 function isVdaCode(code: string): boolean {
   if (!fabricStockReady()) return false;
   return listStockFromDbSources().some(
@@ -85,18 +108,29 @@ export function resolvePromoContext(
   const fromFile = contextFromFile();
   const defaultCusgroup =
     trimEnv("C4_DEFAULT_CUSGROUP") || fromFile?.cusgroup || "99";
-  const defaultRegion = trimEnv("C4_DEFAULT_REGION") || "COUNTRY";
+  /**
+   * ภาคเป็นค่าที่อ่านจากข้อมูลได้เอง env จึงเป็นแค่ "ตาข่ายรับ" ตอนหาไม่เจอ ไม่ใช่ตัวทับ
+   *
+   * เดิมตรงนี้ตรึงเป็น COUNTRY ทุกร้าน ทำให้เงื่อนไขหลังของ promoServesRegion
+   * (row.regions.has(region)) กลายเป็น has("COUNTRY") ซ้ำกับเงื่อนไขแรก →
+   * แถวโปรเฉพาะภาคไม่มีทางเข้าเกณฑ์เลยสักแถว ทั้งที่ไฟล์มีอยู่ 61 แถว
+   *
+   * COUNTRY ในไฟล์แปลว่า "ได้ทั้งประเทศ" การถอยมาใช้ค่านี้จึงปลอดภัย: ร้านยังได้โปร
+   * ทั้งประเทศครบเหมือนเดิม แค่ไม่ได้ของเฉพาะภาคจนกว่าจะรู้ว่าอยู่ภาคไหน
+   */
+  const fallbackRegion = trimEnv("C4_DEFAULT_REGION") || "COUNTRY";
   const defaultDivision =
     trimEnv("C4_DEFAULT_DIVISION") || fromFile?.division || "S";
   const vdaMap = parseVdaDivisionMap();
 
   if (isVdaCode(code)) {
+    const vda = code.toLowerCase();
     return {
-      division: vdaMap.get(code.toLowerCase()) ?? defaultDivision,
+      division: vdaMap.get(vda) ?? defaultDivision,
       cusgroup: defaultCusgroup,
-      region: defaultRegion,
+      region: regionForVda(vda) || fallbackRegion,
       isVda: true,
-      vdaCode: code.toLowerCase(),
+      vdaCode: vda,
     };
   }
 
@@ -117,7 +151,12 @@ export function resolvePromoContext(
     return {
       division: vdaMap.get(vda) ?? defaultDivision,
       cusgroup: defaultCusgroup,
-      region: defaultRegion,
+      /**
+       * ภาคมาจาก "ร้าน" ไม่ใช่คลัง — โปรเฉพาะภาคคือเงื่อนไขของพื้นที่ที่ขายของ
+       * ต่างจาก division/cusgroup ที่เป็นเงื่อนไขของคลัง (ร้านสั่งผ่านคลังจึงใช้ของคลัง)
+       * ถอยไปใช้ภาคของคลังเมื่อหาร้านใน dim_customer ไม่เจอ
+       */
+      region: regionForCustomer(code) || regionForVda(vda) || fallbackRegion,
       isVda: false,
       vdaCode: vda,
       storeCode: code,
@@ -126,7 +165,7 @@ export function resolvePromoContext(
 
   // ไม่มีคลังในระบบให้อ้างอิง (stock cover ยังไม่โหลด) — ถอยไปใช้ข้อมูลลูกค้าแบบเดิม
   let cusgroup = defaultCusgroup;
-  let region = defaultRegion;
+  let region = fallbackRegion;
   let division = defaultDivision;
 
   if (fabricMastersReady()) {

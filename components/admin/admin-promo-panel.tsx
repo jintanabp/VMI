@@ -29,6 +29,16 @@ import type {
 } from "@/lib/promo/promo-month";
 import { cn } from "@/lib/utils";
 
+/** ชื่อภาคแบบไทย — คีย์ตรงกับหัวคอลัมน์ภูมิภาคในไฟล์ C4 */
+const REGION_LABEL: Record<string, string> = {
+  COUNTRY: "ทั้งประเทศ",
+  BANGKOK: "กทม.",
+  CENTRAL: "ภาคกลาง",
+  NORTHEAST: "ภาคอีสาน",
+  NORTH: "ภาคเหนือ",
+  SOUTH: "ภาคใต้",
+};
+
 type FilterKey =
   | "all"
   | "discount_baht"
@@ -333,6 +343,48 @@ export function AdminPromoPanel() {
                     )}
                   </span>
                 </p>
+              )}
+
+              {/* สรุปรายภาค — ตอบคำถาม "เดือนนี้ต้นทางส่งโปรเฉพาะภาคมาไหม ภาคไหนได้"
+                  นับจากไฟล์ทั้งใบโดยไม่กรองด้วยบริบทของคลัง ถ้ากรองก่อน ภาคที่ยังไม่มี
+                  คลังจะเป็น 0 เสมอ แล้วแยกไม่ออกว่า "ต้นทางไม่ส่ง" หรือ "จับคู่ไม่ติด" */}
+              {data && data.regions.some((r) => r.rows > 0) && (
+                <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
+                  <span className="text-slate-500 dark:text-slate-400">
+                    โปรตามภาคเดือนนี้:
+                  </span>
+                  {data.regions
+                    .filter((r) => r.rows > 0)
+                    .map((r) => {
+                      const ours = r.stores.length > 0;
+                      return (
+                        <span
+                          key={r.region}
+                          title={
+                            (ours ? `คลังของเรา: ${r.stores.join(", ")}\n` : "") +
+                            `${r.rows} แถวติดภาคนี้ · ให้ส่วนลด/ของแถมจริง ${r.rowsWithBenefit} แถว · ${r.skus} SKU`
+                          }
+                          className={cn(
+                            "inline-flex items-center gap-1 rounded-full px-2 py-0.5 ring-1",
+                            ours
+                              ? "bg-teal-50 text-teal-900 ring-teal-300 dark:bg-teal-950/40 dark:text-teal-100 dark:ring-teal-800"
+                              : "bg-slate-50 text-slate-600 ring-slate-200 dark:bg-slate-800/60 dark:text-slate-300 dark:ring-slate-700"
+                          )}
+                        >
+                          <span className="font-semibold">
+                            {REGION_LABEL[r.region] ?? r.region}
+                          </span>
+                          <span className="tabular-nums">
+                            {r.rowsWithBenefit.toLocaleString("th-TH")}/
+                            {r.rows.toLocaleString("th-TH")}
+                          </span>
+                        </span>
+                      );
+                    })}
+                  <span className="text-slate-400">
+                    (ให้ประโยชน์จริง/ทั้งหมด · เขียว = มีคลังของเราอยู่ภาคนั้น)
+                  </span>
+                </div>
               )}
             </div>
             {/* สลับมุมมอง — "รายสินค้า" จัดคอลัมน์ให้ตรงกับแบบฟอร์มสั่งสินค้าที่ทีมใช้จริง

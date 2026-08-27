@@ -10,7 +10,7 @@ const REQUIRED = [
   "PURCHASEQUANTITYTO",
 ] as const;
 
-const REGIONS = [
+export const REGIONS = [
   "BANGKOK",
   "CENTRAL",
   "NORTHEAST",
@@ -99,8 +99,24 @@ export function promoActiveOn(row: PromoRow, day: Date): boolean {
   return true;
 }
 
+/**
+ * แถวนี้ใช้ได้กับภาคของร้านหรือไม่
+ *
+ * `COUNTRY=Y` แปลว่า "ได้ทั้งประเทศ" จึงผ่านเสมอไม่ว่าร้านอยู่ภาคไหน ส่วนแถวที่ไม่ได้ติด
+ * COUNTRY จะได้เฉพาะภาคที่ติด Y ไว้ (ในไฟล์เดือน ส.ค. 2026 มี 61 แถวแบบนี้)
+ *
+ * normalize ในนี้เลย ไม่ปล่อยให้ผู้เรียกรับผิดชอบ — dim_customer เขียนภาคอีสานว่า
+ * "NORTH EAST" (มีช่องว่าง) ส่วนหัวคอลัมน์ใน C4 คือ "NORTHEAST" ถ้าลืม normalize
+ * ที่ใดที่หนึ่ง ร้านอีสานจะไม่เห็นโปรเฉพาะภาคแบบเงียบ ๆ
+ */
 export function promoServesRegion(row: PromoRow, region: string): boolean {
-  return row.regions.has("COUNTRY") || row.regions.has(region);
+  if (row.regions.has("COUNTRY")) return true;
+  return row.regions.has(normalizeRegionName(region));
+}
+
+/** "north east" → "NORTHEAST" — ต้องให้ผลเดียวกับ normalizeRegion ใน promotion-lookup */
+export function normalizeRegionName(region: string): string {
+  return (region || "").toUpperCase().replace(/\s+/g, "");
 }
 
 function parsePromoRow(norm: Record<string, string>): PromoRow | null {

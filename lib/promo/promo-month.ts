@@ -13,6 +13,7 @@ import {
 } from "@/lib/fabric";
 import { bangkokDateStr, isoDateStr } from "@/lib/fabric/bkk-date";
 import {
+  REGIONS,
   promoActiveOn,
   promoServesRegion,
   type PromoRow,
@@ -119,6 +120,23 @@ export interface PromoMonthReport {
    * ตัวเลขนี้จึงต้องส่งขึ้นหน้าจอ ไม่ใช่อยู่แค่ใน log ตอน boot ที่ไม่มีใครเปิดดู
    */
   fileContexts: string[];
+  /**
+   * สรุปรายภาคของแถวที่ใช้ได้ในเดือนนี้ — นับจากไฟล์ทั้งใบ ไม่ได้กรองด้วยบริบทของคลัง
+   *
+   * มีไว้ตอบคำถามเดียว: "เดือนนี้มีโปรเฉพาะภาคเข้ามาไหม และภาคไหนได้บ้าง"
+   * ส.ค. 2026 ภาคใต้มีแถวเฉพาะภาค 32 แถวแต่ให้ประโยชน์ 0 แถว ถ้าเดือนหน้าเลขนี้
+   * ขยับขึ้นมาแล้วร้านภาคใต้ยังไม่เห็นโปร แปลว่าการจับคู่ภาคมีปัญหา ไม่ใช่ต้นทางไม่ส่ง
+   */
+  regions: {
+    region: string;
+    /** แถวที่ติด Y ที่ภาคนี้ (COUNTRY = แถวที่ได้ทั้งประเทศ) */
+    rows: number;
+    /** ในนั้นให้ส่วนลด/ของแถมจริงกี่แถว */
+    rowsWithBenefit: number;
+    skus: number;
+    /** คลัง/ร้านในระบบที่ระบบตีความว่าอยู่ภาคนี้ */
+    stores: string[];
+  }[];
   groups: PromoMonthGroup[];
 }
 
@@ -312,6 +330,27 @@ export function buildPromoMonthReport(input?: {
   const rowsOtherContext = inMonth.length - rows.length;
 
   /**
+   * สรุปรายภาคจาก "ทุกแถวในเดือน" ไม่ใช่แถวที่ผ่านบริบทแล้ว
+   *
+   * ตั้งใจไม่กรอง เพราะคำถามที่ต้องตอบคือ "ต้นทางส่งโปรเฉพาะภาคมาไหม" ถ้ากรองก่อน
+   * ภาคที่ไม่มีคลังอยู่จะกลายเป็น 0 เสมอ แล้วจะแยกไม่ออกระหว่าง "ต้นทางไม่ส่ง" กับ
+   * "ส่งมาแล้วแต่ระบบจับคู่ไม่ติด" ซึ่งเป็นคนละปัญหากันคนละวิธีแก้
+   */
+  const regionSummary = REGIONS.map((region) => {
+    const hit = inMonth.filter((r) => r.regions.has(region));
+    const skus = new Set(hit.map((r) => r.product));
+    return {
+      region,
+      rows: hit.length,
+      rowsWithBenefit: hit.filter((r) => kindOf(r) !== "none").length,
+      skus: skus.size,
+      stores: contexts
+        .filter((c) => normalizeRegion(c.region) === region)
+        .flatMap((c) => c.stores),
+    };
+  });
+
+  /**
    * แยกถังตามช่วงวันที่ด้วย
    *
    * กลุ่มเดียวกันมีได้หลายแถวเพราะมีโปรแทรกบางช่วง/บางเดือน ถ้ายุบรวมเป็นถังเดียว
@@ -445,6 +484,7 @@ export function buildPromoMonthReport(input?: {
     },
     contexts,
     fileContexts,
+    regions: regionSummary,
     groups,
   };
 }

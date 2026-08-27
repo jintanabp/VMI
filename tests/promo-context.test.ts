@@ -79,13 +79,42 @@ describe("resolvePromoContext", () => {
 
     const ctx = resolve("6043757");
 
-    // ห้ามเป็น 99/SOUTH ที่มาจาก dim_customer — ไฟล์โปรไม่มีบริบทนั้นเลย
+    // ห้ามเป็น 99 ที่มาจาก dim_customer — ไฟล์โปรมีแต่ 98 ทั้งไฟล์
     expect(ctx.cusgroup).toBe("98");
-    expect(ctx.region).toBe("COUNTRY");
     expect(ctx.division).toBe("E");
     expect(ctx.isVda).toBe(false);
     expect(ctx.vdaCode).toBe("vda1");
     expect(ctx.storeCode).toBe("6043757");
+  });
+
+  /**
+   * ภาคเป็นคนละแกนกับ division/cusgroup
+   *
+   * division กับ cusgroup เป็นเงื่อนไขของ "คลัง" (ร้านสั่งผ่านคลังจึงใช้ของคลัง)
+   * แต่ภาคเป็นเงื่อนไขของ "พื้นที่ที่ขายของ" จึงต้องมาจากร้าน ไม่ใช่คลัง —
+   * ไม่งั้นร้านภาคใต้ที่รับของจากคลัง กทม. จะได้โปรเฉพาะ กทม. ไปด้วย
+   */
+  it("ภาคมาจากร้านใน dim_customer ไม่ใช่ค่าตายตัว COUNTRY", async () => {
+    const resolve = await loadResolver({ sources: ["vda1", "vda4"] });
+
+    expect(resolve("6043757").region).toBe("SOUTH");
+  });
+
+  it("C4_DEFAULT_REGION เป็นแค่ตาข่ายรับ ห้ามทับภาคจริงของร้าน", async () => {
+    // เคยเป็นค่าที่ทับทุกอย่าง ทำให้แถวโปรเฉพาะภาคไม่มีทางเข้าเกณฑ์เลยทั้งระบบ
+    vi.stubEnv("C4_DEFAULT_REGION", "COUNTRY");
+    const resolve = await loadResolver({ sources: ["vda1"] });
+
+    expect(resolve("6043757").region).toBe("SOUTH");
+  });
+
+  it("หาร้านใน dim_customer ไม่เจอ → ถอยไป COUNTRY (ยังได้โปรทั้งประเทศครบ)", async () => {
+    const resolve = await loadResolver({
+      sources: ["vda1"],
+      mastersReady: false,
+    });
+
+    expect(resolve("6043757").region).toBe("COUNTRY");
   });
 
   it("ระบุคลังมาเอง (fromDb) → ใช้คลังนั้น ให้ตรงกับที่หน้าสต็อกกำลังแสดง", async () => {
