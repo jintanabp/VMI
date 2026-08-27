@@ -113,11 +113,17 @@ export function FreeGoodMobileCard({
             <span className="inline-flex shrink-0 items-center rounded bg-violet-100 px-1.5 py-0.5 vmi-t-xs font-bold text-violet-800 ring-1 ring-violet-200 dark:bg-violet-500/20 dark:text-violet-200 dark:ring-violet-500/30">
               แถม
             </span>
-            <span className="truncate text-xs font-semibold text-violet-900 dark:text-violet-100">
+            <span
+              className="truncate text-xs font-semibold text-violet-900 dark:text-violet-100"
+              title={freeGood.premiumProduct}
+            >
               {freeGood.premiumProduct}
             </span>
           </div>
-          <p className="mt-0.5 truncate vmi-t-sm text-slate-600 dark:text-slate-400">
+          <p
+            className="mt-0.5 truncate vmi-t-sm text-slate-600 dark:text-slate-400"
+            title={freeGood.premiumName}
+          >
             {freeGood.premiumName}
           </p>
           <p className="mt-0.5 vmi-t-xs font-medium text-violet-700 dark:text-violet-300">
@@ -168,10 +174,16 @@ function FreeGoodIdentity({
         แถม
       </span>
       <div className="min-w-0">
-        <div className="truncate text-xs font-semibold text-violet-900 dark:text-violet-100">
+        <div
+          className="truncate text-xs font-semibold text-violet-900 dark:text-violet-100"
+          title={freeGood.premiumProduct}
+        >
           {freeGood.premiumProduct}
         </div>
-        <div className="truncate vmi-t-sm text-slate-600 dark:text-slate-400">
+        <div
+          className="truncate vmi-t-sm text-slate-600 dark:text-slate-400"
+          title={freeGood.premiumName}
+        >
           {freeGood.premiumName}
         </div>
         <div className="mt-0.5 vmi-t-xs font-medium text-violet-700 dark:text-violet-300">
