@@ -1,7 +1,8 @@
 "use client";
 
 import { appPath } from "@/lib/paths";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { suggestRemainingQty } from "@/lib/stock/suggest-remaining";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
@@ -657,7 +658,7 @@ export function OrderPageClient({
     // (เดิมกรองทิ้ง ทำให้ทุกแถวหายพร้อมกันเมื่อ suggestOrder เป็น 0 หมด แล้วหน้าค้างที่ spinner)
     const next = lines.map((line) => ({
       ...line,
-      qty: line.row.suggestOrder > 0 ? line.row.suggestOrder : 0,
+      qty: suggestRemaining(line.row),
     }));
     setLines(next);
     // รีเซ็ตจำนวน = รีเซ็ตราคาที่แก้ไว้ด้วย ไม่งั้นราคาเก่าจะค้างกับจำนวนใหม่
@@ -688,7 +689,13 @@ export function OrderPageClient({
     days: number;
     bySku: Record<
       string,
-      { totalQty: number; daysAgo: number; status: string; orderCount: number }
+      {
+        totalQty: number;
+        pendingQty: number;
+        daysAgo: number;
+        status: string;
+        orderCount: number;
+      }
     >;
   }>({
     queryKey: ["order-history-recent"],
@@ -702,6 +709,20 @@ export function OrderPageClient({
     },
     staleTime: 60_000,
   });
+
+  /**
+   * จำนวนแนะนำหลังหักของค้าง — ต้องใช้ตัวเดียวกับตาราง /stock (suggestRemainingQty)
+   * ไม่ใช่ row.suggestOrder ดิบ ไม่งั้นชิป/ปุ่ม ↺/รีเซ็ต ที่นี่จะพาสั่งซ้ำที่กลไก
+   * pendingQty ตั้งใจกันไว้ · recentOrders มาจาก query key เดียวกัน react-query แชร์ cache ให้
+   */
+  const suggestRemaining = useCallback(
+    (row: StockRowComputed): number =>
+      suggestRemainingQty(
+        row,
+        recentOrders?.bySku[row.skuCode]?.pendingQty ?? 0
+      ),
+    [recentOrders]
+  );
 
   const duplicateLines = useMemo(() => {
     const bySku = recentOrders?.bySku;
@@ -1136,6 +1157,7 @@ export function OrderPageClient({
           groupMemberSkusMap={groupMemberSkusMap}
           onFocusStock={focusSkuOnStock}
           onPriceChange={setPriceOverride}
+          suggestRemaining={suggestRemaining}
           groupStepShortOf={(group) => {
             const fix = groupStepFixes.get(group.trim());
             return fix
@@ -1363,6 +1385,7 @@ function OrderSummaryList({
   onFocusStock,
   onPriceChange,
   onQtyChange,
+  suggestRemaining,
 }: {
   lines: EnrichedLine[];
   duplicateBySku: Map<string, DuplicateInfo>;
@@ -1381,6 +1404,8 @@ function OrderSummaryList({
   onFocusStock: (skuCode: string) => void;
   onPriceChange: (skuCode: string, price: number | null) => void;
   onQtyChange: (skuCode: string, qty: number) => void;
+  /** จำนวนแนะนำหลังหักของค้าง — ต้องตรงกับตาราง /stock (ดู suggestRemainingQty) */
+  suggestRemaining: (row: StockRowComputed) => number;
 }) {
   return (
     <div className="vmi-table-wrap vmi-order-list-wrap min-h-0 flex-1">
@@ -1441,7 +1466,7 @@ function OrderSummaryList({
                   <div className="flex shrink-0 flex-col items-end gap-1">
                     <StockQtyStepper
                       qty={line.qty}
-                      suggestOrder={line.row.suggestOrder}
+                      suggestOrder={suggestRemaining(line.row)}
                       promoStepLot={promoStepLot(
                         lineStepTiers(line.row),
                         line.qty
@@ -1460,7 +1485,7 @@ function OrderSummaryList({
                       }
                       onSetQty={(n) => onQtyChange(line.row.skuCode, n)}
                       onApplySuggest={() =>
-                        onQtyChange(line.row.skuCode, line.row.suggestOrder)
+                        onQtyChange(line.row.skuCode, suggestRemaining(line.row))
                       }
                       compact
                     />
@@ -1653,7 +1678,7 @@ function OrderSummaryList({
                   <div className="inline-flex flex-col items-end gap-0.5">
                     <StockQtyStepper
                       qty={line.qty}
-                      suggestOrder={line.row.suggestOrder}
+                      suggestOrder={suggestRemaining(line.row)}
                       promoStepLot={promoStepLot(
                         lineStepTiers(line.row),
                         line.qty
@@ -1672,7 +1697,7 @@ function OrderSummaryList({
                       }
                       onSetQty={(n) => onQtyChange(line.row.skuCode, n)}
                       onApplySuggest={() =>
-                        onQtyChange(line.row.skuCode, line.row.suggestOrder)
+                        onQtyChange(line.row.skuCode, suggestRemaining(line.row))
                       }
                       compact
                     />

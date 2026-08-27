@@ -105,6 +105,7 @@ import {
   selectStockRows,
   type StockFilterState,
 } from "@/lib/stock/filters";
+import { suggestRemainingQty } from "@/lib/stock/suggest-remaining";
 import {
   annotatePromoGroupStripes,
   followsPooledPromoGroup,
@@ -826,15 +827,8 @@ export function StockPageClient({
    * ของที่มาถึงแล้วจะถูกนับใน stock อยู่แล้ว หักซ้ำจะแนะนำน้อยเกินจริง
    */
   const suggestRemaining = useCallback(
-    (row: StockRowComputed): number => {
-      const base = row.suggestOrder > 0 ? row.suggestOrder : 0;
-      const pending = recentBySku[row.skuCode]?.pendingQty ?? 0;
-      const left = Math.max(0, base - pending);
-      // หักของที่สั่งค้างแล้วมักเหลือเศษที่ไม่ลงล็อตโปร — ชิป "แนะนำ N" ต้องกดแล้ว
-      // ได้จำนวนที่สั่งได้จริง ไม่ใช่เลขที่ระบบปัดทิ้งทันทีที่กด
-      if (isPooledPromoGroup(row.promoGroup, row.promoGroupMembers)) return left;
-      return snapQtyToPromoStep(row.promoTiers, left);
-    },
+    (row: StockRowComputed): number =>
+      suggestRemainingQty(row, recentBySku[row.skuCode]?.pendingQty ?? 0),
     [recentBySku]
   );
 
