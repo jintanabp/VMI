@@ -11,6 +11,9 @@ export interface CustomerRecord {
   displayName: string;
   address: string;
   area: string;
+  province: string;
+  amphur: string;
+  district: string;
   cusGroup: string;
   taxId: string;
 }
@@ -18,6 +21,9 @@ export interface CustomerRecord {
 interface InternalCustomer extends CustomerRecord {
   search: string;
   taxDigits: string;
+  nameThaiLower: string;
+  nameEnglishLower: string;
+  provinceLower: string;
 }
 
 function normRow(row: Record<string, string>): InternalCustomer | null {
@@ -45,9 +51,25 @@ function normRow(row: Record<string, string>): InternalCustomer | null {
     norm.addressname || norm.address || norm.customer_address || "";
   const area =
     norm.area_nameenglish || norm.area_namethai || norm.area || "";
+  // จังหวัด/อำเภอ/ตำบล — เดิมไม่ได้อ่านมาเลย ทั้งที่ dim_customer มีให้ครบ
+  // ผลคือค้นด้วย "สงขลา" ไม่เจออะไรเลย ซึ่งเป็นวิธีที่คนจำคลังได้จริงมากกว่าจำรหัส
+  const province = norm.province_namethai || norm.province || "";
+  const amphur = norm.amphur_namethai || norm.amphur || "";
+  const district = norm.district_namethai || norm.district || "";
   const cusGroup = norm.cusgroup || norm.customergroup || "";
   const taxId = norm.taxid || norm.tax_id || "";
-  const search = [code, nameThai, nameEnglish, taxId, displayName, address, area]
+  const search = [
+    code,
+    nameThai,
+    nameEnglish,
+    taxId,
+    displayName,
+    address,
+    area,
+    province,
+    amphur,
+    district,
+  ]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
@@ -61,10 +83,16 @@ function normRow(row: Record<string, string>): InternalCustomer | null {
     displayName,
     address,
     area,
+    province,
+    amphur,
+    district,
     cusGroup,
     taxId,
     search,
     taxDigits,
+    nameThaiLower: nameThai.toLowerCase(),
+    nameEnglishLower: nameEnglish.toLowerCase(),
+    provinceLower: province.toLowerCase(),
   };
 }
 
@@ -77,9 +105,48 @@ function toPublic(c: InternalCustomer): CustomerRecord {
     displayName: c.displayName,
     address: c.address,
     area: c.area,
+    province: c.province,
+    amphur: c.amphur,
+    district: c.district,
     cusGroup: c.cusGroup,
     taxId: c.taxId,
   };
+}
+
+/** จำนวนสูงสุดที่เก็บไว้จัดอันดับ — เกินกว่านี้แปลว่าคำค้นกว้างเกินจะเลือกอยู่ดี */
+const RANK_POOL = 500;
+
+/**
+ * คะแนนยิ่งน้อยยิ่งตรง · -1 = ไม่เข้าเงื่อนไข
+ *
+ * ลำดับนี้มาจากวิธีที่คนค้นจริง: รู้รหัสก็พิมพ์รหัส · รู้แค่ชื่อบริษัทก็พิมพ์ชื่อ ·
+ * จำได้แต่ว่าอยู่จังหวัดไหนก็พิมพ์จังหวัด
+ */
+function scoreCustomer(
+  c: InternalCustomer,
+  qLower: string,
+  qDigits: string
+): number {
+  const code = c.code.toLowerCase();
+  if (code === qLower) return 0;
+  if (code.startsWith(qLower)) return 1;
+
+  if (qDigits.length >= 9 && c.taxDigits && c.taxDigits === qDigits) return 2;
+  if (qDigits.length >= 4 && c.taxDigits && c.taxDigits.includes(qDigits)) return 3;
+
+  if (c.nameThaiLower.startsWith(qLower) || c.nameEnglishLower.startsWith(qLower)) {
+    return 4;
+  }
+  // จังหวัดตรงเป๊ะ มาก่อน "ชื่อมีคำนี้อยู่กลาง ๆ" — คนพิมพ์ชื่อจังหวัดคือกำลังหาด้วยพื้นที่
+  // เคสจริง: ค้น "สงขลา" แล้วได้ร้านที่ จ.ปัตตานี ขึ้นก่อน เพราะชื่อมีคำว่า
+  // "มหาวิทยาลัยสงขลานครินทร์" อยู่ ทั้งที่ลูกค้าใน จ.สงขลา จริง ๆ มีอยู่
+  if (c.provinceLower === qLower) return 5;
+  if (c.nameThaiLower.includes(qLower) || c.nameEnglishLower.includes(qLower)) {
+    return 6;
+  }
+  if (c.search.includes(qLower)) return 7;
+
+  return -1;
 }
 
 export class CustomerDirectory {
@@ -135,26 +202,50 @@ export class CustomerDirectory {
   }
 
   search(q: string, limit = 50): CustomerRecord[] {
-    if (!q.trim()) {
-      return this.customers.slice(0, limit).map(toPublic);
-    }
+    return this.searchRanked(q, limit).hits;
+  }
 
-    const qLower = q.toLowerCase();
-    const qDigits = q.replace(NON_DIGIT, "");
-    const useDigits = qDigits.length >= 4;
-    const out: CustomerRecord[] = [];
+  /**
+   * ค้นลูกค้าแบบจัดอันดับ + บอกจำนวนที่เจอทั้งหมด
+   *
+   * ใช้ตอนแอดมินเพิ่มคลัง VDA ใหม่แล้วไม่รู้ว่ารหัสลูกค้าคือเลขอะไร — ไม่มีไฟล์ไหนใน
+   * ระบบบอกได้ว่า "vda6 คือบริษัทอะไร" (ชื่อใน dim_customer เป็นชื่อบริษัท ไม่มีคำว่า VDA
+   * สักราย) คนที่รู้ว่าเป็นบริษัทไหนจึงต้องค้นด้วยชื่อ/จังหวัด/เลขผู้เสียภาษีเอาเอง
+   *
+   * ของเดิมคืน 50 ตัวแรกตามลำดับในไฟล์ รหัสที่ตรงเป๊ะเลยไปจมอยู่ท้ายผลลัพธ์ ·
+   * total สำคัญพอ ๆ กับตัวผลลัพธ์: ทำให้บอกได้ว่า "แสดง 20 จาก 137" แทนที่จะปล่อยให้
+   * เข้าใจว่ามีอยู่แค่ 20 ราย
+   */
+  searchRanked(
+    q: string,
+    limit = 20
+  ): { hits: CustomerRecord[]; total: number; capped: boolean } {
+    const needle = q.trim();
+    if (!needle) return { hits: [], total: 0, capped: false };
+
+    const qLower = needle.toLowerCase();
+    const qDigits = needle.replace(NON_DIGIT, "");
+    const scored: { c: InternalCustomer; score: number }[] = [];
+    let total = 0;
 
     for (const c of this.customers) {
-      if (
-        c.search.includes(qLower) ||
-        (useDigits && c.taxDigits && c.taxDigits.includes(qDigits))
-      ) {
-        out.push(toPublic(c));
-        if (out.length >= limit) break;
-      }
+      const score = scoreCustomer(c, qLower, qDigits);
+      if (score < 0) continue;
+      total++;
+      if (scored.length < RANK_POOL) scored.push({ c, score });
     }
 
-    return out;
+    scored.sort(
+      (a, b) =>
+        a.score - b.score ||
+        a.c.code.localeCompare(b.c.code, undefined, { numeric: true })
+    );
+
+    return {
+      hits: scored.slice(0, limit).map((s) => toPublic(s.c)),
+      total,
+      capped: total > RANK_POOL,
+    };
   }
 
   listAll(limit = 500): CustomerRecord[] {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Info, Plus, Save, Trash2 } from "lucide-react";
+import { AlertTriangle, Info, Plus, Save, Search, Trash2 } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -13,6 +13,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { appPath } from "@/lib/paths";
 import { cn } from "@/lib/utils";
+import {
+  CustomerCodePicker,
+  type CustomerHit,
+} from "./customer-code-picker";
 
 /**
  * ทะเบียนคลัง VDA — "vda1 คือลูกค้ารหัสไหน"
@@ -54,6 +58,68 @@ export function VdaWarehousePanel() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  /** แถวที่กำลังค้นรหัสลูกค้าให้ (null = ปิดอยู่) */
+  const [pickerRow, setPickerRow] = useState<number | null>(null);
+  /** รหัสลูกค้า → ชื่อบริษัท (null = หาไม่เจอใน dim_customer) */
+  const [resolved, setResolved] = useState<Record<string, { nameThai: string; province: string } | null>>({});
+
+  /**
+   * ชื่อบริษัทของรหัสที่กรอกไว้ — ทะเบียนนี้เคยเป็น "เขียนอย่างเดียว" พิมพ์รหัสผิดตัวเดียว
+   * แล้วคลังนั้นพังเงียบ ๆ (ยอดขายรายวันหาย สิทธิ์เซลล์เพี้ยน) โดยหน้าเว็บไม่บอกอะไรเลย
+   */
+  useEffect(() => {
+    const codes = [
+      ...new Set(
+        rows
+          .flatMap((r) => r.customerCodes.split(/[,|]/))
+          .map((c) => c.trim())
+          .filter(Boolean)
+      ),
+    ].slice(0, 64);
+    if (codes.length === 0) return;
+    const missing = codes.filter((c) => !(c in resolved));
+    if (missing.length === 0) return;
+
+    let cancelled = false;
+    fetch(appPath(`/api/admin/customers/resolve?codes=${encodeURIComponent(missing.join(","))}`))
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (cancelled || !d?.customers) return;
+        setResolved((prev) => {
+          const next = { ...prev };
+          for (const code of missing) {
+            const hit = d.customers[code];
+            next[code] = hit
+              ? { nameThai: hit.nameThai || hit.nameEnglish || "", province: hit.province || "" }
+              : null;
+          }
+          return next;
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [rows, resolved]);
+
+  /** เลือกรหัสจากช่องค้นหา — ต่อท้ายรหัสเดิมของแถวนั้น ไม่ทับของที่พิมพ์ไว้ */
+  const applyPick = (hit: CustomerHit) => {
+    const i = pickerRow;
+    setPickerRow(null);
+    if (i == null) return;
+    setRows((prev) =>
+      prev.map((row, x) => {
+        if (x !== i) return row;
+        const existing = row.customerCodes
+          .split(/[,|]/)
+          .map((c) => c.trim())
+          .filter(Boolean);
+        if (existing.includes(hit.code)) return row;
+        return { ...row, customerCodes: [...existing, hit.code].join(",") };
+      })
+    );
+    setSaved(false);
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -191,13 +257,29 @@ export function VdaWarehousePanel() {
                       />
                     </td>
                     <td className="px-2 py-1.5">
-                      <Input
-                        value={row.customerCodes}
-                        onChange={(e) =>
-                          patch(i, { customerCodes: e.target.value })
-                        }
-                        placeholder="3231847"
-                        className="h-8 font-mono text-xs"
+                      <div className="flex gap-1">
+                        <Input
+                          value={row.customerCodes}
+                          onChange={(e) =>
+                            patch(i, { customerCodes: e.target.value })
+                          }
+                          placeholder="3231847"
+                          className="h-8 font-mono text-xs"
+                        />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 shrink-0 px-2"
+                          aria-label="ค้นหารหัสลูกค้า"
+                          title="ค้นหารหัสลูกค้าจากชื่อบริษัท/จังหวัด"
+                          onClick={() => setPickerRow(i)}
+                        >
+                          <Search className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                      <CustomerCodeHints
+                        codes={row.customerCodes}
+                        resolved={resolved}
                       />
                     </td>
                     <td className="px-2 py-1.5">
@@ -264,6 +346,22 @@ export function VdaWarehousePanel() {
             <Plus className="mr-1 h-4 w-4" />
             เพิ่มคลัง
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              // ไม่มีแถวให้ผูก = สร้างแถวใหม่แล้วค้นให้แถวนั้นเลย
+              setSaved(false);
+              setRows((prev) => [
+                ...prev,
+                { code: "", customerCodes: "", label: "", active: true, source: "db" },
+              ]);
+              setPickerRow(rows.length);
+            }}
+          >
+            <Search className="mr-1 h-4 w-4" />
+            ค้นหารหัสลูกค้า
+          </Button>
           <Button size="sm" onClick={() => void save()} disabled={saving || loading}>
             <Save className="mr-1 h-4 w-4" />
             {saving ? "กำลังบันทึก…" : "บันทึก"}
@@ -275,6 +373,52 @@ export function VdaWarehousePanel() {
           )}
         </div>
       </CardContent>
+
+      <CustomerCodePicker
+        open={pickerRow != null}
+        onClose={() => setPickerRow(null)}
+        onPick={applyPick}
+      />
     </Card>
+  );
+}
+
+/**
+ * ชื่อบริษัทใต้ช่องรหัส — บอกทั้งกรณีเจอและไม่เจอ
+ * "ไม่พบรหัสนี้" สำคัญกว่าชื่อที่เจอ เพราะมันคือเคสที่คลังจะพังเงียบ ๆ
+ */
+function CustomerCodeHints({
+  codes,
+  resolved,
+}: {
+  codes: string;
+  resolved: Record<string, { nameThai: string; province: string } | null>;
+}) {
+  const list = codes
+    .split(/[,|]/)
+    .map((c) => c.trim())
+    .filter(Boolean);
+  if (list.length === 0) return null;
+
+  return (
+    <div className="mt-0.5 space-y-0.5">
+      {list.map((code) => {
+        const hit = resolved[code];
+        if (hit === undefined) return null;
+        if (hit === null) {
+          return (
+            <p key={code} className="text-[10px] text-amber-700 dark:text-amber-400">
+              {code} — ไม่พบรหัสนี้ใน dim_customer
+            </p>
+          );
+        }
+        return (
+          <p key={code} className="truncate text-[10px] text-slate-400">
+            {hit.nameThai}
+            {hit.province ? ` · จ.${hit.province}` : ""}
+          </p>
+        );
+      })}
+    </div>
   );
 }
