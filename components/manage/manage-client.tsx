@@ -1,6 +1,7 @@
 "use client";
 
 import { appPath } from "@/lib/paths";
+import { apiFetch } from "@/lib/api-fetch";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -76,7 +77,7 @@ export function ManageClient({
   const stockQuery = useQuery<StockApiResponse>({
     queryKey: ["stock"],
     queryFn: () =>
-      fetch(appPath("/api/stock"), { cache: "no-store" }).then((r) => r.json()),
+      apiFetch(appPath("/api/stock"), { cache: "no-store" }).then((r) => r.json()),
     staleTime: 60_000,
     refetchOnMount: true,
     refetchOnWindowFocus: false,
@@ -85,7 +86,7 @@ export function ManageClient({
   const thresholdsQuery = useQuery<{ groups: GroupThreshold[] }>({
     queryKey: ["thresholds"],
     queryFn: () =>
-      fetch(appPath("/api/store/thresholds"), { cache: "no-store" }).then((r) =>
+      apiFetch(appPath("/api/store/thresholds"), { cache: "no-store" }).then((r) =>
         r.json()
       ),
     staleTime: 60_000,
@@ -95,7 +96,7 @@ export function ManageClient({
 
   const blocklistQuery = useQuery<{ blocks: unknown[] }>({
     queryKey: ["store-blocklist"],
-    queryFn: () => fetch(appPath("/api/store/blocklist")).then((r) => r.json()),
+    queryFn: () => apiFetch(appPath("/api/store/blocklist")).then((r) => r.json()),
   });
   const blockCount = blocklistQuery.data?.blocks?.length ?? 0;
 
@@ -429,7 +430,7 @@ function StoreBlocklistSection() {
   const qc = useQueryClient();
   const { data, isLoading } = useQuery<{ blocks: BlockItem[] }>({
     queryKey: ["store-blocklist"],
-    queryFn: () => fetch(appPath("/api/store/blocklist")).then((r) => r.json()),
+    queryFn: () => apiFetch(appPath("/api/store/blocklist")).then((r) => r.json()),
   });
   const blocks = data?.blocks ?? [];
 

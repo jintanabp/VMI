@@ -18,13 +18,15 @@ import { SalesLoginButton } from "@/components/auth/sales-login-button";
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ mode?: string; error?: string }>;
+  searchParams: Promise<{ mode?: string; error?: string; reason?: string }>;
 }) {
   const params = await searchParams;
   const mode = params.mode;
   const authError = params.error
     ? decodeURIComponent(params.error)
     : undefined;
+  // session หมดกลางทาง — providers เด้งมาที่นี่พร้อม reason=session
+  const sessionExpired = params.reason === "session";
   const salesSession = await getRawSalesSession();
   const customerStore = await getCustomerStoreFromCookie();
 
@@ -109,6 +111,12 @@ export default async function LoginPage({
                 Vendor Managed Inventory
               </p>
             </div>
+
+            {sessionExpired && (
+              <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200">
+                เซสชันหมดอายุแล้ว — กรุณาเข้าสู่ระบบใหม่เพื่อใช้งานต่อ
+              </div>
+            )}
 
             {mode === "customer" && (
               <Card className="vmi-card-elevated">

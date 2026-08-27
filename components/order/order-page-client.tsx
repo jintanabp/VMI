@@ -1,6 +1,7 @@
 "use client";
 
 import { appPath } from "@/lib/paths";
+import { apiFetch } from "@/lib/api-fetch";
 import { suggestRemainingQty } from "@/lib/stock/suggest-remaining";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -700,7 +701,7 @@ export function OrderPageClient({
   }>({
     queryKey: ["order-history-recent"],
     queryFn: async () => {
-      const res = await fetch(
+      const res = await apiFetch(
         appPath("/api/store/order-history?summary=1&days=14"),
         { cache: "no-store" }
       );
@@ -936,7 +937,7 @@ export function OrderPageClient({
 
   const submitMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch(appPath("/api/orders"), {
+      const res = await apiFetch(appPath("/api/orders"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

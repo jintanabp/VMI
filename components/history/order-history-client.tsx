@@ -1,6 +1,7 @@
 "use client";
 
 import { appPath } from "@/lib/paths";
+import { apiFetch } from "@/lib/api-fetch";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -246,7 +247,7 @@ export function OrderHistoryClient({
   }>({
     queryKey: ["order-history"],
     queryFn: async () => {
-      const res = await fetch(appPath("/api/store/order-history"), {
+      const res = await apiFetch(appPath("/api/store/order-history"), {
         cache: "no-store",
       });
       if (!res.ok) throw new Error(`โหลดประวัติไม่สำเร็จ (${res.status})`);

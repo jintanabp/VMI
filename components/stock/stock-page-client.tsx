@@ -1,6 +1,7 @@
 "use client";
 
 import { appPath } from "@/lib/paths";
+import { apiFetch } from "@/lib/api-fetch";
 import {
   Fragment,
   memo,
@@ -208,7 +209,7 @@ export function StockPageClient({
   const { data, isLoading, isError, refetch } = useQuery<StockApiResponse>({
     queryKey: ["stock"],
     queryFn: async () => {
-      const res = await fetch(appPath("/api/stock"), { cache: "no-store" });
+      const res = await apiFetch(appPath("/api/stock"), { cache: "no-store" });
       if (!res.ok) throw new Error(`โหลดสต็อกไม่สำเร็จ (${res.status})`);
       const raw = await res.json();
       if (isStockPayload(raw)) return raw;
