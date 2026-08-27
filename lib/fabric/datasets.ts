@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { countCsvRows } from "./csv";
+import { countCsvRecords } from "./csv-page-reader";
 import { getMinRows } from "./env";
 import {
   bootstrapIfMissing,
@@ -220,19 +220,16 @@ export interface DatasetInventoryRow {
 }
 
 /**
- * นับแถวแพงมากสำหรับ item_barcode_map_v2.csv (68MB) — cache ตาม mtime
+ * นับแถวด้วยการสแกน byte แล้ว cache ตาม mtime+size ให้ใน csv-page-reader
+ *
+ * ของเดิมเรียก countCsvRows() ซึ่ง parse ทั้งไฟล์เป็น object array เพื่อเอาแค่ .length —
+ * กับ item_barcode_map_v2.csv (69MB) คือ string ~140MB + object แสนกว่าตัวต่อการนับหนึ่งครั้ง
+ * ตอนนี้เหลือสแกน byte รอบเดียว ~0.27 วิ แล้วใช้ดัชนีร่วมกับหน้า "ดูข้อมูลดิบ"
  * ปกติจำนวนแถวมาจาก status ที่เขียนไว้ตอน sync (ได้มาฟรี) จึง countRows=false เป็น default
  */
-const rowCountCache = new Map<string, number>();
-
-function cachedRowCount(filePath: string, mtimeMs: number): number | null {
-  const key = `${filePath}:${mtimeMs}`;
-  const hit = rowCountCache.get(key);
-  if (hit != null) return hit;
+function cachedRowCount(filePath: string): number | null {
   try {
-    const n = countCsvRows(filePath);
-    rowCountCache.set(key, n);
-    return n;
+    return countCsvRecords(filePath);
   } catch {
     return null;
   }
@@ -261,7 +258,7 @@ export function getDatasetInventory(opts?: {
       mtime = stat.mtime.toISOString();
       ageHours = Math.round(((now - stat.mtimeMs) / 3_600_000) * 10) / 10;
       if (opts?.countRows) {
-        rowCount = cachedRowCount(meta.localPath, stat.mtimeMs);
+        rowCount = cachedRowCount(meta.localPath);
       }
     } catch {
       // ไฟล์ยังไม่มี — ปล่อยค่า null ไว้ให้ UI แสดงว่ายังไม่เคยโหลด

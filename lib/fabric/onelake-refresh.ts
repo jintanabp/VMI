@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
-import { countCsvRows, parseCsv, validateCsvColumns } from "./csv";
+import { parseCsv, validateCsvColumns } from "./csv";
+import { countCsvRecords } from "./csv-page-reader";
 import {
   fabricStockEnabled,
   getMastersOnelakeConfig,
@@ -736,7 +737,7 @@ export function localFileStats(filePath: string) {
   return {
     path: filePath,
     bytes: stat.size,
-    rows: countCsvRows(filePath),
+    rows: countCsvRecords(filePath),
     mtime: stat.mtime.toISOString(),
   };
 }
