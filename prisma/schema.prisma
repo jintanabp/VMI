@@ -76,6 +76,11 @@ model Order {
   store        Store       @relation(fields: [storeId], references: [id])
   items        OrderItem[]
   purchaseOrders PurchaseOrder[]
+
+  // SQLite ไม่ auto-index FK — query หลักทุกตัว (listOrders, order-history, badge
+  // pending-count ที่ poll ทุก 60 วิ) เคยเป็น full scan + filesort บนตารางนี้
+  @@index([storeId, createdAt])
+  @@index([status, createdAt])
 }
 
 /// PO ที่ออกจริง — สร้างตอนอนุมัติเท่านั้น
@@ -108,6 +113,9 @@ model PurchaseOrder {
 
   @@unique([orderId, groupKey])
   @@index([orderId])
+  // หน้า PO ของเซลล์ filter+sort ด้วย issuedAt/status พร้อม skip/take (pagination)
+  @@index([issuedAt])
+  @@index([status])
 }
 
 /// running number ของเลข PO ต่อ (คลัง, วัน) — ยืมแพทเทิร์น confirm_seq ของ ocr-po-matching
