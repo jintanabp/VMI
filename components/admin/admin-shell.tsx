@@ -8,6 +8,7 @@ import { useAsyncAction } from "@/hooks/use-async-action";
 import { AppHeader } from "@/components/layout/app-header";
 import { PageShell } from "@/components/layout/page-shell";
 import { Button } from "@/components/ui/button";
+import { AdminSubTabs } from "./admin-sub-tabs";
 import { AdminTabsNav } from "./admin-tabs-nav";
 
 /**
@@ -48,6 +49,7 @@ export function AdminShell({
           กับเนื้อหาไม่ตรงกัน และเนื้อหาดูลอย ๆ ไม่เต็มจอบนจอกว้าง */}
       <main className="mx-auto w-full min-w-0 max-w-7xl space-y-4 px-3 py-4 sm:px-4 sm:py-6">
         <AdminTabsNav />
+        <AdminSubTabs />
 
         {(adminPreview || salesPreview) && (
           <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800/50 dark:bg-amber-950/40">

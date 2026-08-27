@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Check, Clock, Minus, RefreshCw, X } from "lucide-react";
 import { appPath } from "@/lib/paths";
@@ -421,16 +422,33 @@ export function FabricSyncPanel() {
                         {fmtDuration(d.lastDurationMs)}
                       </td>
                       <td className="px-2 py-2 text-right">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 px-2 text-xs"
-                          disabled={!d.configured || running || busy != null}
-                          pending={busy === d.id}
-                          onClick={() => void refresh([d.id])}
-                        >
-                          ดึงใหม่
-                        </Button>
+                        <div className="flex justify-end gap-1">
+                          {/* ชื่อไฟล์กับสถานะ sync พิสูจน์เนื้อในไม่ได้ — ต้องเปิดดูของจริง
+                              (cft_promotion_cash.csv เคยมีเนื้อของไฟล์เครดิตอยู่ข้างใน) */}
+                          <Link
+                            href={`/admin/data/raw?src=csv:${d.id}`}
+                            aria-disabled={!d.exists}
+                            tabIndex={d.exists ? undefined : -1}
+                            className={cn(
+                              "inline-flex h-7 shrink-0 items-center whitespace-nowrap rounded-lg border px-2 text-xs font-medium transition-colors",
+                              d.exists
+                                ? "border-slate-200 text-slate-700 hover:border-teal-400 hover:text-teal-700 dark:border-slate-700 dark:text-slate-300 dark:hover:border-teal-600 dark:hover:text-teal-400"
+                                : "pointer-events-none border-slate-100 text-slate-300 dark:border-slate-800 dark:text-slate-700"
+                            )}
+                          >
+                            ดูตาราง
+                          </Link>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 shrink-0 whitespace-nowrap px-2 text-xs"
+                            disabled={!d.configured || running || busy != null}
+                            pending={busy === d.id}
+                            onClick={() => void refresh([d.id])}
+                          >
+                            ดึงใหม่
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -454,16 +472,26 @@ export function FabricSyncPanel() {
                         {d.fileName}
                       </p>
                     </div>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 shrink-0 px-2 text-xs"
-                      disabled={!d.configured || running || busy != null}
-                      pending={busy === d.id}
-                      onClick={() => void refresh([d.id])}
-                    >
-                      ดึงใหม่
-                    </Button>
+                    <div className="flex shrink-0 gap-1">
+                      {d.exists && (
+                        <Link
+                          href={`/admin/data/raw?src=csv:${d.id}`}
+                          className="inline-flex h-7 shrink-0 items-center whitespace-nowrap rounded-lg border border-slate-200 px-2 text-xs font-medium text-slate-700 dark:border-slate-700 dark:text-slate-300"
+                        >
+                          ดูตาราง
+                        </Link>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 shrink-0 whitespace-nowrap px-2 text-xs"
+                        disabled={!d.configured || running || busy != null}
+                        pending={busy === d.id}
+                        onClick={() => void refresh([d.id])}
+                      >
+                        ดึงใหม่
+                      </Button>
+                    </div>
                   </MobileRowTop>
                   <MobileRowStats>
                     <MobileStat label="แถว" value={d.rows?.toLocaleString() ?? "—"} warn={d.belowMinRows} />

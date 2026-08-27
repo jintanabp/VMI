@@ -1,13 +1,7 @@
-import { AdminShell } from "@/components/admin/admin-shell";
-import { StoreAccountsPanel } from "@/components/admin/store-accounts-panel";
+import { redirect } from "next/navigation";
+import { ADMIN_LEGACY_REDIRECTS } from "@/lib/admin/admin-nav";
 
-export default function AdminStoresPage() {
-  return (
-    <AdminShell
-      title="บัญชีร้านค้า"
-      description="อนุมัติคำขอเข้าใช้งาน ผูก VDA ให้แต่ละบัญชี และรีเซ็ตรหัสผ่าน"
-    >
-      <StoreAccountsPanel />
-    </AdminShell>
-  );
+/** URL เดิมก่อนจัดหมวดใหม่ — คง redirect ไว้ให้ลิงก์ที่ส่งกันไว้และ bookmark เก่าใช้ได้ */
+export default function AdminStoresLegacyPage() {
+  redirect(ADMIN_LEGACY_REDIRECTS["/admin/stores"]);
 }

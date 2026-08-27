@@ -1,17 +1,7 @@
-import { AdminShell } from "@/components/admin/admin-shell";
-import { VdaPreviewPanel } from "@/components/admin/vda-preview-panel";
-import { VdaWarehousePanel } from "@/components/admin/vda-warehouse-panel";
+import { redirect } from "next/navigation";
+import { ADMIN_LEGACY_REDIRECTS } from "@/lib/admin/admin-nav";
 
-export default function AdminVdaPage() {
-  return (
-    <AdminShell
-      title="มุมมอง VDA"
-      description="เปิดหน้าร้านค้าในมุมมองของคลัง VDA เพื่อตรวจสอบข้อมูลที่ผู้ใช้เห็นจริง"
-    >
-      <div className="space-y-4">
-        <VdaWarehousePanel />
-        <VdaPreviewPanel />
-      </div>
-    </AdminShell>
-  );
+/** URL เดิมก่อนจัดหมวดใหม่ — คง redirect ไว้ให้ลิงก์ที่ส่งกันไว้และ bookmark เก่าใช้ได้ */
+export default function AdminVdaLegacyPage() {
+  redirect(ADMIN_LEGACY_REDIRECTS["/admin/vda"]);
 }

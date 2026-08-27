@@ -1,13 +1,7 @@
-import { AdminShell } from "@/components/admin/admin-shell";
-import { FabricSyncPanel } from "@/components/admin/fabric-sync-panel";
+import { redirect } from "next/navigation";
+import { ADMIN_LEGACY_REDIRECTS } from "@/lib/admin/admin-nav";
 
-export default function AdminSyncPage() {
-  return (
-    <AdminShell
-      title="ข้อมูล & Sync"
-      description="สถานะการดึงข้อมูลจาก Microsoft Fabric แยกรายตาราง"
-    >
-      <FabricSyncPanel />
-    </AdminShell>
-  );
+/** URL เดิมก่อนจัดหมวดใหม่ — คง redirect ไว้ให้ลิงก์ที่ส่งกันไว้และ bookmark เก่าใช้ได้ */
+export default function AdminSyncLegacyPage() {
+  redirect(ADMIN_LEGACY_REDIRECTS["/admin/sync"]);
 }

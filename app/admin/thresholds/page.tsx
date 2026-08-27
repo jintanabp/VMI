@@ -1,13 +1,7 @@
-import { AdminShell } from "@/components/admin/admin-shell";
-import { AdminThresholdsPanel } from "@/components/admin/admin-thresholds-panel";
+import { redirect } from "next/navigation";
+import { ADMIN_LEGACY_REDIRECTS } from "@/lib/admin/admin-nav";
 
-export default function AdminThresholdsPage() {
-  return (
-    <AdminShell
-      title="MIN/MAX & หยุดสั่ง"
-      description="ตั้งค่าจำนวนวันสำรองรายกลุ่มสินค้า และดูรายการสินค้าที่หยุดสั่งของแต่ละคลัง"
-    >
-      <AdminThresholdsPanel />
-    </AdminShell>
-  );
+/** URL เดิมก่อนจัดหมวดใหม่ — คง redirect ไว้ให้ลิงก์ที่ส่งกันไว้และ bookmark เก่าใช้ได้ */
+export default function AdminThresholdsLegacyPage() {
+  redirect(ADMIN_LEGACY_REDIRECTS["/admin/thresholds"]);
 }

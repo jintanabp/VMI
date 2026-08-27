@@ -1,17 +1,7 @@
-import { AdminShell } from "@/components/admin/admin-shell";
-import { AdminEmailsSection } from "@/components/admin/admin-emails-section";
-import { VdaSalesAccessPanel } from "@/components/admin/vda-sales-access-panel";
+import { redirect } from "next/navigation";
+import { ADMIN_LEGACY_REDIRECTS } from "@/lib/admin/admin-nav";
 
-export default function AdminSettingsPage() {
-  return (
-    <AdminShell
-      title="ตั้งค่าระบบ"
-      description="ผู้ดูแลระบบ และการแมป VDA ↔ เซลล์"
-    >
-      <div className="space-y-4">
-        <AdminEmailsSection />
-        <VdaSalesAccessPanel />
-      </div>
-    </AdminShell>
-  );
+/** URL เดิมก่อนจัดหมวดใหม่ — คง redirect ไว้ให้ลิงก์ที่ส่งกันไว้และ bookmark เก่าใช้ได้ */
+export default function AdminSettingsLegacyPage() {
+  redirect(ADMIN_LEGACY_REDIRECTS["/admin/settings"]);
 }

@@ -931,3 +931,82 @@ body {
     display: none !important;
   }
 }
+
+/* ── ตารางข้อมูลดิบ (Admin → ข้อมูล → ดูข้อมูลดิบ) ───────────────────────────
+   ตารางนี้ต่างจากตารางอื่นในแอปตรงที่ "ไม่รู้ว่าจะเจอคอลัมน์อะไรและค่ายาวแค่ไหน"
+   จึงห้ามใช้ table-layout: fixed + overflow hidden แบบ .vmi-stock-fit-table
+   ซึ่งเหมาะกับชุดคอลัมน์ที่รู้จักเท่านั้น — ที่นี่ค่าที่ยาวต้อง "ตกบรรทัดในคอลัมน์ตัวเอง"
+   ไม่ใช่ถูกตัดทิ้งหรือดันตารางจนล้น */
+.vmi-raw-table {
+  table-layout: auto;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.vmi-raw-table th,
+.vmi-raw-table td {
+  padding: 0.375rem 0.5rem;
+  vertical-align: top;
+  border-top: 1px solid var(--color-border);
+}
+
+.vmi-raw-table thead th {
+  border-top: 0;
+}
+
+/* ค่าปกติ: ตกบรรทัดได้ เก็บช่องว่าง/newline ที่อยู่ในค่าจริงไว้ให้เห็น
+   (item_barcode_map_v2 มี newline อยู่ในเครื่องหมายคำพูดจริง ๆ)
+   overflow-wrap: anywhere ทำให้บาร์โค้ด/URL ยาว ๆ ที่ไม่มีช่องว่างหักในคอลัมน์ได้ */
+.vmi-raw-cell {
+  display: block;
+  max-width: 28rem;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* โหมด "ย่อ" — ต้องกดเปิดเอง และทุกเซลล์ที่ถูกย่อจะมี … + title + คลิกดูเต็มได้ */
+.vmi-raw-cell--compact {
+  display: block;
+  max-width: 16rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* คอลัมน์เลขแถวติดขอบซ้าย — เลื่อนตารางแนวนอนแล้วยังรู้ว่าอยู่แถวไหน */
+.vmi-raw-table th:first-child,
+.vmi-raw-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 10;
+  background: var(--color-card);
+  text-align: right;
+  color: #94a3b8;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.vmi-table-scroll .vmi-raw-table thead th:first-child {
+  z-index: 30;
+  background: #f1f5f9;
+}
+
+.dark .vmi-table-scroll .vmi-raw-table thead th:first-child {
+  background: #0f172a;
+}
+
+.vmi-raw-table tbody tr:hover td {
+  background: rgb(241 245 249 / 0.6);
+}
+
+.dark .vmi-raw-table tbody tr:hover td {
+  background: rgb(30 41 59 / 0.5);
+}
+
+.vmi-raw-table tbody tr:hover td:first-child {
+  background: rgb(226 232 240 / 0.9);
+}
+
+.dark .vmi-raw-table tbody tr:hover td:first-child {
+  background: rgb(51 65 85 / 0.9);
+}

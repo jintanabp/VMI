@@ -1,13 +1,7 @@
-import { AdminShell } from "@/components/admin/admin-shell";
-import { SalesPreviewPanel } from "@/components/admin/sales-preview-panel";
+import { redirect } from "next/navigation";
+import { ADMIN_LEGACY_REDIRECTS } from "@/lib/admin/admin-nav";
 
-export default function AdminSalesPage() {
-  return (
-    <AdminShell
-      title="มุมมองเซลล์"
-      description="เปิดหน้าตรวจออเดอร์ในมุมมองของเซลล์แต่ละคน (scope เดียวกับที่เขา login จริง)"
-    >
-      <SalesPreviewPanel />
-    </AdminShell>
-  );
+/** URL เดิมก่อนจัดหมวดใหม่ — คง redirect ไว้ให้ลิงก์ที่ส่งกันไว้และ bookmark เก่าใช้ได้ */
+export default function AdminSalesLegacyPage() {
+  redirect(ADMIN_LEGACY_REDIRECTS["/admin/sales"]);
 }
