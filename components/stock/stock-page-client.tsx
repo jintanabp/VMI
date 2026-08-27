@@ -1262,12 +1262,17 @@ export function StockPageClient({
         ...r,
         promoTiers: r.promoTiers?.length ? r.promoTiers : [],
       }));
-      sessionStorage.setItem("vmi_order_draft", JSON.stringify(draft));
       const qtyMap: Record<string, number> = {};
       for (const item of selectedItems) {
         qtyMap[item.skuCode] = orderQty(item);
       }
-      sessionStorage.setItem("vmi_order_qty", JSON.stringify(qtyMap));
+      try {
+        sessionStorage.setItem("vmi_order_draft", JSON.stringify(draft));
+        sessionStorage.setItem("vmi_order_qty", JSON.stringify(qtyMap));
+      } catch {
+        // เต็ม/ถูกปิด — ตอนกด "ตรวจสอบคำสั่ง" จริง goToOrder จะลองเขียนอีกครั้ง
+        // แล้วแจ้งเตือนถ้ายังไม่ได้ · autosave เงียบไว้ ไม่รบกวนระหว่างเลือก
+      }
     }, 200);
     return () => window.clearTimeout(timer);
   }, [sessionReady, selectedItems, qtyOverrides, orderQty]);
@@ -1309,8 +1314,19 @@ export function StockPageClient({
       }
     }
 
-    sessionStorage.setItem("vmi_order_draft", JSON.stringify(selectedItems));
-    sessionStorage.setItem("vmi_order_qty", JSON.stringify(qtyMap));
+    // เขียนไม่สำเร็จแล้ว push ไป /order = เด้งกลับ /stock ทันที (order อ่าน draft ไม่เจอ)
+    // จึงต้องแจ้งเตือนแล้วอยู่ที่เดิม ให้ผู้ใช้ลดจำนวนสินค้า ดีกว่าเด้งไปเด้งกลับแบบงง ๆ
+    try {
+      sessionStorage.setItem("vmi_order_draft", JSON.stringify(selectedItems));
+      sessionStorage.setItem("vmi_order_qty", JSON.stringify(qtyMap));
+    } catch {
+      toast({
+        title: "รายการมากเกินกว่าจะเปิดหน้าตรวจสอบได้ — ลองลดจำนวนสินค้าที่เลือกลง",
+        tone: "error",
+        duration: 8000,
+      });
+      return;
+    }
     router.push("/order");
   }
 
@@ -2102,6 +2118,7 @@ export function StockPageClient({
         open={confirmRiskyOpen}
         rows={selectedItems}
         qtyOf={orderQty}
+        suggestRemaining={suggestRemaining}
         onSetQty={setLineQty}
         onConfirm={() => {
           setConfirmRiskyOpen(false);

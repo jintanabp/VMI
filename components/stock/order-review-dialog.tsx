@@ -34,6 +34,7 @@ export function OrderReviewDialog({
   open,
   rows,
   qtyOf,
+  suggestRemaining,
   onSetQty,
   onConfirm,
   onClose,
@@ -42,6 +43,12 @@ export function OrderReviewDialog({
   /** รายการที่ติ๊กไว้ทั้งหมด — คอมโพเนนต์คัดเองว่าอันไหนยังติดธง */
   rows: StockRowComputed[];
   qtyOf: (row: StockRowComputed) => number;
+  /**
+   * จำนวนแนะนำที่หักของค้างในออเดอร์ที่ยังไม่อนุมัติแล้ว — ต้องใช้ตัวเดียวกับตาราง /stock
+   * ไม่ใช่ row.suggestOrder ดิบ ไม่งั้นกล่องนี้จะบอก "แนะนำ 10" ขณะที่ตารางบอก "แนะนำอีก 4"
+   * แล้วพาผู้ใช้สั่งซ้ำที่กลไก pendingQty ตั้งใจกันไว้
+   */
+  suggestRemaining: (row: StockRowComputed) => number;
   onSetQty: (skuCode: string, qty: number) => void;
   onConfirm: () => void;
   onClose: () => void;
@@ -111,7 +118,7 @@ export function OrderReviewDialog({
                     <div className="flex shrink-0 flex-col items-end gap-0.5">
                       <StockQtyStepper
                         qty={qty}
-                        suggestOrder={row.suggestOrder}
+                        suggestOrder={suggestRemaining(row)}
                         promoStepLot={promoStepLot(stepTiersOf(row), qty)}
                         // เดินทีละขั้นโปร — ±1 จะโดนหน้าแม่ปัดกลับที่เดิมจนปุ่มกดไม่ขยับ
                         onMinus={() =>
@@ -122,7 +129,7 @@ export function OrderReviewDialog({
                         }
                         onSetQty={(n) => onSetQty(row.skuCode, n)}
                         onApplySuggest={() =>
-                          onSetQty(row.skuCode, row.suggestOrder)
+                          onSetQty(row.skuCode, suggestRemaining(row))
                         }
                         showSuggestChip
                         compact
