@@ -45,7 +45,9 @@ RUN chmod +x /entrypoint.sh \
 USER nextjs
 EXPOSE 3000
 
+# -L + / ปิดท้าย: trailingSlash:true คืน 308 ไป /health/ · curl -f จะ exit 0 บน 308
+# โดยไม่ตาม redirect = ผ่านโดยไม่เคยแตะ handler (DB ping ไม่เคยถูกตรวจ)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD curl -f http://localhost:3000/vmi/api/health || exit 1
+  CMD curl -fsSL http://localhost:3000/vmi/api/health/ || exit 1
 
 ENTRYPOINT ["/entrypoint.sh"]

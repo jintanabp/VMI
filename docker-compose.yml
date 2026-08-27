@@ -21,7 +21,9 @@ services:
       - vmi_logs:/app/logs
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/vmi/api/health"]
+      # ต้องมี -L และ / ปิดท้าย — trailingSlash:true ทำให้ path นี้คืน 308 ไป /health/
+      # curl -f exit 0 บน 308 โดยไม่ตาม redirect = healthcheck ผ่านโดยไม่เคยรัน handler
+      test: ["CMD", "curl", "-fsSL", "http://localhost:3000/vmi/api/health/"]
       interval: 30s
       timeout: 10s
       retries: 5
