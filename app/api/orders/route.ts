@@ -389,6 +389,13 @@ export async function PATCH(request: Request) {
       return NextResponse.json(result);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "อนุมัติไม่สำเร็จ";
+      // อีกคนชิงตัดสินไปก่อน (approve/reject พร้อมกัน) — compare-and-set กันไว้แล้ว
+      if (msg === "ORDER_ALREADY_DECIDED") {
+        return NextResponse.json(
+          { error: "ออเดอร์นี้ถูกตัดสินไปแล้วโดยคนอื่น", status: "decided" },
+          { status: 409 }
+        );
+      }
       if (msg.startsWith("SPLIT_INVALID:")) {
         return NextResponse.json(
           { error: "แบ่ง PO ไม่ถูกต้อง", issues: msg.slice(14).split("\n") },
@@ -400,11 +407,23 @@ export async function PATCH(request: Request) {
   }
 
   if (action === "reject") {
-    const rejected = await orders.rejectOrder(
-      orderId,
-      body.reason,
-      salesSession.email
-    );
+    let rejected;
+    try {
+      rejected = await orders.rejectOrder(
+        orderId,
+        body.reason,
+        salesSession.email
+      );
+    } catch (err) {
+      // อีกคนชิงอนุมัติ/ปฏิเสธไปก่อน — compare-and-set ใน rejectOrder กันไว้
+      if (err instanceof Error && err.message === "ORDER_ALREADY_DECIDED") {
+        return NextResponse.json(
+          { error: "ออเดอร์นี้ถูกตัดสินไปแล้วโดยคนอื่น", status: "decided" },
+          { status: 409 }
+        );
+      }
+      throw err;
+    }
     await notifyStore({
       storeId: order.storeId,
       kind: "rejected",

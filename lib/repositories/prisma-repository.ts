@@ -183,8 +183,10 @@ export const prismaOrderRepository: OrderRepository = {
   },
 
   async rejectOrder(id, reason, actorEmail = "") {
-    return prisma.order.update({
-      where: { id },
+    // compare-and-set: ปฏิเสธได้เฉพาะออเดอร์ที่ยังรออนุมัติ — กัน reject ชนกับ approve
+    // จนออเดอร์จบที่ approved พร้อม rejectReason (เดิม order.update ทับสถานะเสมอ)
+    const res = await prisma.order.updateMany({
+      where: { id, status: "pending_approval" },
       data: {
         status: "rejected",
         rejectReason: reason ?? null,
@@ -192,6 +194,10 @@ export const prismaOrderRepository: OrderRepository = {
         decidedAt: new Date(),
         decidedBy: actorEmail,
       },
+    });
+    if (res.count === 0) throw new Error("ORDER_ALREADY_DECIDED");
+    return prisma.order.findUnique({
+      where: { id },
       include: {
         store: true,
         items: { include: { sku: true } },
