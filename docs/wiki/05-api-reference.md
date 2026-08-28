@@ -74,6 +74,7 @@ Server จะ lookup โปร/ราคา C4 แล้ว**แช่ค่า�
 
 | Method | Path | หน้าที่ |
 |---|---|---|
+| GET | `/api/promo/month` | โปร C4 เดือนปัจจุบันแยกตามคลัง · `?vdaCode=` (ไม่ส่ง = ทุกคลังที่มีสิทธิ์) · แอดมินเลือกได้ทุกคลัง เซลล์เฉพาะคลังที่ดูแล · ขอคลังนอกสิทธิ์ได้ **403** ไม่ใช่รายการว่าง |
 | POST | `/api/promo/lookup` | ขั้นโปรของ SKU ตามจำนวน |
 | GET | `/api/promo/inspector` | เครื่องมือ debug ว่าทำไม SKU นี้ได้/ไม่ได้โปร |
 
@@ -104,7 +105,7 @@ Server จะ lookup โปร/ราคา C4 แล้ว**แช่ค่า�
 | GET | `/api/admin/refresh-status` | สถานะ sync รอบล่าสุด |
 | GET·PUT | `/api/admin/vda-warehouses` | ทะเบียนคลัง VDA (แทนการแก้ `VDA_CUSTOMER_MAP` ใน .env) |
 | GET | `/api/admin/data-explorer/sources` · `/csv` · `/db` | เปิดดูไฟล์/ตารางที่ sync มา |
-| GET | `/api/admin/promo` · `/api/admin/promo/explain` | ตรวจโปร C4 และเหตุผลที่ SKU ได้/ไม่ได้โปร |
+| GET | `/api/admin/promo/explain` | เหตุผลที่ SKU ได้/ไม่ได้โปร (รายงานรายเดือนย้ายไป `/api/promo/month`) |
 | GET | `/api/admin/customers/search` · `/resolve` | ค้นหา/แปลงรหัสลูกค้า |
 | GET | `/api/admin/salesmen` · `/api/admin/vda-sales` · `/api/admin/badges` | ข้อมูลประกอบหน้า admin |
 
