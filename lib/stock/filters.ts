@@ -8,6 +8,7 @@
  */
 
 import { matchesProductSearch } from "@/lib/utils";
+import { LEAD_TIME_DAYS } from "@/lib/calculations";
 
 export type StockView =
   | "all"
@@ -48,13 +49,25 @@ interface FilterableStockRow {
   fromTarget?: boolean;
 }
 
-/** สต็อกวิกฤต: จะหมดก่อนถึงจำนวนวันขั้นต่ำ (CVD < MIN) ทั้งที่ยังมีการขาย → เสี่ยงขาดสต็อก
- *  (stockCvd เป็น null อยู่แล้วเมื่อ avgSales = 0 จึงถือว่า "มีการขาย" โดยปริยาย) */
-export function isCriticalStock(r: FilterableStockRow): boolean {
+/**
+ * สต็อกวิกฤต: ของจะหมด**ก่อนที่ของรอบใหม่จะมาถึง** (CVD < lead time) → ต้องเร่งเป็นพิเศษ
+ *
+ * เดิมนิยามเป็น `CVD < MIN` ซึ่ง**เท่ากับ "ควรสั่ง" ทุกประการ** ไม่ใช่เรื่องบังเอิญ:
+ * `needsOrder` มาจาก `calcSuggestOrder` ที่คืน 0 เมื่อ `stock >= avgSales × minDays`
+ * ส่วน `CVD < minDays` คือ `stock / avgSales < minDays` — สมการเดียวกัน
+ * ผลคือชิปสองอันให้ผลลัพธ์ชุดเดียวกันเป๊ะ ผู้ใช้จึงไม่มีทางรู้ว่าต่างกันตรงไหน
+ *
+ * นิยามใหม่ทำให้ "วิกฤต" มีความหมายจริงตามชื่อ: สั่งวันนี้ของก็มาไม่ทัน ต้องจัดการ
+ * ด้วยวิธีอื่นเพิ่ม (ยืมจากคลังอื่น เร่งซัพ) ไม่ใช่แค่ใส่ในออเดอร์รอบหน้า
+ *
+ * (stockCvd เป็น null อยู่แล้วเมื่อ avgSales = 0 จึงถือว่า "มีการขาย" โดยปริยาย)
+ */
+export function isCriticalStock(
+  r: FilterableStockRow,
+  leadTimeDays = LEAD_TIME_DAYS
+): boolean {
   return (
-    r.stockCvd != null &&
-    (r.avgSales ?? 0) > 0 &&
-    r.stockCvd < (r.minDays ?? 0)
+    r.stockCvd != null && (r.avgSales ?? 0) > 0 && r.stockCvd < leadTimeDays
   );
 }
 

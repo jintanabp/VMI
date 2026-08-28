@@ -316,9 +316,16 @@ export function AppHeader({
                   )}
                 </div>
                 )}
+                {/*
+                  ต้อง truncate — ชื่อร้านเต็ม ("สต็อก · VDA1 · บริษัท ... สำนักงานใหญ่")
+                  ยาวเกินจอมือถือ และภาษาไทยไม่มีช่องว่างให้ตัดคำ เบราว์เซอร์เลยตัด
+                  ทีละตัวอักษรจนหัวสูงเกือบ 270px แล้วดันปุ่มเมนูไปแทรกกลางกองตัวอักษร
+                  ส่วนที่สำคัญสุด (สต็อก · รหัสคลัง) อยู่ต้นข้อความจึงไม่หายไปกับ ellipsis
+                */}
                 <h1
+                  title={title}
                   className={cn(
-                    "font-bold leading-snug tracking-tight text-slate-900 dark:text-slate-50",
+                    "truncate font-bold leading-snug tracking-tight text-slate-900 dark:text-slate-50",
                     compact
                       ? "text-xs xl:text-sm"
                       : "text-base sm:text-xl xl:text-2xl"

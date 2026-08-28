@@ -220,7 +220,7 @@ function PriceBlock({
                 <span className="mx-0.5 text-slate-400">→</span>
               )}
               <span className="font-bold text-indigo-700 dark:text-indigo-300">
-                เซลส์ {formatBaht(salesOverride)}
+                เซลล์ {formatBaht(salesOverride)}
               </span>
             </>
           )}
@@ -474,7 +474,7 @@ export function OrderReviewTable({
 
       {promoLoading && (
         <p className="shrink-0 text-xs text-slate-500 dark:text-slate-400">
-          กำลังโหลดราคา / โปรโมชัน...
+          กำลังโหลดราคา / โปรโมชั่น…
         </p>
       )}
 

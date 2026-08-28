@@ -8,7 +8,12 @@ import { Bell, ClipboardList, FileText, LayoutDashboard } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
 
-/** แถบสลับหน้า ฝั่งเซลล์: คำสั่งซื้อ / การแจ้งเตือน (พร้อม badge จำนวนที่ยังไม่อ่าน) */
+/**
+ * แถบสลับหน้า ฝั่งเซลล์: ภาพรวม / ออเดอร์ / PO / การแจ้งเตือน
+ *
+ * ป้ายแท็บใช้คำเดียวกับเนื้อหาข้างใน — เดิมแท็บเขียน "คำสั่งซื้อ" แต่ทุกข้อความ
+ * ในหน้านั้นเรียก "ออเดอร์" ("ไม่มีออเดอร์ในสถานะนี้", "ลบออเดอร์นี้?")
+ */
 export function SalesNav() {
   // usePathname() คืนค่าพร้อม basePath และ / ปิดท้าย — ต้อง normalize ก่อนเทียบ
   // ไม่งั้นไม่มีแท็บไหนไฮไลต์เลย (ดู lib/paths.ts)
@@ -48,7 +53,7 @@ export function SalesNav() {
     },
     {
       href: "/sales/orders",
-      label: "คำสั่งซื้อ",
+      label: "ออเดอร์",
       icon: ClipboardList,
       badge: pendingCount,
       badgeTitle: `${pendingCount} ออเดอร์รอตรวจ`,

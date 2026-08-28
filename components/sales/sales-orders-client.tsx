@@ -22,6 +22,7 @@ import {
 import { RejectOrderModal } from "@/components/sales/reject-order-modal";
 import { NotifyStoreCheckbox } from "@/components/sales/notify-store-checkbox";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useToast } from "@/components/ui/toast";
 import {
   OrderReviewTable,
   type ReviewOrderItem,
@@ -95,6 +96,8 @@ export function SalesOrdersClient() {
     failed: { label: string; error: string }[];
   } | null>(null);
   /** เลข PO ที่ออกหลังอนุมัติ — เดิม route คืน poExportPath มาแล้วถูกทิ้ง */
+  const { toast } = useToast();
+  const [approveOpen, setApproveOpen] = useState(false);
   const [issuedPos, setIssuedPos] = useState<
     { poNumber: string; label: string; itemCount: number; totalQty: number }[]
   >([]);
@@ -331,6 +334,11 @@ export function SalesOrdersClient() {
     setIssuedPos([]);
   }, [selected?.id]);
 
+  /** จำนวนบรรทัดที่ร้านตั้งราคาต่างจากระบบในออเดอร์ที่เลือกอยู่ */
+  const selectedPriceFlagged =
+    selected?.items?.filter((i) => i.priceFlagged).length ?? 0;
+  const approveNeedsConfirm = selectedPriceFlagged > 0;
+
   function toggleItemSelect(itemId: string) {
     setSelectedItemIds((prev) => {
       const next = new Set(prev);
@@ -426,7 +434,16 @@ export function SalesOrdersClient() {
       // เลข PO ที่ออกจริง — โชว์ให้พนักงานเห็นแทนการทิ้งไป
       const pos = (data as { purchaseOrders?: typeof issuedPos } | null)
         ?.purchaseOrders;
-      if (Array.isArray(pos)) setIssuedPos(pos);
+      if (Array.isArray(pos) && pos.length > 0) {
+        setIssuedPos(pos);
+        // แผงเลข PO ถูกล้างทันทีที่จอเด้งไปออเดอร์ใบถัดไป (effect ที่ผูกกับ selected.id)
+        // toast จึงเป็นที่เดียวที่พนักงานได้เห็นเลข PO ที่เพิ่งออกจริง ๆ
+        toast({
+          title: `ออก PO แล้ว ${pos.length} ใบ`,
+          detail: pos.map((po) => po.poNumber).join(" · "),
+          tone: "success",
+        });
+      }
       setSelectedItemIds(new Set());
       queryClient.invalidateQueries({ queryKey: ["orders"] });
       queryClient.invalidateQueries({ queryKey: ["sales-pending-count"] });
@@ -448,7 +465,7 @@ export function SalesOrdersClient() {
       <AppHeader
         compact
         wide
-        title="ตรวจสอบคำสั่งซื้อ"
+        title="ตรวจสอบออเดอร์"
         subtitle={
           salesPreview
             ? `${salesPreview.asCode} · ${salesPreview.asName}`
@@ -946,12 +963,17 @@ export function SalesOrdersClient() {
                     <Button
                       variant="success"
                       className="max-xl:flex-1"
-                      onClick={() =>
-                        actionMutation.mutate({
-                          orderId: selected.id,
-                          action: "approve",
-                        })
-                      }
+                      onClick={() => {
+                        // ออเดอร์ที่ร้านตั้งราคาเองต้องยืนยันอีกชั้น — ฝั่งร้านยังต้อง
+                        // ยืนยันสองรอบกว่าจะส่งได้ แต่เดิมฝั่งเซลส์อนุมัติจบด้วยคลิกเดียว
+                        // ทั้งที่เป็นขั้นที่ออกเลข PO จริงและย้อนกลับไม่ได้
+                        if (approveNeedsConfirm) setApproveOpen(true);
+                        else
+                          actionMutation.mutate({
+                            orderId: selected.id,
+                            action: "approve",
+                          });
+                      }}
                       // กั้นจากฝั่ง client ด้วย — เซิร์ฟเวอร์ยังตรวจซ้ำเสมอ
                       disabled={
                         actionMutation.isPending ||
@@ -1043,6 +1065,31 @@ export function SalesOrdersClient() {
         </section>
         </div>
       </main>
+
+      <ConfirmDialog
+        open={approveOpen}
+        tone="default"
+        title="อนุมัติออเดอร์ที่ร้านแก้ราคาเอง?"
+        confirmLabel="อนุมัติและออก PO"
+        body={
+          <>
+            ออเดอร์นี้มี{" "}
+            <span className="font-semibold text-amber-700 dark:text-amber-400">
+              {selectedPriceFlagged} รายการที่ร้านตั้งราคาต่างจากระบบ
+            </span>{" "}
+            — ราคาที่ร้านตั้งจะถูกใช้บนเอกสาร PO ที่ส่งฝ่ายจัดซื้อ
+            <br />
+            กรุณาตรวจราคาอีกครั้งก่อนยืนยัน เพราะเมื่อออกเลข PO แล้วย้อนกลับไม่ได้
+          </>
+        }
+        onClose={() => setApproveOpen(false)}
+        onConfirm={() => {
+          setApproveOpen(false);
+          if (selected) {
+            actionMutation.mutate({ orderId: selected.id, action: "approve" });
+          }
+        }}
+      />
 
       <ConfirmDialog
         open={bulkOpen}
