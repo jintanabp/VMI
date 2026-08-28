@@ -58,7 +58,7 @@ export function SalesNav() {
       badge: pendingCount,
       badgeTitle: `${pendingCount} ออเดอร์รอตรวจ`,
       warnBadge: priceFlaggedCount,
-      warnTitle: `${priceFlaggedCount} ออเดอร์มีราคาที่ร้านแก้เอง`,
+      warnTitle: `${priceFlaggedCount} ออเดอร์มีราคาไม่ตรงระบบ`,
     },
     {
       href: "/sales/po",
@@ -94,7 +94,13 @@ export function SalesNav() {
   ];
 
   return (
-    <nav className="mb-2 flex shrink-0 gap-1.5" role="tablist">
+    // บนจอ 390px แท็บทั้ง 5 กว้างรวม ~420px — เดิม nav เป็น flex เฉย ๆ ป้ายจึงถูกบีบ
+    // จนตัดเป็น "ออ/เด/อร์" และแท็บสุดท้ายล้นออกนอกจอจนกดไม่ถึง
+    // ให้เลื่อนแนวนอนในแถบตัวเองแทน (-mx/px กันเงา focus ถูกตัดขอบ)
+    <nav
+      className="vmi-scroll -mx-1 mb-2 flex shrink-0 gap-1.5 overflow-x-auto px-1 pb-1"
+      role="tablist"
+    >
       {tabs.map((t) => {
         // "ภาพรวม" ที่ /sales เป็น prefix ของทุกแท็บ จึงต้องเทียบแบบตรงตัวเท่านั้น
         // ส่วนแท็บอื่นนับหน้าลูกด้วย (เผื่อมีหน้าย่อยในอนาคต)
@@ -109,8 +115,9 @@ export function SalesNav() {
             href={t.href}
             role="tab"
             aria-selected={active}
+            aria-current={active ? "page" : undefined}
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition",
+              "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition",
               active
                 ? "bg-teal-600 text-white"
                 : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
