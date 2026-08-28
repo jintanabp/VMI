@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { cookies } from "next/headers";
 import { SALES_SESSION_COOKIE, isAdminEmail, type UserRole } from "./roles";
+import { getSessionSecret } from "./session-secret";
 import { getSalesmanRegistry } from "@/lib/fabric";
 import { applySalesPreview, getSalesPreview } from "./sales-preview";
 import { pickDefaultSalesmanAssignment } from "@/lib/admin/vda-sales-directory";
@@ -23,9 +24,7 @@ interface SessionPayload extends SalesSession {
   exp: number;
 }
 
-function getSecret() {
-  return process.env.NEXTAUTH_SECRET ?? "vmi-dev-secret";
-}
+const getSecret = getSessionSecret;
 
 export function signSalesSession(session: SalesSession): string {
   const payload: SessionPayload = {

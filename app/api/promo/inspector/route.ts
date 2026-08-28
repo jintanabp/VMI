@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { CUSTOMER_STORE_CODE_COOKIE } from "@/lib/auth/roles";
+import { getAuthorizedStore } from "@/lib/auth/store-context";
 import { getSalesSession } from "@/lib/auth/sales-session";
 import {
   resolveSalesmanCodesForFilter,
@@ -10,10 +9,7 @@ import { isVdaStoreCode } from "@/lib/fabric/vda-aos-bill";
 import { buildPromoInspector } from "@/lib/promo/promo-inspector";
 
 async function assertStoreAccess(storeCode: string) {
-  const cookieStore = await cookies();
-  const customerStore = cookieStore
-    .get(CUSTOMER_STORE_CODE_COOKIE)
-    ?.value?.toLowerCase();
+  const customerStore = (await getAuthorizedStore())?.storeCode?.toLowerCase();
 
   if (customerStore && customerStore === storeCode) {
     return null;
@@ -48,8 +44,7 @@ export async function GET(request: Request) {
   }
 
   if (!storeCode) {
-    const cookieStore = await cookies();
-    storeCode = cookieStore.get(CUSTOMER_STORE_CODE_COOKIE)?.value?.toLowerCase();
+    storeCode = (await getAuthorizedStore())?.storeCode?.toLowerCase();
   }
 
   if (!storeCode) {

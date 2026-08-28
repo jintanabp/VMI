@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { cookies } from "next/headers";
 import type { SalesSession } from "./sales-session";
+import { getSessionSecret } from "./session-secret";
 
 export const SALES_PREVIEW_COOKIE = "vmi_sales_preview";
 export const SALES_PREVIEW_INFO_COOKIE = "vmi_sales_preview_info";
@@ -22,9 +23,7 @@ interface SalesPreviewPayload {
   exp: number;
 }
 
-function getSecret() {
-  return process.env.NEXTAUTH_SECRET ?? "vmi-dev-secret";
-}
+const getSecret = getSessionSecret;
 
 function signPreview(payload: SalesPreviewPayload): string {
   const data = Buffer.from(JSON.stringify(payload)).toString("base64url");

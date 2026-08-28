@@ -1,5 +1,9 @@
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
+    // ตายตั้งแต่ boot ถ้า secret ไม่ปลอดภัย — ไม่ใช่ตอนมีคน login คนแรก
+    const { assertSessionSecret } = await import("./lib/auth/session-secret");
+    assertSessionSecret();
+
     const { bootstrapAdminsFromEnv } = await import("./lib/auth/admin-registry");
     await bootstrapAdminsFromEnv().catch((err) => {
       console.warn("[VMI] Admin bootstrap skipped:", err);

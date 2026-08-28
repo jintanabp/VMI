@@ -1,11 +1,9 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { CUSTOMER_STORE_CODE_COOKIE } from "@/lib/auth/roles";
+import { getAuthorizedStore } from "@/lib/auth/store-context";
 import { lookupOrderPromoLines } from "@/lib/promo/lookup-order-lines";
 
 export async function POST(request: Request) {
-  const cookieStore = await cookies();
-  const storeCode = cookieStore.get(CUSTOMER_STORE_CODE_COOKIE)?.value;
+  const storeCode = (await getAuthorizedStore())?.storeCode;
   if (!storeCode) {
     return NextResponse.json({ error: "ไม่พบ session" }, { status: 401 });
   }

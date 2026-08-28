@@ -1,18 +1,11 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
-import { getStoreSession } from "@/lib/auth/store-session";
-import { CUSTOMER_STORE_COOKIE } from "@/lib/auth/roles";
+import { getAuthorizedStoreId } from "@/lib/auth/store-context";
 import { notifySales } from "@/lib/orders/sales-notify";
 
 export const dynamic = "force-dynamic";
 
-async function resolveStoreId(): Promise<string | null> {
-  const session = await getStoreSession();
-  if (session) return session.storeId;
-  const cookieStore = await cookies();
-  return cookieStore.get(CUSTOMER_STORE_COOKIE)?.value ?? null;
-}
+const resolveStoreId = getAuthorizedStoreId;
 
 /**
  * ร้านยกเลิกคำสั่งซื้อของตัวเอง

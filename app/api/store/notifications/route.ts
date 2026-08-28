@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { CUSTOMER_STORE_COOKIE } from "@/lib/auth/roles";
-import { getStoreSession } from "@/lib/auth/store-session";
+import { getAuthorizedStoreId } from "@/lib/auth/store-context";
 import {
   countUnreadStoreNotifications,
   listStoreNotifications,
@@ -10,12 +8,7 @@ import {
 
 export const dynamic = "force-dynamic";
 
-async function resolveStoreId(): Promise<string | null> {
-  const session = await getStoreSession();
-  if (session) return session.storeId;
-  const cookieStore = await cookies();
-  return cookieStore.get(CUSTOMER_STORE_COOKIE)?.value ?? null;
-}
+const resolveStoreId = getAuthorizedStoreId;
 
 /** `?count=1` = เอาแค่จำนวนที่ยังไม่อ่าน (ใช้ทำ badge — ถูกและ poll ได้ถี่) */
 export async function GET(request: Request) {

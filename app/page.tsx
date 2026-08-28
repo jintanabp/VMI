@@ -1,5 +1,4 @@
 import { redirect } from "next/navigation";
-import { cookies } from "next/headers";
 import Link from "next/link";
 import {
   BarChart3,
@@ -9,7 +8,7 @@ import {
   Warehouse,
   UserCircle,
 } from "lucide-react";
-import { CUSTOMER_STORE_COOKIE } from "@/lib/auth/roles";
+import { getAuthorizedStoreId } from "@/lib/auth/store-context";
 import { getRawSalesSession } from "@/lib/auth/sales-session";
 import { PublicTopbar } from "@/components/layout/public-topbar";
 
@@ -22,8 +21,7 @@ const features = [
 ];
 
 export default async function HomePage() {
-  const cookieStore = await cookies();
-  const storeId = cookieStore.get(CUSTOMER_STORE_COOKIE)?.value;
+  const storeId = await getAuthorizedStoreId();
   const salesSession = await getRawSalesSession();
 
   if (storeId) redirect("/stock");

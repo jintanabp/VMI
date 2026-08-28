@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { ensurePrismaStore } from "@/lib/repositories/store-helpers";
 import { fabricStockReady } from "@/lib/fabric";
-import { getSalesSession } from "@/lib/auth/sales-session";
+import { getRawSalesSession } from "@/lib/auth/sales-session";
 import { setAdminPreviewCookie } from "@/lib/auth/admin-preview";
 import { syncStockCoverForStore } from "@/lib/fabric/sync-stock-cover";
 import { ensureVdaStoreSalesRep } from "@/lib/fabric/ensure-vda-sales-rep";
@@ -35,6 +35,16 @@ async function setCustomerCookies(storeId: string, code: string) {
 }
 
 export async function POST(request: Request) {
+  // เข้าร้านโดยเลือก VDA เฉยๆ ไม่มีรหัสผ่าน — เป็นช่องทางพรีวิวของแอดมินเท่านั้น
+  // ร้านจริงต้องเข้าผ่าน /api/auth/store/login (StoreAccount + รหัสผ่าน)
+  const salesSession = await getRawSalesSession();
+  if (salesSession?.role !== "admin") {
+    return NextResponse.json(
+      { error: "ต้องเป็นผู้ดูแลระบบจึงจะเข้าดูร้านแบบนี้ได้" },
+      { status: 403 }
+    );
+  }
+
   if (!fabricStockReady()) {
     return NextResponse.json(
       { error: "ยังไม่พร้อมใช้งาน — ต้อง sync stock_cover_day จาก Fabric ก่อน" },
@@ -58,10 +68,7 @@ export async function POST(request: Request) {
   await syncStockCoverForStore(dbStore.id, code);
   await ensureVdaStoreSalesRep(dbStore.id, code);
 
-  const salesSession = await getSalesSession();
-  if (salesSession?.role === "admin") {
-    await setAdminPreviewCookie();
-  }
+  await setAdminPreviewCookie();
 
   await setCustomerCookies(dbStore.id, code);
   return NextResponse.json({

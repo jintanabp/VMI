@@ -1,14 +1,13 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import { z } from "zod";
 import { getRepositories } from "@/lib/repositories";
 import { approveWithPoSplit } from "@/lib/po/approve-with-split";
 import { notifyStore } from "@/lib/orders/store-notify";
 import { notifySales } from "@/lib/orders/sales-notify";
 import {
-  CUSTOMER_STORE_CODE_COOKIE,
-  CUSTOMER_STORE_COOKIE,
-} from "@/lib/auth/roles";
+  getAuthorizedStore,
+  getAuthorizedStoreId,
+} from "@/lib/auth/store-context";
 import { evaluatePriceOverride } from "@/lib/calculations";
 import {
   lookupOrderPromoLines,
@@ -108,8 +107,7 @@ export async function GET(request: Request) {
   const allPersonVdas = searchParams.get("allPersonVdas") === "true";
 
   const salesSession = await getSalesSession();
-  const cookieStore = await cookies();
-  const customerStoreId = cookieStore.get(CUSTOMER_STORE_COOKIE)?.value;
+  const customerStoreId = await getAuthorizedStoreId();
 
   const { orders } = getRepositories();
 
@@ -174,12 +172,11 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const cookieStore = await cookies();
-  const storeId = cookieStore.get(CUSTOMER_STORE_COOKIE)?.value;
-
-  if (!storeId) {
+  const authorized = await getAuthorizedStore();
+  if (!authorized) {
     return NextResponse.json({ error: "ไม่พบร้านค้า" }, { status: 401 });
   }
+  const { storeId } = authorized;
 
   const body = await request.json();
   const parsed = createOrderSchema.safeParse(body);
@@ -203,8 +200,7 @@ export async function POST(request: Request) {
   });
   const codeById = new Map(skus.map((s) => [s.id, s.code]));
 
-  const storeCode =
-    store?.code ?? cookieStore.get(CUSTOMER_STORE_CODE_COOKIE)?.value ?? "";
+  const storeCode = store?.code ?? authorized.storeCode ?? "";
 
   let c4BySku: Map<string, OrderPromoLineResult> | null = null;
   try {

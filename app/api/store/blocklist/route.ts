@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import { getStoreSession } from "@/lib/auth/store-session";
-import { CUSTOMER_STORE_COOKIE } from "@/lib/auth/roles";
+import { getAuthorizedStoreId } from "@/lib/auth/store-context";
 import {
   listBlocks,
   removeBlocks,
@@ -16,9 +15,7 @@ async function resolveStore(): Promise<{
   if (session) {
     return { storeId: session.storeId, email: session.email };
   }
-  const cookieStore = await cookies();
-  const storeId = cookieStore.get(CUSTOMER_STORE_COOKIE)?.value ?? null;
-  return { storeId, email: "" };
+  return { storeId: await getAuthorizedStoreId(), email: "" };
 }
 
 export async function GET() {

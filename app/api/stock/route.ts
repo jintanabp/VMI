@@ -1,26 +1,22 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import { getRepositories } from "@/lib/repositories";
 import { fabricStockReady } from "@/lib/fabric";
 import { buildFabricStockPayload } from "@/lib/fabric/stock-rows";
 import { getStockFilterConfig } from "@/lib/fabric/stock-filter-config";
-import {
-  CUSTOMER_STORE_COOKIE,
-  CUSTOMER_STORE_CODE_COOKIE,
-} from "@/lib/auth/roles";
+import { getAuthorizedStore } from "@/lib/auth/store-context";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const storeIdParam = searchParams.get("storeId");
   const fromDbParam = searchParams.get("fromDb");
-  const cookieStore = await cookies();
-  const storeId = storeIdParam ?? cookieStore.get(CUSTOMER_STORE_COOKIE)?.value;
-  const storeCode = cookieStore.get(CUSTOMER_STORE_CODE_COOKIE)?.value;
-  const fromDb = fromDbParam ?? storeCode;
 
-  if (!storeId) {
+  // ตัวตนร้านมาจาก session ที่เซ็นแล้วเท่านั้น — เดิมรับ ?storeId= จาก query
+  // ทำให้ใครก็อ่านสต็อกร้านอื่นได้โดยไม่ต้องมี session เลย
+  const authorized = await getAuthorizedStore();
+  if (!authorized) {
     return NextResponse.json({ error: "ไม่พบ session" }, { status: 401 });
   }
+  const { storeId, storeCode } = authorized;
+  const fromDb = fromDbParam ?? storeCode;
 
   if (fabricStockReady() && storeCode) {
     const payload = await buildFabricStockPayload(storeId, storeCode, fromDb);
@@ -40,13 +36,11 @@ export async function GET(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const cookieStore = await cookies();
-  const storeId = cookieStore.get(CUSTOMER_STORE_COOKIE)?.value;
-  const storeCode = cookieStore.get(CUSTOMER_STORE_CODE_COOKIE)?.value;
-
-  if (!storeId) {
+  const authorized = await getAuthorizedStore();
+  if (!authorized) {
     return NextResponse.json({ error: "ไม่พบ session" }, { status: 401 });
   }
+  const { storeId, storeCode } = authorized;
 
   const body = await request.json();
   const { skuId, minDays, maxDays } = body;

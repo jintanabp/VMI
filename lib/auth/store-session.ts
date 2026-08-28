@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { cookies } from "next/headers";
 import { STORE_SESSION_COOKIE } from "./roles";
+import { getSessionSecret } from "./session-secret";
 
 export interface StoreSession {
   email: string;
@@ -15,9 +16,7 @@ interface StoreSessionPayload extends StoreSession {
 
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
-function getSecret() {
-  return process.env.NEXTAUTH_SECRET ?? "vmi-dev-secret";
-}
+const getSecret = getSessionSecret;
 
 export function signStoreSession(session: StoreSession): string {
   const payload: StoreSessionPayload = {

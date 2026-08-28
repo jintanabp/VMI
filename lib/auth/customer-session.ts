@@ -56,13 +56,17 @@ function enrichFromFabric(store: Store): CustomerStoreContext {
   };
 }
 
-/** อ่าน cookie ร้านค้า — ถ้า id ไม่ตรง DB (เช่นหลัง reseed) จะลบ cookie แล้วคืน null */
+/**
+ * ร้านของ session ปัจจุบัน — ถ้า id ไม่ตรง DB (เช่นหลัง reseed) จะลบ cookie แล้วคืน null
+ *
+ * ตัวตนมาจาก `getAuthorizedStore()` (session ที่เซ็นแล้ว) ไม่ใช่ cookie ดิบ
+ * ไม่งั้นตั้ง `vmi_store_id` เป็นร้านอื่นแล้วเปิดหน้าร้านนั้นได้เลย
+ */
 export async function getCustomerStoreFromCookie(): Promise<CustomerStoreContext | null> {
-  const { cookies } = await import("next/headers");
-  const cookieStore = await cookies();
-  const storeId = cookieStore.get(CUSTOMER_STORE_COOKIE)?.value;
-  const storeCode = cookieStore.get(CUSTOMER_STORE_CODE_COOKIE)?.value;
-  if (!storeId && !storeCode) return null;
+  const { getAuthorizedStore } = await import("./store-context");
+  const authorized = await getAuthorizedStore();
+  if (!authorized) return null;
+  const { storeId, storeCode } = authorized;
 
   const { stock } = getRepositories();
   const stores = await stock.getStores();

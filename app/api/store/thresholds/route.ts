@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import { getStoreSession } from "@/lib/auth/store-session";
-import { CUSTOMER_STORE_COOKIE } from "@/lib/auth/roles";
+import { getAuthorizedStoreId } from "@/lib/auth/store-context";
 import {
   applyThresholdPatch,
   listGroupThresholds,
@@ -15,10 +14,8 @@ async function resolveStoreId(): Promise<{
   if (session) {
     return { storeId: session.storeId, canManage: session.canManageMinMax };
   }
-  // admin preview / legacy — ดูได้อย่างเดียว
-  const cookieStore = await cookies();
-  const storeId = cookieStore.get(CUSTOMER_STORE_COOKIE)?.value ?? null;
-  return { storeId, canManage: false };
+  // admin preview — ดูได้อย่างเดียว
+  return { storeId: await getAuthorizedStoreId(), canManage: false };
 }
 
 export async function GET() {

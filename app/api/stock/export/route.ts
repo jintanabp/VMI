@@ -1,4 +1,3 @@
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { fabricStockReady, getAssortedMapping } from "@/lib/fabric";
@@ -19,10 +18,7 @@ import {
   blockLabel,
   buildOrderFormSheet,
 } from "@/lib/stock/export-order-form";
-import {
-  CUSTOMER_STORE_COOKIE,
-  CUSTOMER_STORE_CODE_COOKIE,
-} from "@/lib/auth/roles";
+import { getAuthorizedStore } from "@/lib/auth/store-context";
 import type { StockRowComputed } from "@/lib/repositories/types";
 
 const NUM_INT = "#,##0";
@@ -375,9 +371,9 @@ async function requireStore(): Promise<
   | { ok: true; storeId: string; storeCode: string }
   | { ok: false; res: NextResponse }
 > {
-  const cookieStore = await cookies();
-  const storeId = cookieStore.get(CUSTOMER_STORE_COOKIE)?.value;
-  const storeCode = cookieStore.get(CUSTOMER_STORE_CODE_COOKIE)?.value;
+  const authorized = await getAuthorizedStore();
+  const storeId = authorized?.storeId;
+  const storeCode = authorized?.storeCode;
 
   if (!storeId || !storeCode) {
     return {
