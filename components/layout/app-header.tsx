@@ -308,10 +308,16 @@ export function AppHeader({
                       {roleLabel}
                     </span>
                   )}
-                  {session?.salesmanCode && role !== "customer" && (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-teal-50 px-2 py-0.5 text-teal-700 dark:bg-teal-950/40 dark:text-teal-400">
-                      <User className="h-3 w-3" />
-                      {session.salesmanCode}
+                  {session && role !== "customer" && (
+                    <span
+                      title={session.email}
+                      className="inline-flex min-w-0 items-center gap-1 rounded-full bg-teal-50 px-2 py-0.5 text-teal-700 dark:bg-teal-950/40 dark:text-teal-400"
+                    >
+                      <User className="h-3 w-3 shrink-0" />
+                      <span className="truncate">
+                        {session.salesmanName ?? session.name ?? session.email}
+                        {session.salesmanCode ? ` · ${session.salesmanCode}` : ""}
+                      </span>
                     </span>
                   )}
                 </div>
@@ -333,6 +339,18 @@ export function AppHeader({
                 >
                   {title}
                 </h1>
+                {/*
+                  หัวเพจแบบ compact ซ่อนแถวบทบาท/รหัสทั้งแถว — ฝั่งเซลส์กับแอดมิน
+                  จึงไม่มีอะไรบอกเลยว่ากำลังใช้งานเป็นใคร ซึ่งสำคัญมากเมื่อคนหนึ่ง
+                  ดูแลหลายคลังหรือแอดมินสลับเข้ามุมมองเซลล์
+                */}
+                {salesCompactHeader && session && (
+                  <p className="truncate text-[11px] leading-tight text-slate-500 dark:text-slate-400">
+                    {session.salesmanName ?? session.name ?? session.email}
+                    {session.salesmanCode ? ` · ${session.salesmanCode}` : ""}
+                    {session.role === "admin" ? " · Admin" : ""}
+                  </p>
+                )}
                 {subtitle && !compact && (
                   <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
                     {subtitle}
