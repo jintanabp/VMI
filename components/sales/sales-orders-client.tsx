@@ -1,7 +1,7 @@
 "use client";
 
 import { appPath } from "@/lib/paths";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Trash2 } from "lucide-react";
 import { useSalesSession } from "@/hooks/use-sales-session";
@@ -194,6 +194,36 @@ export function SalesOrdersClient() {
   // query ที่ disabled จะรายงาน isLoading = false — ถ้าใช้ค่านั้นตรง ๆ
   // จะโชว์ "ไม่มีออเดอร์" แวบหนึ่งก่อน session มาถึง
   const showLoading = !ordersReady || isLoading;
+
+  /**
+   * ร้านส่งออเดอร์ใหม่เข้ามาระหว่างที่เซลล์เปิดหน้านี้ค้างไว้ — เดิมลิสต์ไม่รีเฟรชเลย
+   * (ไม่มี poll และ refetchOnWindowFocus ปิดอยู่ทั้งระบบ) badge บนแท็บขึ้นเลขใหม่
+   * แต่ลิสต์ข้างล่างยังเป็นชุดเดิม เซลล์เห็นตัวเลขไม่ตรงกับของที่เห็นจริง
+   *
+   * ไม่ poll /api/orders ตรง ๆ เพราะ route นั้นคืนออเดอร์ทั้งหมดพร้อม items และ Sku
+   * แบบไม่แบ่งหน้า (เป็นเหตุผลที่ต้องแยก /api/sales/pending-count ออกมาตั้งแต่แรก)
+   * — ใช้วิธี poll ตัวนับที่เบา แล้วค่อยดึงลิสต์ใหม่เมื่อ "จำนวนเปลี่ยนจริง" เท่านั้น
+   */
+  const { data: pendingCount } = useQuery<{ pending: number }>({
+    queryKey: ["sales-pending-count"],
+    queryFn: async () => {
+      const r = await apiFetch(appPath("/api/sales/pending-count"));
+      if (!r.ok) return { pending: 0 };
+      return r.json();
+    },
+    refetchInterval: 60_000,
+    enabled: ordersReady,
+  });
+
+  const lastPending = useRef<number | null>(null);
+  useEffect(() => {
+    const n = pendingCount?.pending;
+    if (n == null) return;
+    if (lastPending.current !== null && lastPending.current !== n) {
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
+    }
+    lastPending.current = n;
+  }, [pendingCount?.pending, queryClient]);
 
   /**
    * ออเดอร์ที่ติ๊กเพื่ออนุมัติรวดได้ — ต้องยังรออนุมัติ และแบ่ง PO ผ่าน

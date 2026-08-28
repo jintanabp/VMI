@@ -2,7 +2,7 @@
 
 import { appPath } from "@/lib/paths";
 import { apiFetch } from "@/lib/api-fetch";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -260,6 +260,34 @@ export function OrderHistoryClient({
     },
     staleTime: 30_000,
   });
+
+  /**
+   * เซลล์อนุมัติ/ปฏิเสธระหว่างที่ร้านเปิดหน้านี้ค้างไว้ — เดิมการ์ดยังขึ้น "รออนุมัติ"
+   * ต่อไปจนกว่าร้านจะกด reload เอง ทั้งที่กระดิ่งข้างบนขึ้นเลขแจ้งเตือนใหม่แล้ว
+   * ข้อมูลบนจอเดียวกันจึงขัดกันเอง
+   *
+   * กระดิ่ง poll ทุก 60 วิอยู่แล้ว — เกาะจำนวนที่ยังไม่อ่านของมัน แล้วดึงประวัติใหม่
+   * เมื่อมีแจ้งเตือนเข้ามาจริง (ไม่ poll ประวัติเองซ้ำอีกชุด)
+   */
+  const { data: notiCount } = useQuery<{ unread: number }>({
+    queryKey: ["store-notifications-count"],
+    queryFn: async () => {
+      const r = await apiFetch(appPath("/api/store/notifications?count=1"));
+      if (!r.ok) return { unread: 0 };
+      return r.json();
+    },
+    refetchInterval: 60_000,
+  });
+
+  const lastUnread = useRef<number | null>(null);
+  useEffect(() => {
+    const n = notiCount?.unread;
+    if (n == null) return;
+    if (lastUnread.current !== null && n !== lastUnread.current) {
+      void queryClient.invalidateQueries({ queryKey: ["order-history"] });
+    }
+    lastUnread.current = n;
+  }, [notiCount?.unread, queryClient]);
 
   const cancelOrder = useMutation({
     mutationFn: async (orderId: string) => {

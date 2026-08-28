@@ -34,6 +34,7 @@ import {
 } from "@/lib/promo/promo-group-display";
 import { Checkbox } from "@/components/ui/checkbox";
 import { apiFetch } from "@/lib/api-fetch";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 
 export interface ReviewOrderItem {
   id: string;
@@ -293,11 +294,22 @@ export function OrderReviewTable({
   const [promoOnly, setPromoOnly] = useState(false);
   const lineKey = items.map((i) => `${i.sku.code}:${i.finalQty}`).join("|");
 
+  /**
+   * หน่วง 350ms ก่อนถามราคาใหม่ — ฝั่งร้านค้าทำแบบนี้อยู่แล้ว (order-page-client)
+   *
+   * ไม่มีการหน่วง การกดปุ่ม −/+ ทุกครั้งจะเปลี่ยน queryKey ทั้งก้อน react-query
+   * จึงถือว่าเป็นคิวรีใหม่ (isLoading ไม่ใช่ isFetching) ผลคือคอลัมน์มูลค่า
+   * "ทุกแถว" กลายเป็น "..." และบล็อกโปรหายแล้วโผล่ใหม่ทุกครั้งที่กดหนึ่งที
+   */
+  const debouncedLineKey = useDebouncedValue(lineKey, 350);
+
   const { data: promoData, isLoading: promoLoading } = useQuery<{
     lines: PromoApiLine[];
     orderTotal: number | null;
   }>({
-    queryKey: ["order-promo", storeCode, lineKey],
+    queryKey: ["order-promo", storeCode, debouncedLineKey],
+    // คงผลเดิมไว้ระหว่างรอชุดใหม่ — ตัวเลขเก่าดีกว่าช่องว่างที่กะพริบ
+    placeholderData: (prev) => prev,
     queryFn: () =>
       apiFetch(appPath("/api/sales/order-promo"), {
         method: "POST",
