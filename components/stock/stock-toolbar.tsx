@@ -100,7 +100,7 @@ const VIEW_TABS: {
     shortLabel: "วิกฤต",
     icon: <AlertTriangle className="h-3.5 w-3.5" />,
     tone: "red",
-    hint: "จะหมดก่อนถึงจำนวนวันขั้นต่ำ (CVD < MIN)",
+    hint: "ของจะหมดก่อนของรอบใหม่มาถึง — สั่งอย่างเดียวอาจไม่ทัน",
     hideWhenEmpty: true,
   },
   {
