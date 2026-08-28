@@ -13,6 +13,7 @@ import {
 } from "@/lib/admin/admin-nav";
 import { appPath } from "@/lib/paths";
 import { cn } from "@/lib/utils";
+import { apiFetch } from "@/lib/api-fetch";
 
 /**
  * แท็บหมวดหลักของหน้าแอดมิน
@@ -73,7 +74,7 @@ export function AdminTabsNav() {
   useEffect(() => {
     // endpoint เดียวสำหรับตัวเลขบนแท็บ — เดิมทุกแท็บยิง /api/admin/store-accounts
     // เองคนละครั้งเพื่อเลขตัวเดียว
-    fetch(appPath("/api/admin/badges"))
+    apiFetch(appPath("/api/admin/badges"))
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => setBadges(d))
       .catch(() => {});

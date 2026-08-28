@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Modal, ModalBody, ModalHeader } from "@/components/ui/modal";
 import { NoticeBanner } from "@/components/ui/notice-banner";
 import { appPath } from "@/lib/paths";
+import { apiFetch } from "@/lib/api-fetch";
 
 /**
  * ค้นหารหัสลูกค้าจาก dim_customer
@@ -69,7 +70,7 @@ export function CustomerCodePicker({
     }
     let cancelled = false;
     setLoading(true);
-    fetch(appPath(`/api/admin/customers/search?q=${encodeURIComponent(q)}&limit=20`))
+    apiFetch(appPath(`/api/admin/customers/search?q=${encodeURIComponent(q)}&limit=20`))
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (!cancelled) setData(d);

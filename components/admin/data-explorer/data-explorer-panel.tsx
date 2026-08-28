@@ -21,6 +21,7 @@ import { appPath } from "@/lib/paths";
 import { cn } from "@/lib/utils";
 import { RawRowModal, type RawRowDetail } from "./raw-row-modal";
 import { RawTable, type RawCell, type RawColumn, type RawRow } from "./raw-table";
+import { apiFetch } from "@/lib/api-fetch";
 
 /**
  * หน้า "ดูข้อมูลดิบ" — เปิดตารางเต็มของทุกแหล่งข้อมูลที่ระบบใช้
@@ -175,7 +176,7 @@ export function DataExplorerPanel() {
   const sourcesQuery = useQuery<SourcesResponse>({
     queryKey: ["data-explorer", "sources"],
     queryFn: async () => {
-      const res = await fetch(appPath("/api/admin/data-explorer/sources"));
+      const res = await apiFetch(appPath("/api/admin/data-explorer/sources"));
       if (!res.ok) throw new Error("โหลดรายการแหล่งข้อมูลไม่สำเร็จ");
       return res.json();
     },
@@ -200,7 +201,7 @@ export function DataExplorerPanel() {
       });
       if (search) params.set("q", search);
       if (lastVersion.current) params.set("v", lastVersion.current);
-      const res = await fetch(
+      const res = await apiFetch(
         appPath(`/api/admin/data-explorer/csv?${params.toString()}`)
       );
       const body = await res.json();
@@ -231,7 +232,7 @@ export function DataExplorerPanel() {
       });
       if (sort.key) params.set("sort", sort.key);
       if (search) params.set("q", search);
-      const res = await fetch(
+      const res = await apiFetch(
         appPath(`/api/admin/data-explorer/db?${params.toString()}`)
       );
       const body = await res.json();

@@ -13,6 +13,7 @@ services:
       FABRIC_CACHE_DIR: /app/data/cache
       BACKUP_DIR: /app/backups
       MASTER_REFRESH_ENABLED: "true"
+      VMI_BACKUP_ON_START: "true"
     ports:
       - "127.0.0.1:3002:3000"
     volumes:
@@ -20,6 +21,12 @@ services:
       - vmi_backups:/app/backups
       - vmi_logs:/app/logs
     restart: unless-stopped
+    # ไม่จำกัด = log โตไม่หยุดจนเต็มดิสก์บนคอนเทนเนอร์ที่รันยาว
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     healthcheck:
       # ต้องมี -L และ / ปิดท้าย — trailingSlash:true ทำให้ path นี้คืน 308 ไป /health/
       # curl -f exit 0 บน 308 โดยไม่ตาม redirect = healthcheck ผ่านโดยไม่เคยรัน handler

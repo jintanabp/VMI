@@ -17,6 +17,7 @@ import { PageShell } from "@/components/layout/page-shell";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { SalesNav } from "./sales-nav";
+import { apiFetch } from "@/lib/api-fetch";
 
 interface NotiItem {
   id: string;
@@ -86,7 +87,7 @@ export function SalesNotificationsClient() {
   const { data, isLoading, isError, refetch } = useQuery<NotiResponse>({
     queryKey: ["sales-notifications"],
     queryFn: async () => {
-      const res = await fetch(appPath("/api/sales/notifications"));
+      const res = await apiFetch(appPath("/api/sales/notifications"));
       if (!res.ok) throw new Error(`โหลดการแจ้งเตือนไม่สำเร็จ (${res.status})`);
       return (await res.json()) as NotiResponse;
     },
@@ -117,7 +118,7 @@ export function SalesNotificationsClient() {
   async function ack(type: "block" | "order", ids?: string[]) {
     setAcking(true);
     try {
-      await fetch(appPath("/api/sales/notifications"), {
+      await apiFetch(appPath("/api/sales/notifications"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ type, ...(ids ? { ids } : {}) }),

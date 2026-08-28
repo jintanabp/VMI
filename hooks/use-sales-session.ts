@@ -3,13 +3,14 @@
 import { appPath } from "@/lib/paths";
 import { useEffect, useState } from "react";
 import type { SalesSession } from "@/lib/auth/sales-session";
+import { apiFetch } from "@/lib/api-fetch";
 
 export function useSalesSession() {
   const [session, setSession] = useState<SalesSession | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch(appPath("/api/auth/msal/me"))
+    apiFetch(appPath("/api/auth/msal/me"))
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => setSession(data?.user ?? null))
       .finally(() => setLoading(false));

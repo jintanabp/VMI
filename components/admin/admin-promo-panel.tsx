@@ -28,6 +28,7 @@ import type {
   PromoMonthSku,
 } from "@/lib/promo/promo-month";
 import { cn } from "@/lib/utils";
+import { apiFetch } from "@/lib/api-fetch";
 
 /** ชื่อภาคแบบไทย — คีย์ตรงกับหัวคอลัมน์ภูมิภาคในไฟล์ C4 */
 const REGION_LABEL: Record<string, string> = {
@@ -115,7 +116,7 @@ export function AdminPromoPanel() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(appPath("/api/admin/promo"), {
+      const res = await apiFetch(appPath("/api/admin/promo"), {
         cache: "no-store",
       });
       if (!res.ok) {

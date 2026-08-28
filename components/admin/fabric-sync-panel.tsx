@@ -20,6 +20,7 @@ import {
   MobileStat,
 } from "@/components/ui/mobile-row";
 import { cn } from "@/lib/utils";
+import { apiFetch } from "@/lib/api-fetch";
 
 interface DatasetRow {
   id: string;
@@ -168,7 +169,7 @@ export function FabricSyncPanel() {
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch(appPath("/api/admin/refresh-status"), {
+      const res = await apiFetch(appPath("/api/admin/refresh-status"), {
         cache: "no-store",
       });
       if (!res.ok) throw new Error(`โหลดสถานะไม่สำเร็จ (${res.status})`);
@@ -195,7 +196,7 @@ export function FabricSyncPanel() {
     setBusy(key);
     setError(null);
     try {
-      const res = await fetch(appPath("/api/admin/refresh-masters"), {
+      const res = await apiFetch(appPath("/api/admin/refresh-masters"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(datasets ? { datasets } : {}),

@@ -17,6 +17,7 @@ import {
   CustomerCodePicker,
   type CustomerHit,
 } from "./customer-code-picker";
+import { apiFetch } from "@/lib/api-fetch";
 
 /**
  * ทะเบียนคลัง VDA — "vda1 คือลูกค้ารหัสไหน"
@@ -81,7 +82,7 @@ export function VdaWarehousePanel() {
     if (missing.length === 0) return;
 
     let cancelled = false;
-    fetch(appPath(`/api/admin/customers/resolve?codes=${encodeURIComponent(missing.join(","))}`))
+    apiFetch(appPath(`/api/admin/customers/resolve?codes=${encodeURIComponent(missing.join(","))}`))
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (cancelled || !d?.customers) return;
@@ -125,7 +126,7 @@ export function VdaWarehousePanel() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(appPath("/api/admin/vda-warehouses"), {
+      const res = await apiFetch(appPath("/api/admin/vda-warehouses"), {
         cache: "no-store",
       });
       if (!res.ok) throw new Error(`โหลดทะเบียนคลังไม่สำเร็จ (${res.status})`);
@@ -167,7 +168,7 @@ export function VdaWarehousePanel() {
             active: r.active,
           })),
       };
-      const res = await fetch(appPath("/api/admin/vda-warehouses"), {
+      const res = await apiFetch(appPath("/api/admin/vda-warehouses"), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

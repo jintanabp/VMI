@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { appPath } from "@/lib/paths";
+import { apiFetch } from "@/lib/api-fetch";
 
 export interface DataVersionInfo {
   version: string;
@@ -29,7 +30,7 @@ export function useDataVersion(
   const { data } = useQuery<DataVersionInfo>({
     queryKey: ["data-version"],
     queryFn: async () => {
-      const res = await fetch(appPath("/api/data-version"), {
+      const res = await apiFetch(appPath("/api/data-version"), {
         cache: "no-store",
       });
       if (!res.ok) throw new Error(`data-version ${res.status}`);

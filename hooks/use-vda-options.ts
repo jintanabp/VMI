@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { appPath } from "@/lib/paths";
 import { useSalesSession } from "@/hooks/use-sales-session";
+import { apiFetch } from "@/lib/api-fetch";
 
 export interface VdaAccessInfo {
   hasVdaAccess: boolean;
@@ -36,14 +37,14 @@ export function useVdaOptions() {
 
   const { data: vdaAccess } = useQuery<VdaAccessInfo>({
     queryKey: ["sales-vda-access"],
-    queryFn: () => fetch(appPath("/api/sales/vda-access")).then((r) => r.json()),
+    queryFn: () => apiFetch(appPath("/api/sales/vda-access")).then((r) => r.json()),
     enabled: !!session && !isAdmin,
   });
 
   const { data: vdaSources = [] } = useQuery<string[]>({
     queryKey: ["vda-sources"],
     queryFn: () =>
-      fetch(appPath("/api/vda"))
+      apiFetch(appPath("/api/vda"))
         .then((r) => r.json())
         .then((d) => (Array.isArray(d.sources) ? d.sources : [])),
     enabled: isAdmin,

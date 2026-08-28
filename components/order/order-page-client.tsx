@@ -262,7 +262,7 @@ export function OrderPageClient({
     if (lines.length === 0) return;
     const ctrl = new AbortController();
     const timer = setTimeout(() => {
-      void fetch(appPath("/api/promo/lookup"), {
+      void apiFetch(appPath("/api/promo/lookup"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

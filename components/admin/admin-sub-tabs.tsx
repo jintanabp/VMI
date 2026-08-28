@@ -7,6 +7,7 @@ import { matchAdminNav } from "@/lib/admin/admin-nav";
 import { appPath } from "@/lib/paths";
 import { cn } from "@/lib/utils";
 import { badgeState, type AdminBadges } from "./admin-tabs-nav";
+import { apiFetch } from "@/lib/api-fetch";
 
 /**
  * แท็บย่อยภายในหมวด
@@ -20,7 +21,7 @@ export function AdminSubTabs() {
   const match = matchAdminNav(pathname);
 
   useEffect(() => {
-    fetch(appPath("/api/admin/badges"))
+    apiFetch(appPath("/api/admin/badges"))
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => setBadges(d))
       .catch(() => {});

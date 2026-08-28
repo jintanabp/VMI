@@ -17,6 +17,7 @@ import {
   DEFAULT_MIN_DAYS,
 } from "@/lib/stock/threshold-defaults";
 import { cn } from "@/lib/utils";
+import { apiFetch } from "@/lib/api-fetch";
 
 interface GroupThreshold {
   section: string;
@@ -71,7 +72,7 @@ export function AdminThresholdsPanel() {
   );
 
   useEffect(() => {
-    fetch(appPath("/api/vda"))
+    apiFetch(appPath("/api/vda"))
       .then((r) => r.json())
       .then((d: { sources?: string[] }) => {
         const list = Array.isArray(d.sources) ? d.sources : [];
@@ -80,7 +81,7 @@ export function AdminThresholdsPanel() {
       })
       .catch(() => setVdaOptions([]));
 
-    fetch(appPath("/api/admin/store-accounts"))
+    apiFetch(appPath("/api/admin/store-accounts"))
       .then((r) => r.json())
       .then((d: { accounts?: StoreAccountRow[] }) =>
         setAccounts(Array.isArray(d.accounts) ? d.accounts : [])
@@ -95,8 +96,8 @@ export function AdminThresholdsPanel() {
     try {
       const qs = `?storeCode=${encodeURIComponent(code)}`;
       const [tRes, bRes] = await Promise.all([
-        fetch(appPath(`/api/admin/store-thresholds${qs}`), { cache: "no-store" }),
-        fetch(appPath(`/api/admin/store-blocklist${qs}`), { cache: "no-store" }),
+        apiFetch(appPath(`/api/admin/store-thresholds${qs}`), { cache: "no-store" }),
+        apiFetch(appPath(`/api/admin/store-blocklist${qs}`), { cache: "no-store" }),
       ]);
       if (!tRes.ok) throw new Error(`โหลด MIN/MAX ไม่สำเร็จ (${tRes.status})`);
       if (!bRes.ok) throw new Error(`โหลดรายการหยุดสั่งไม่สำเร็จ (${bRes.status})`);
@@ -154,7 +155,7 @@ export function AdminThresholdsPanel() {
     setBusy(section);
     setMsg(null);
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         appPath(
           `/api/admin/store-thresholds?storeCode=${encodeURIComponent(storeCode)}`
         ),
@@ -187,7 +188,7 @@ export function AdminThresholdsPanel() {
     setMsg(null);
     const failed: string[] = [];
     for (const code of vdaOptions) {
-      const res = await fetch(
+      const res = await apiFetch(
         appPath(`/api/admin/store-thresholds?storeCode=${encodeURIComponent(code)}`),
         {
           method: "PATCH",
@@ -213,7 +214,7 @@ export function AdminThresholdsPanel() {
     setBusy(skuId);
     setMsg(null);
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         appPath(
           `/api/admin/store-blocklist?storeCode=${encodeURIComponent(storeCode)}`
         ),

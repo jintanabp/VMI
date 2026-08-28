@@ -12,6 +12,7 @@ import { useSalesSession } from "@/hooks/use-sales-session";
 import { useAdminPreview } from "@/hooks/use-admin-preview";
 import { useSalesPreview } from "@/hooks/use-sales-preview";
 import { useAsyncAction } from "@/hooks/use-async-action";
+import { apiFetch } from "@/lib/api-fetch";
 
 interface AppHeaderProps {
   title: string;
@@ -68,11 +69,11 @@ export function AppHeader({
     // ล้าง cookie เป็น best-effort — ถ้าล้มก็ยังต้องพาผู้ใช้ออกจากโหมดทดสอบให้ได้
     try {
       if (salesPreview) {
-        await fetch(appPath("/api/auth/admin/exit-sales-preview"), {
+        await apiFetch(appPath("/api/auth/admin/exit-sales-preview"), {
           method: "POST",
         });
       } else if (adminPreview) {
-        await fetch(appPath("/api/auth/admin/exit-preview"), { method: "POST" });
+        await apiFetch(appPath("/api/auth/admin/exit-preview"), { method: "POST" });
       }
     } catch {
       // ไม่ต้องทำอะไร — ไปหน้า admin ต่อ
@@ -87,7 +88,7 @@ export function AppHeader({
         ? { path: "/api/auth/customer/logout", method: "POST" }
         : { path: "/api/auth/msal/session", method: "DELETE" };
     try {
-      await fetch(appPath(url.path), { method: url.method });
+      await apiFetch(appPath(url.path), { method: url.method });
     } finally {
       window.location.href = appPath("/");
     }

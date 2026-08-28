@@ -10,6 +10,7 @@ import { PageShell } from "@/components/layout/page-shell";
 import { Button } from "@/components/ui/button";
 import { AdminSubTabs } from "./admin-sub-tabs";
 import { AdminTabsNav } from "./admin-tabs-nav";
+import { apiFetch } from "@/lib/api-fetch";
 
 /**
  * โครงหน้าแอดมิน — header + แท็บ + แถบแจ้งโหมดทดสอบ
@@ -31,7 +32,7 @@ export function AdminShell({
   /** ออกจากโหมดทดสอบ — ล้าง cookie เป็น best-effort แล้ว reload เสมอ */
   const exitPreviewAction = useAsyncAction(async (path: string) => {
     try {
-      await fetch(appPath(path), { method: "POST" });
+      await apiFetch(appPath(path), { method: "POST" });
     } finally {
       window.location.reload();
     }

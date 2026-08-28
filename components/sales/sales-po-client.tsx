@@ -40,6 +40,7 @@ import {
 } from "@/lib/po/po-status";
 import { cn } from "@/lib/utils";
 import type { PurchaseOrderRow } from "@/app/api/sales/purchase-orders/route";
+import { apiFetch } from "@/lib/api-fetch";
 
 const KIND_LABEL: Record<string, string> = {
   c4: "ราคาตรง C4",
@@ -192,7 +193,7 @@ export function SalesPoClient() {
       params.set("dir", sortDir);
       params.set("page", String(page));
       params.set("pageSize", String(PAGE_SIZE));
-      const res = await fetch(
+      const res = await apiFetch(
         `${appPath("/api/sales/purchase-orders")}?${params.toString()}`
       );
       if (!res.ok) throw new Error(`โหลด PO ไม่สำเร็จ (${res.status})`);
@@ -246,7 +247,7 @@ export function SalesPoClient() {
     setActionError("");
     const poNumbers = [...selected].slice(0, MAX_BULK_EXPORT);
     if (poNumbers.length === 0) return;
-    const res = await fetch(appPath("/api/sales/purchase-orders/export"), {
+    const res = await apiFetch(appPath("/api/sales/purchase-orders/export"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ poNumbers }),
@@ -279,7 +280,7 @@ export function SalesPoClient() {
     setActionError("");
     const params = new URLSearchParams({ poNumbers: poNumbers.join(",") });
     if (!notifyStores) params.set("notify", "0");
-    const res = await fetch(
+    const res = await apiFetch(
       `${appPath("/api/sales/purchase-orders")}?${params.toString()}`,
       { method: "DELETE" }
     );
@@ -309,7 +310,7 @@ export function SalesPoClient() {
     setStatusBusy(poNumber);
     setActionError("");
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         appPath(`/api/sales/purchase-orders/${encodeURIComponent(poNumber)}`),
         {
           method: "PATCH",

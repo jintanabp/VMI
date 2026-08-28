@@ -81,8 +81,8 @@ export function StoreLoginForm() {
   async function submitSetPassword(e?: React.FormEvent) {
     e?.preventDefault();
     setError("");
-    if (password.length < 6) {
-      setError("รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร");
+    if (password.length < 8) {
+      setError("รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร");
       return;
     }
     if (password !== confirm) {

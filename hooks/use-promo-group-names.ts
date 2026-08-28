@@ -9,6 +9,7 @@ import {
   promoGroupTooltip,
   type PromoGroupNames,
 } from "@/lib/promo/promo-group-label";
+import { apiFetch } from "@/lib/api-fetch";
 
 export const PROMO_GROUP_NAMES_KEY = ["promo-assorted-names"] as const;
 
@@ -24,7 +25,7 @@ export function usePromoGroupNames() {
   const { data } = useQuery<PromoGroupNames>({
     queryKey: PROMO_GROUP_NAMES_KEY,
     queryFn: async () => {
-      const res = await fetch(appPath("/api/promo/assorted-names"));
+      const res = await apiFetch(appPath("/api/promo/assorted-names"));
       if (!res.ok) throw new Error(`assorted-names ${res.status}`);
       const json = (await res.json()) as { names?: PromoGroupNames };
       return json.names ?? EMPTY;

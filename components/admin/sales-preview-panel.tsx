@@ -19,6 +19,7 @@ import {
   CardHeader,
 } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { apiFetch } from "@/lib/api-fetch";
 
 type SalesPreviewScope = "with_vda" | "all";
 
@@ -69,7 +70,7 @@ export function SalesPreviewPanel() {
       const codeOnly =
         email.startsWith("__unmapped__:") ||
         email.startsWith("__code_preview__:");
-      const res = await fetch(appPath("/api/auth/admin/preview-sales"), {
+      const res = await apiFetch(appPath("/api/auth/admin/preview-sales"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(codeOnly && code ? { code } : { email, code }),

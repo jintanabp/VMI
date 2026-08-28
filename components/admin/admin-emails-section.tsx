@@ -13,6 +13,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { apiFetch } from "@/lib/api-fetch";
 
 export function AdminEmailsSection() {
   const [admins, setAdmins] = useState<
@@ -24,13 +25,13 @@ export function AdminEmailsSection() {
   const [confirmEmail, setConfirmEmail] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(appPath("/api/admin/admins"))
+    apiFetch(appPath("/api/admin/admins"))
       .then((r) => (r.ok ? r.json() : []))
       .then((data) => setAdmins(Array.isArray(data) ? data : []));
   }, []);
 
   async function reload() {
-    const data = await fetch(appPath("/api/admin/admins")).then((r) => r.json());
+    const data = await apiFetch(appPath("/api/admin/admins")).then((r) => r.json());
     setAdmins(Array.isArray(data) ? data : []);
   }
 
@@ -39,7 +40,7 @@ export function AdminEmailsSection() {
       setMsg("");
       const email = newEmail.trim();
       if (!email) return;
-      const res = await fetch(appPath("/api/admin/admins"), {
+      const res = await apiFetch(appPath("/api/admin/admins"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
@@ -61,7 +62,7 @@ export function AdminEmailsSection() {
   const removeAdmin = useAsyncAction(
     async (email: string) => {
       setMsg("");
-      const res = await fetch(
+      const res = await apiFetch(
         appPath(`/api/admin/admins?email=${encodeURIComponent(email)}`),
         { method: "DELETE" }
       );

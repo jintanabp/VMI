@@ -13,6 +13,7 @@ import {
 } from "@/lib/orders/store-notify-display";
 import type { StoreNotificationRow } from "@/lib/orders/store-notify";
 import { cn } from "@/lib/utils";
+import { apiFetch } from "@/lib/api-fetch";
 
 /** จำนวนที่โชว์ก่อนกดกาง */
 const COLLAPSED = 6;
@@ -51,7 +52,7 @@ export function StoreNotificationBell() {
       const url = appPath(
         `/api/store/notifications?count=1${since ? `&since=${encodeURIComponent(since)}` : ""}`
       );
-      const r = await fetch(url);
+      const r = await apiFetch(url);
       if (!r.ok) return { unread: 0 };
       return r.json();
     },
@@ -67,7 +68,7 @@ export function StoreNotificationBell() {
   }>({
     queryKey: ["store-notifications"],
     queryFn: async () => {
-      const res = await fetch(appPath("/api/store/notifications"), {
+      const res = await apiFetch(appPath("/api/store/notifications"), {
         cache: "no-store",
       });
       if (!res.ok) return { items: [], unread: 0 };
@@ -81,7 +82,7 @@ export function StoreNotificationBell() {
 
   const markRead = useMutation({
     mutationFn: async () => {
-      await fetch(appPath("/api/store/notifications"), {
+      await apiFetch(appPath("/api/store/notifications"), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),

@@ -13,6 +13,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { apiFetch } from "@/lib/api-fetch";
 
 export interface StoreAccountRow {
   id: string;
@@ -53,7 +54,7 @@ export function StoreAccountsPanel({
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(appPath("/api/admin/store-accounts"));
+      const res = await apiFetch(appPath("/api/admin/store-accounts"));
       const data = await res.json();
       const rows: StoreAccountRow[] = Array.isArray(data.accounts)
         ? data.accounts
@@ -70,7 +71,7 @@ export function StoreAccountsPanel({
 
   useEffect(() => {
     void load();
-    fetch(appPath("/api/vda"))
+    apiFetch(appPath("/api/vda"))
       .then((r) => r.json())
       .then((d: { sources?: string[] }) =>
         setVdaOptions(Array.isArray(d.sources) ? d.sources : [])
@@ -81,7 +82,7 @@ export function StoreAccountsPanel({
   async function act(email: string, body: Record<string, unknown>) {
     setBusy(email);
     try {
-      const res = await fetch(appPath("/api/admin/store-accounts"), {
+      const res = await apiFetch(appPath("/api/admin/store-accounts"), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, ...body }),
@@ -111,7 +112,7 @@ export function StoreAccountsPanel({
     setBusy("__add__");
     setAddError("");
     try {
-      const res = await fetch(appPath("/api/admin/store-accounts"), {
+      const res = await apiFetch(appPath("/api/admin/store-accounts"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...addForm, email }),
@@ -138,7 +139,7 @@ export function StoreAccountsPanel({
     }
     setBusy(currentEmail);
     try {
-      const res = await fetch(appPath("/api/admin/store-accounts"), {
+      const res = await apiFetch(appPath("/api/admin/store-accounts"), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -165,7 +166,7 @@ export function StoreAccountsPanel({
     try {
       // ต้องผ่าน appPath() (basePath /vmi) และต้องเช็ค res.ok
       // เดิมยิงผิด path แล้วเรียก load() ทุกกรณี ⇒ ลบไม่สำเร็จก็ดูเหมือนสำเร็จ
-      const res = await fetch(
+      const res = await apiFetch(
         appPath(`/api/admin/store-accounts?email=${encodeURIComponent(email)}`),
         { method: "DELETE" }
       );

@@ -180,7 +180,7 @@ export function ManageClient({
     setResetting(true);
     setResetMsg("");
     try {
-      const res = await fetch(appPath("/api/auth/store/request-reset"), {
+      const res = await apiFetch(appPath("/api/auth/store/request-reset"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
@@ -504,7 +504,7 @@ function BlockRow({
     setBusy(true);
     setError("");
     try {
-      const res = await fetch(appPath("/api/store/blocklist"), {
+      const res = await apiFetch(appPath("/api/store/blocklist"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -536,7 +536,7 @@ function BlockRow({
     if (!confirm("ยกเลิกการหยุดสั่งสินค้านี้? ระบบจะกลับมาแนะนำสั่งตามปกติ")) return;
     setBusy(true);
     try {
-      const res = await fetch(appPath("/api/store/blocklist"), {
+      const res = await apiFetch(appPath("/api/store/blocklist"), {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ skuIds: [block.skuId] }),
@@ -716,7 +716,7 @@ function BulkBrandThresholds({
     setMsg("");
     setError("");
     try {
-      const res = await fetch(appPath("/api/store/thresholds"), {
+      const res = await apiFetch(appPath("/api/store/thresholds"), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -978,7 +978,7 @@ function SectionCard({
     setError("");
     setSavedFlag(false);
     try {
-      const res = await fetch(appPath("/api/store/thresholds"), {
+      const res = await apiFetch(appPath("/api/store/thresholds"), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1007,7 +1007,7 @@ function SectionCard({
     setError("");
     setSavedFlag(false);
     try {
-      const res = await fetch(appPath("/api/store/thresholds"), {
+      const res = await apiFetch(appPath("/api/store/thresholds"), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1042,7 +1042,7 @@ function SectionCard({
     setError("");
     setSavedFlag(false);
     try {
-      const res = await fetch(appPath("/api/store/thresholds"), {
+      const res = await apiFetch(appPath("/api/store/thresholds"), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1227,7 +1227,7 @@ function SkuOverrideRow({
     setSaving(true);
     setSavedFlag(false);
     try {
-      const res = await fetch(appPath("/api/store/thresholds"), {
+      const res = await apiFetch(appPath("/api/store/thresholds"), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1250,7 +1250,7 @@ function SkuOverrideRow({
     setResetting(true);
     setSavedFlag(false);
     try {
-      const res = await fetch(appPath("/api/store/thresholds"), {
+      const res = await apiFetch(appPath("/api/store/thresholds"), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

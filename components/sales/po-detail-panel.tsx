@@ -12,6 +12,7 @@ import { collectOwedFreeGoods } from "@/lib/promo/order-free-goods";
 import { usePromoGroupNames } from "@/hooks/use-promo-group-names";
 import { cn } from "@/lib/utils";
 import type { PoDocument } from "@/lib/po/po-document";
+import { apiFetch } from "@/lib/api-fetch";
 
 const KIND_LABEL: Record<string, string> = {
   c4: "ราคาตรง C4",
@@ -53,7 +54,7 @@ export function PoDetailPanel({
   const { data, isLoading, isError, refetch } = useQuery<PoDocument>({
     queryKey: ["po-detail", poNumber],
     queryFn: async () => {
-      const res = await fetch(
+      const res = await apiFetch(
         appPath(
           `/api/sales/purchase-orders/${encodeURIComponent(poNumber)}?format=view`
         )

@@ -2,6 +2,7 @@
 
 import { appPath } from "@/lib/paths";
 import { useCallback, useEffect, useState } from "react";
+import { apiFetch } from "@/lib/api-fetch";
 
 export interface PersonCodeAssignment {
   code: string;
@@ -54,7 +55,7 @@ export function useVdaSalesDirectory(enabled = true) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(appPath("/api/admin/vda-sales"));
+      const res = await apiFetch(appPath("/api/admin/vda-sales"));
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error ?? `HTTP ${res.status}`);

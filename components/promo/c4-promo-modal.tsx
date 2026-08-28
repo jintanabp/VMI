@@ -16,6 +16,7 @@ import { plannerView, blendedNetForStep } from "@/lib/promo/planner-utils";
 import { planPromoGroupStepFix } from "@/lib/promo/promo-step";
 import type { PromoTierInput } from "@/lib/calculations";
 import { usePromoGroupNames } from "@/hooks/use-promo-group-names";
+import { apiFetch } from "@/lib/api-fetch";
 
 function fmt(n: number | null | undefined) {
   if (n == null || Number.isNaN(n)) return "—";
@@ -82,7 +83,7 @@ export function C4PromoModal({
     const group = promoGroup?.trim();
     if (group) q.set("group", group);
     else q.set("sku", skuCode);
-    fetch(`${appPath("/api/promo/inspector")}?${q}`)
+    apiFetch(`${appPath("/api/promo/inspector")}?${q}`)
       .then((r) => (r.ok ? r.json() : r.json().then((e) => Promise.reject(e))))
       .then((payload: PromoInspectorResult) => {
         if (!alive) return;

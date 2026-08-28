@@ -27,7 +27,10 @@ function handleAuthError(error: unknown) {
   if (window.location.pathname.includes("/login")) return;
   redirecting = true;
   // /login ต้องมี mode ไม่งั้นเด้งออกไปหน้าแรก — เดาจาก path ปัจจุบัน
-  const mode = window.location.pathname.includes("/sales") ? "sales" : "customer";
+  // /admin ใช้ session เดียวกับเซลล์ (Microsoft) ไม่ใช่ล็อกอินร้าน
+  const path = window.location.pathname;
+  const mode =
+    path.includes("/sales") || path.includes("/admin") ? "sales" : "customer";
   window.location.href = appPath(`/login?mode=${mode}&reason=session`);
 }
 

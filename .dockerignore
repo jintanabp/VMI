@@ -1,0 +1,32 @@
+# Dockerfile ใช้ `COPY . .` — ทุกอย่างที่ไม่กันไว้จะถูกส่งเข้า build context
+# ที่สำคัญคือ prisma/dev.db (ฐานข้อมูล dev หลุดเข้า image) และ data/cache
+# (ไฟล์ CSV รวมกันเกือบ 100MB ที่ container โหลดใหม่เองอยู่แล้ว)
+
+node_modules
+.next
+out
+
+# ข้อมูลและผลลัพธ์ที่เกิดตอนรัน — container มี volume ของตัวเอง
+data
+backups
+logs
+prisma/dev.db
+prisma/dev.db-journal
+prisma/dev.db-wal
+prisma/dev.db-shm
+
+# ความลับ
+.env
+.env.*
+!.env.example
+
+# ไม่เกี่ยวกับการ build
+.git
+.gitignore
+.claude
+notebooks
+docs
+tests
+README.md
+*.md
+!package.json

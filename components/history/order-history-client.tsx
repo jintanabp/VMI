@@ -258,7 +258,7 @@ export function OrderHistoryClient({
 
   const cancelOrder = useMutation({
     mutationFn: async (orderId: string) => {
-      const res = await fetch(
+      const res = await apiFetch(
         appPath(`/api/store/orders?orderId=${encodeURIComponent(orderId)}`),
         { method: "DELETE" }
       );

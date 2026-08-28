@@ -16,14 +16,12 @@ import {
 } from "./refresh-status";
 import { syncFabricSalesReps } from "./sync-sales-reps";
 import { requiredRefreshSucceeded, type DatasetId } from "./datasets";
+import { maxDataAgeHours } from "./data-age";
 
 const RETRY_DELAYS_MS = [5 * 60_000, 15 * 60_000, 30 * 60_000];
 
 /** อายุข้อมูลกลางที่ยอมรับได้ — เกินนี้ boot จะไล่ตามและปุ่มร้านจะสั่งดึงจริง */
-export function maxDataAgeHours(): number {
-  const n = Number(process.env.MASTER_REFRESH_MAX_AGE_HOURS ?? "20");
-  return Number.isFinite(n) && n > 0 ? n : 20;
-}
+export { maxDataAgeHours };
 
 function getBangkokTime(): { hours: number; minutes: number; seconds: number } {
   const str = new Date().toLocaleString("en-US", {
@@ -171,7 +169,10 @@ async function doRefresh(
   }
 
   // สำรอง DB เฉพาะรอบอัตโนมัติประจำวัน — ปุ่มที่คนกดต้องตอบเร็ว
-  if (trigger === "scheduler" && ok) {
+  //
+  // ไม่ผูกกับ `ok`: วันที่ sync พังคือวันที่อยากได้สแนปช็อตที่สุด ถ้ารอให้ sync
+  // สำเร็จก่อน backup จะหยุดเงียบ ๆ ตลอดช่วงที่ข้อมูลต้นทางมีปัญหา
+  if (trigger === "scheduler") {
     try {
       const { execFile } = await import("child_process");
       const { promisify } = await import("util");

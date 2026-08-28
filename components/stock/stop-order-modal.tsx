@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Modal, ModalBody, ModalFooter } from "@/components/ui/modal";
 import { cn } from "@/lib/utils";
+import { apiFetch } from "@/lib/api-fetch";
 
 export function StopOrderModal({
   open,
@@ -47,7 +48,7 @@ export function StopOrderModal({
     setSaving(true);
     setError("");
     try {
-      const res = await fetch(appPath("/api/store/blocklist"), {
+      const res = await apiFetch(appPath("/api/store/blocklist"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

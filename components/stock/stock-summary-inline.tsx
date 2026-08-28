@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import {
+  AlertTriangle,
   Boxes,
   CalendarClock,
   Clock,
@@ -97,6 +98,7 @@ export function StockSummaryInline({
   summary,
   mode,
   dataDate,
+  dataStaleness,
   refreshing,
   statusMsg,
   onRefresh,
@@ -104,10 +106,20 @@ export function StockSummaryInline({
   summary: StockSummary;
   mode: "list" | "promo";
   dataDate?: string | null;
+  dataStaleness?: { tone: "fresh" | "stale" | "veryStale"; ageHours: number } | null;
   refreshing: boolean;
   statusMsg?: { text: string; tone: "info" | "warn" } | null;
   onRefresh: () => void;
 }) {
+  const stale = dataStaleness && dataStaleness.tone !== "fresh";
+  const staleDays = dataStaleness
+    ? Math.floor(dataStaleness.ageHours / 24)
+    : 0;
+  const staleTitle = stale
+    ? `ข้อมูลเก่ากว่าปกติ — ยังไม่ได้ sync ${
+        staleDays >= 1 ? `${staleDays} วัน` : `${Math.floor(dataStaleness!.ageHours)} ชม.`
+      } · ตัวเลข cover day และ "แนะนำ" อาจไม่ตรงของจริง`
+    : `ข้อมูลจาก Fabric ณ ${dataDate}`;
   const valueSource = valueSourceNote(summary);
   const metrics: Metric[] = [
     {
@@ -219,14 +231,41 @@ export function StockSummaryInline({
         <div className="flex shrink-0 items-center gap-1.5 border-l border-slate-200/80 pl-2 pr-1 dark:border-slate-700/60">
           {dataDate && (
             <span
-              className="hidden flex-col leading-none sm:flex"
-              title={`ข้อมูลจาก Fabric ณ ${dataDate}`}
+              className={cn(
+                "hidden flex-col leading-none sm:flex",
+                stale && "rounded-lg px-1.5 py-1",
+                dataStaleness?.tone === "stale" &&
+                  "bg-amber-50 dark:bg-amber-950/40",
+                dataStaleness?.tone === "veryStale" &&
+                  "bg-rose-50 dark:bg-rose-950/40"
+              )}
+              title={staleTitle}
             >
-              <span className="text-[10px] font-medium tracking-wide text-slate-400 dark:text-slate-500">
-                ข้อมูล ณ
+              <span
+                className={cn(
+                  "text-[10px] font-medium tracking-wide text-slate-400 dark:text-slate-500",
+                  dataStaleness?.tone === "stale" &&
+                    "text-amber-700 dark:text-amber-400",
+                  dataStaleness?.tone === "veryStale" &&
+                    "text-rose-700 dark:text-rose-400"
+                )}
+              >
+                {stale ? "ข้อมูลค้าง" : "ข้อมูล ณ"}
               </span>
-              <span className="mt-1 flex items-center gap-1 text-[11px] font-medium leading-none text-slate-500 dark:text-slate-400">
-                <Clock className="h-3 w-3" />
+              <span
+                className={cn(
+                  "mt-1 flex items-center gap-1 text-[11px] font-medium leading-none text-slate-500 dark:text-slate-400",
+                  dataStaleness?.tone === "stale" &&
+                    "text-amber-700 dark:text-amber-400",
+                  dataStaleness?.tone === "veryStale" &&
+                    "text-rose-700 dark:text-rose-400"
+                )}
+              >
+                {stale ? (
+                  <AlertTriangle className="h-3 w-3" />
+                ) : (
+                  <Clock className="h-3 w-3" />
+                )}
                 {dataDate}
               </span>
             </span>

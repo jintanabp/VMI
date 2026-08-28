@@ -146,6 +146,8 @@ interface StockApiResponse {
   activeFromDb: string | null;
   filterMode: string | null;
   dataDate: string | null;
+  /** ข้อมูลเก่ากว่ากี่ชั่วโมงถือว่าค้าง (เกณฑ์เดียวกับ scheduler) */
+  staleAfterHours?: number;
   rows: StockRowComputed[];
 }
 
@@ -233,7 +235,7 @@ export function StockPageClient({
   }>({
     queryKey: ["order-history-recent"],
     queryFn: async () => {
-      const res = await fetch(
+      const res = await apiFetch(
         appPath("/api/store/order-history?summary=1&days=14"),
         { cache: "no-store" }
       );
@@ -259,6 +261,10 @@ export function StockPageClient({
   const suggestByProduct = useMemo(() => buildSuggestByProduct(rows), [rows]);
   const activeVda = data?.activeFromDb ?? storeCode;
   const dataDate = data?.dataDate ?? null;
+  const dataStaleness = useMemo(
+    () => resolveDataStaleness(dataDate, data?.staleAfterHours),
+    [dataDate, data?.staleAfterHours]
+  );
   // header ของหน้านี้เป็นแบบ compact (ซ่อนบล็อกชื่อร้าน) จึงต่อชื่อร้านเข้ากับ title เอง
   const headerTitle = useMemo(() => {
     const base = `สต็อก · ${activeVda.toUpperCase()}`;
@@ -337,7 +343,7 @@ export function StockPageClient({
     }
 
     // POST เสมอ — รายการจำนวนที่แก้ไว้ยาวเกินกว่าจะใส่ใน URL ได้ปลอดภัย
-    const res = await fetch(appPath("/api/stock/export"), {
+    const res = await apiFetch(appPath("/api/stock/export"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -367,7 +373,7 @@ export function StockPageClient({
   /** ยกเลิกหยุดสั่ง — เดิมไม่มี pending และเงียบสนิทเมื่อ server ปฏิเสธ */
   const unblockAction = useAsyncAction(
     async (skuId: string) => {
-      const res = await fetch(appPath("/api/store/blocklist"), {
+      const res = await apiFetch(appPath("/api/store/blocklist"), {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ skuIds: [skuId] }),
@@ -522,7 +528,7 @@ export function StockPageClient({
     setRefreshing(true);
     setRefreshMsg("");
     try {
-      const res = await fetch(appPath("/api/stock/refresh"), { method: "POST" });
+      const res = await apiFetch(appPath("/api/stock/refresh"), { method: "POST" });
       const data = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
         queued?: boolean;
@@ -1352,6 +1358,7 @@ export function StockPageClient({
           }}
           mode={mode}
           dataDate={dataDate ? formatDataDate(dataDate) : null}
+          dataStaleness={dataStaleness}
           refreshing={refreshing}
           statusMsg={
             exportAction.pending
@@ -2547,6 +2554,29 @@ function formatDataDate(iso: string) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+export type DataStaleness = {
+  tone: "fresh" | "stale" | "veryStale";
+  ageHours: number;
+} | null;
+
+/**
+ * ข้อมูลที่ร้านกำลังดูเก่าแค่ไหน — เทียบกับเกณฑ์เดียวกับที่ scheduler ใช้
+ * เกินเกณฑ์ = เหลือง, เกินสองเท่า = แดง (sync พลาดติดกันหลายรอบแล้ว)
+ */
+function resolveDataStaleness(
+  dataDate: string | null,
+  staleAfterHours: number | undefined
+): DataStaleness {
+  if (!dataDate || !staleAfterHours || staleAfterHours <= 0) return null;
+  const ms = new Date(dataDate).getTime();
+  if (Number.isNaN(ms)) return null;
+
+  const ageHours = (Date.now() - ms) / 3_600_000;
+  if (ageHours > staleAfterHours * 2) return { tone: "veryStale", ageHours };
+  if (ageHours > staleAfterHours) return { tone: "stale", ageHours };
+  return { tone: "fresh", ageHours };
 }
 
 /** สรุปการสั่งล่าสุดต่อ SKU จาก /api/store/order-history?summary=1 */

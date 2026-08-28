@@ -3,6 +3,17 @@ import {
   getStoreAccountByEmail,
   requestStoreAccount,
 } from "@/lib/auth/store-account";
+import {
+  checkRateLimit,
+  clientIp,
+  tooManyRequests,
+} from "@/lib/auth/rate-limit";
+
+/**
+ * 5 ครั้ง/ชม./IP — route นี้ตอบต่างกันระหว่างอีเมลที่มีบัญชีกับไม่มี (ไล่เดาอีเมล
+ * ในองค์กรได้) และยังสร้างแถว pending ให้คนนอกได้ไม่จำกัดถ้าไม่จำกัดจำนวน
+ */
+const REQUEST_RULE = { limit: 5, windowMs: 60 * 60 * 1000 };
 
 function stepFor(account: {
   status: string;
@@ -24,6 +35,9 @@ export async function POST(request: Request) {
   if (!email || !email.includes("@")) {
     return NextResponse.json({ error: "กรุณากรอกอีเมลให้ถูกต้อง" }, { status: 400 });
   }
+
+  const limit = checkRateLimit(`store-request:${clientIp(request)}`, REQUEST_RULE);
+  if (!limit.allowed) return tooManyRequests(limit);
 
   let account = await getStoreAccountByEmail(email);
   if (!account) {

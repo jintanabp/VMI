@@ -10,6 +10,7 @@ import {
   getSkuMasterDirectory,
 } from "./index";
 import { storeDataVersion } from "./data-version";
+import { maxDataAgeHours } from "./data-age";
 import { resolvePromoContext } from "./promotion-context";
 import {
   filterCandidateRows,
@@ -183,6 +184,11 @@ export interface StockApiPayload {
   filterMode: StockFilterConfig["filterMode"] | null;
   /** วันที่ข้อมูลล่าสุด (ISO) จาก stock_cover_day */
   dataDate: string | null;
+  /**
+   * ข้อมูลเก่ากว่ากี่ชั่วโมงถือว่าค้าง — เกณฑ์เดียวกับที่ scheduler ใช้ไล่ตามรอบที่พลาด
+   * ให้ UI เตือนร้านได้ ไม่งั้นร้านสั่งของจากตัวเลข cover day เมื่อ 4 วันก่อนโดยไม่รู้ตัว
+   */
+  staleAfterHours: number;
   rows: StockRowComputed[];
 }
 
@@ -232,6 +238,7 @@ export async function buildFabricStockPayload(
       activeFromDb: null,
       filterMode: config.filterMode,
       dataDate: null,
+      staleAfterHours: maxDataAgeHours(),
       rows: [],
     };
     payloadCache.set(cacheKey, emptyPayload);
@@ -536,6 +543,7 @@ export async function buildFabricStockPayload(
     activeFromDb,
     filterMode: config.filterMode,
     dataDate,
+    staleAfterHours: maxDataAgeHours(),
     rows,
   };
   payloadCache.set(cacheKey, payload);
