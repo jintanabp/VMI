@@ -188,16 +188,13 @@ export function ProductSalesPanel({
       {DAY_OPTIONS.map((d) => {
         // ข้อมูลไม่ถึงช่วงนี้ → ปิดไว้ ดีกว่าวาดกราฟจากศูนย์ที่เติมเอง
         const unavailable = coverageDays > 0 && coverageDays < d;
-        return (
+        const reason = `ข้อมูลจริงยังไม่ถึง ${d} วัน (มี ${coverageDays} วัน)`;
+        const button = (
           <button
             key={d}
             type="button"
             disabled={unavailable}
-            title={
-              unavailable
-                ? `ข้อมูลจริงยังไม่ถึง ${d} วัน (มี ${coverageDays} วัน)`
-                : undefined
-            }
+            aria-label={unavailable ? `${d} วัน — ${reason}` : undefined}
             onClick={(e) => {
               e.stopPropagation();
               setViewDays(d);
@@ -213,6 +210,16 @@ export function ProductSalesPanel({
           >
             {d} วัน
           </button>
+        );
+
+        // เบราว์เซอร์ไม่แสดง tooltip ของ title บนปุ่มที่ disabled — ต้องครอบด้วย
+        // element ที่รับ hover ได้ ไม่งั้นผู้ใช้เห็นแค่ปุ่มเทาโดยไม่รู้สาเหตุ
+        return unavailable ? (
+          <span key={d} title={reason} className="inline-flex">
+            {button}
+          </span>
+        ) : (
+          button
         );
       })}
     </div>

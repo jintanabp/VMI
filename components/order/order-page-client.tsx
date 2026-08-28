@@ -206,7 +206,16 @@ export function OrderPageClient({
   } | null>(null);
 
   useEffect(() => {
-    const raw = sessionStorage.getItem("vmi_order_draft");
+    // sessionStorage โยนได้เมื่อเบราว์เซอร์บล็อก storage (Safari ส่วนตัว, webview บางตัว,
+    // ส่วนขยายที่ปิดคุกกี้) ถ้าอ่านนอก try แล้วโยน setReady(true) จะไม่ถูกเรียก
+    // หน้าจึงค้างที่สปินเนอร์ตลอดไปโดยไม่มีปุ่มใด ๆ ให้กด
+    let raw: string | null = null;
+    try {
+      raw = sessionStorage.getItem("vmi_order_draft");
+    } catch {
+      router.replace("/stock");
+      return;
+    }
     if (!raw) {
       router.replace("/stock");
       return;

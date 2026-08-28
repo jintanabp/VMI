@@ -76,10 +76,10 @@ export async function getCustomerStoreFromCookie(): Promise<CustomerStoreContext
     stores.find((s) => s.code === storeCode) ??
     (storeCode ? await stock.getStoreByCode(storeCode) : null);
 
-  if (!store) {
-    await clearCustomerStoreCookies();
-    return null;
-  }
+  // ห้ามลบ cookie ที่นี่ — ฟังก์ชันนี้ทำงานระหว่าง render ของ server component
+  // การแก้ cookie นอก Server Action ทำให้ Next โยน error แล้วหน้าขึ้น 500
+  // (เคสจริง: reseed ฐานข้อมูลแล้ว id ใน cookie ไม่ตรงกับร้านไหนเลย)
+  if (!store) return null;
 
   return enrichFromFabric(store as Store);
 }

@@ -87,12 +87,20 @@ export async function clearStoreSessionCookie() {
   cookieStore.delete(STORE_SESSION_COOKIE);
 }
 
+/**
+ * อ่านอย่างเดียว — **ห้ามลบ cookie ที่นี่**
+ *
+ * ฟังก์ชันนี้ถูกเรียกระหว่าง render ของ server component และ Next.js ไม่อนุญาตให้
+ * แก้ cookie นอก Server Action / Route Handler จะโยน "Cookies can only be modified
+ * in a Server Action or Route Handler" ออกมา = **ทุกหน้าขึ้น 500** แทนที่จะพาไป login
+ *
+ * เคสที่เจอจริง: token หมดอายุ, cookie เสียหาย, หรือเปลี่ยน NEXTAUTH_SECRET
+ * (ซึ่งทำให้ token เดิมของ "ทุกคน" ใช้ไม่ได้พร้อมกัน)
+ *
+ * ไม่ลบก็ไม่เป็นไร — token ที่ verify ไม่ผ่านให้สิทธิ์อะไรไม่ได้อยู่แล้ว
+ * และจะถูกเขียนทับตอน login ครั้งถัดไป
+ */
 export async function getStoreSession(): Promise<StoreSession | null> {
   const cookieStore = await cookies();
-  const token = cookieStore.get(STORE_SESSION_COOKIE)?.value;
-  const session = verifyStoreSessionToken(token);
-  if (token && !session) {
-    cookieStore.delete(STORE_SESSION_COOKIE);
-  }
-  return session;
+  return verifyStoreSessionToken(cookieStore.get(STORE_SESSION_COOKIE)?.value);
 }

@@ -53,7 +53,9 @@ export function StoreNotificationBell() {
         `/api/store/notifications?count=1${since ? `&since=${encodeURIComponent(since)}` : ""}`
       );
       const r = await apiFetch(url);
-      if (!r.ok) return { unread: 0 };
+      // โยนต่อแทนการคืน 0 — ไม่งั้นกระดิ่งดูเหมือน "ไม่มีแจ้งเตือน" ทั้งที่โหลดไม่สำเร็จ
+      // ร้านจะพลาดข่าวอนุมัติ/ออก PO โดยไม่รู้ตัว
+      if (!r.ok) throw new Error(`โหลดจำนวนแจ้งเตือนไม่สำเร็จ (${r.status})`);
       return r.json();
     },
     refetchInterval: 60_000,
@@ -62,7 +64,7 @@ export function StoreNotificationBell() {
   const unread = countData?.unread ?? 0;
 
   // รายการเต็มดึงเฉพาะตอนกางแผง — ปิดอยู่ก็ไม่ต้องโหลด
-  const { data: listData, isLoading } = useQuery<{
+  const { data: listData, isLoading, isError, refetch } = useQuery<{
     items: StoreNotificationRow[];
     unread: number;
   }>({
@@ -71,7 +73,7 @@ export function StoreNotificationBell() {
       const res = await apiFetch(appPath("/api/store/notifications"), {
         cache: "no-store",
       });
-      if (!res.ok) return { items: [], unread: 0 };
+      if (!res.ok) throw new Error(`โหลดแจ้งเตือนไม่สำเร็จ (${res.status})`);
       return res.json();
     },
     enabled: open,
@@ -188,7 +190,23 @@ export function StoreNotificationBell() {
         ) : items.length === 0 ? (
           <div className="flex flex-col items-center gap-2 px-4 py-8 text-center">
             <BellOff className="h-6 w-6 text-slate-300 dark:text-slate-600" />
-            <p className="text-xs text-slate-400">ยังไม่มีการแจ้งเตือน</p>
+            {/* โหลดไม่สำเร็จต้องบอกตรง ๆ ไม่ใช่แสดงว่า "ไม่มีแจ้งเตือน" */}
+            {isError ? (
+              <>
+                <p className="text-xs text-red-600 dark:text-red-400">
+                  โหลดการแจ้งเตือนไม่สำเร็จ
+                </p>
+                <button
+                  type="button"
+                  onClick={() => refetch()}
+                  className="rounded bg-red-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-red-700"
+                >
+                  ลองใหม่
+                </button>
+              </>
+            ) : (
+              <p className="text-xs text-slate-400">ยังไม่มีการแจ้งเตือน</p>
+            )}
           </div>
         ) : (
           <ul className="vmi-scroll min-h-0 flex-1 divide-y divide-slate-100 overflow-y-auto dark:divide-slate-800">

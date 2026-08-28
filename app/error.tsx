@@ -25,7 +25,7 @@ export default function Error({
       </h1>
       <p className="mt-2 max-w-md text-sm leading-relaxed text-slate-600 dark:text-slate-400">
         ระบบทำงานผิดพลาดชั่วคราว ลองใหม่อีกครั้ง — ถ้ายังไม่หาย
-        กรุณาแจ้งผู้ดูแลระบบพร้อมรหัสอ้างอิงด้านล่าง
+        กรุณาแจ้งผู้ดูแลระบบ{error.digest ? " พร้อมรหัสอ้างอิงด้านล่าง" : ""}
       </p>
       {error.digest && (
         <p className="mt-3 font-mono text-xs text-slate-400 dark:text-slate-500">

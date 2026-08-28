@@ -435,6 +435,11 @@ export function SalesOrdersClient() {
       setActionError(
         err instanceof Error ? err.message : "ดำเนินการไม่สำเร็จ"
       );
+      /**
+       * ล้มแล้วต้องดึงค่าจริงกลับมาเสมอ — ไม่งั้นจอค้างค่าที่กดไป (เช่น 21)
+       * ขณะที่ฐานข้อมูลเป็นอีกค่า (20) แล้วพนักงานกดอนุมัติทับตัวเลขที่ตัวเองไม่ได้เห็น
+       */
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
     },
   });
 

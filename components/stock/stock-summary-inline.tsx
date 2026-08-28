@@ -232,7 +232,10 @@ export function StockSummaryInline({
           {dataDate && (
             <span
               className={cn(
-                "hidden flex-col leading-none sm:flex",
+                // วันที่ข้อมูลปกติซ่อนบนจอเล็กได้ (พื้นที่จำกัด) แต่ "ข้อมูลค้าง" ต้องเห็นเสมอ
+                // ไม่งั้นคนที่ใช้มือถือ — ซึ่งคือคนส่วนใหญ่หน้างาน — จะสั่งของจากตัวเลขเก่า
+                // โดยไม่มีอะไรเตือนเลย
+                stale ? "flex flex-col leading-none" : "hidden flex-col leading-none sm:flex",
                 stale && "rounded-lg px-1.5 py-1",
                 dataStaleness?.tone === "stale" &&
                   "bg-amber-50 dark:bg-amber-950/40",

@@ -76,8 +76,13 @@ export function ManageClient({
 
   const stockQuery = useQuery<StockApiResponse>({
     queryKey: ["stock"],
-    queryFn: () =>
-      apiFetch(appPath("/api/stock"), { cache: "no-store" }).then((r) => r.json()),
+    // ต้องเช็ค r.ok — ไม่งั้น 403/500 จะกลายเป็น rows ว่าง แล้วหน้าขึ้นว่า
+    // "ไม่พบข้อมูลสินค้า" ทั้งที่ปัญหาคือโหลดไม่สำเร็จ
+    queryFn: async () => {
+      const r = await apiFetch(appPath("/api/stock"), { cache: "no-store" });
+      if (!r.ok) throw new Error(`โหลดข้อมูลสินค้าไม่สำเร็จ (${r.status})`);
+      return r.json();
+    },
     staleTime: 60_000,
     refetchOnMount: true,
     refetchOnWindowFocus: false,
@@ -85,10 +90,13 @@ export function ManageClient({
 
   const thresholdsQuery = useQuery<{ groups: GroupThreshold[] }>({
     queryKey: ["thresholds"],
-    queryFn: () =>
-      apiFetch(appPath("/api/store/thresholds"), { cache: "no-store" }).then((r) =>
-        r.json()
-      ),
+    queryFn: async () => {
+      const r = await apiFetch(appPath("/api/store/thresholds"), {
+        cache: "no-store",
+      });
+      if (!r.ok) throw new Error(`โหลดค่า MIN/MAX ไม่สำเร็จ (${r.status})`);
+      return r.json();
+    },
     staleTime: 60_000,
     refetchOnMount: true,
     refetchOnWindowFocus: false,
@@ -96,7 +104,11 @@ export function ManageClient({
 
   const blocklistQuery = useQuery<{ blocks: unknown[] }>({
     queryKey: ["store-blocklist"],
-    queryFn: () => apiFetch(appPath("/api/store/blocklist")).then((r) => r.json()),
+    queryFn: async () => {
+      const r = await apiFetch(appPath("/api/store/blocklist"));
+      if (!r.ok) throw new Error(`โหลดรายการหยุดสั่งไม่สำเร็จ (${r.status})`);
+      return r.json();
+    },
   });
   const blockCount = blocklistQuery.data?.blocks?.length ?? 0;
 

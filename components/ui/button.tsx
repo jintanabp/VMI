@@ -63,7 +63,9 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       );
     }
 
-    return (
+    const isDisabled = props.disabled || pending;
+
+    const button = (
       <button
         className={cn(buttonVariants({ variant, size, className }))}
         ref={ref}
@@ -71,12 +73,30 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         // ต้องอยู่หลัง spread ไม่งั้นค่าจาก props จะทับ
         // default type="button" — กัน <Button onClick> ใน <form> ยิง submit โดยไม่ตั้งใจ
         type={props.type ?? "button"}
-        disabled={props.disabled || pending}
+        disabled={isDisabled}
       >
         {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
         {children}
       </button>
     );
+
+    /**
+     * ปุ่มที่ disabled ไม่รับ hover event (`disabled:pointer-events-none`) เบราว์เซอร์
+     * จึงไม่แสดง tooltip ของ `title` เลย — คำอธิบายว่า "ทำไมกดไม่ได้" ที่เขียนไว้ทั้งระบบ
+     * (เช่น "ข้อมูลจริงยังไม่ถึง 90 วัน", "มีรายการจำนวน 0 ปรับก่อนตรวจสอบ")
+     * ไม่เคยถึงผู้ใช้สักครั้ง
+     *
+     * ครอบด้วย <span> ที่รับ hover แทน — ผู้ใช้จ่อปุ่มเทาแล้วเห็นเหตุผลได้จริง
+     */
+    if (isDisabled && props.title) {
+      return (
+        <span title={props.title} className="inline-flex">
+          {button}
+        </span>
+      );
+    }
+
+    return button;
   }
 );
 Button.displayName = "Button";

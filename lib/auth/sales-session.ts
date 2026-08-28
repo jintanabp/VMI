@@ -204,14 +204,14 @@ export async function buildSalesSessionWithAccess(
   };
 }
 
+/**
+ * อ่านอย่างเดียว — **ห้ามลบ cookie ที่นี่** (เหตุผลเดียวกับ getStoreSession)
+ * การแก้ cookie ระหว่าง render ทำให้ Next.js โยน error แล้วทุกหน้าขึ้น 500
+ * แทนที่ผู้ใช้จะถูกพาไปหน้า login ตามปกติ
+ */
 export async function getRawSalesSession(): Promise<SalesSession | null> {
   const cookieStore = await cookies();
-  const token = cookieStore.get(SALES_SESSION_COOKIE)?.value;
-  const session = verifySalesSessionToken(token);
-  if (token && !session) {
-    cookieStore.delete(SALES_SESSION_COOKIE);
-  }
-  return session;
+  return verifySalesSessionToken(cookieStore.get(SALES_SESSION_COOKIE)?.value);
 }
 
 export async function getSalesSession(): Promise<SalesSession | null> {

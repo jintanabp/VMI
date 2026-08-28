@@ -60,3 +60,5 @@ next-env.d.ts
 # server deploy artifacts (local / server only — do not publish)
 /deploy/
 /docs/superpowers/
+# ไฟล์ชั่วคราวสำหรับทดสอบ (บัญชี QA, log dev, สคริปต์ setup/teardown)
+.tmp-qa/
