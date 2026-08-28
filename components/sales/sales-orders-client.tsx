@@ -442,6 +442,7 @@ export function SalesOrdersClient() {
     <PageShell className="vmi-sales-orders-page overflow-x-hidden">
       <AppHeader
         compact
+        wide
         title="ตรวจสอบคำสั่งซื้อ"
         subtitle={
           salesPreview

@@ -388,7 +388,6 @@ export function OrderHistoryClient({
     <PageShell className="pb-20">
       <AppHeader
         compact
-        wide
         title={headerTitle}
         storeCode={storeCode}
         storeName={storeName}

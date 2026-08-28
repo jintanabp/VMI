@@ -60,23 +60,50 @@ export default function GlobalError({
               {error.digest}
             </p>
           )}
-          <button
-            type="button"
-            onClick={reset}
+          <div
             style={{
               marginTop: "1.5rem",
-              padding: "0.625rem 1.25rem",
-              borderRadius: "0.75rem",
-              border: "none",
-              background: "#0d9488",
-              color: "#fff",
-              fontSize: "0.875rem",
-              fontWeight: 600,
-              cursor: "pointer",
+              display: "flex",
+              gap: "0.75rem",
+              justifyContent: "center",
             }}
           >
-            ลองใหม่
-          </button>
+            <button
+              type="button"
+              onClick={reset}
+              style={{
+                padding: "0.625rem 1.25rem",
+                borderRadius: "0.75rem",
+                border: "none",
+                background: "#0d9488",
+                color: "#fff",
+                fontSize: "0.875rem",
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              ลองใหม่
+            </button>
+            {/*
+              ถ้า reset() ยังพังซ้ำ ปุ่มเดียวจะกลายเป็นทางตัน — ต้องมีทางออกเสมอ
+              ใช้ <a> ธรรมดาเพราะ next/link ใช้ไม่ได้เมื่อ root layout พังไปแล้ว
+              และต้องเขียน basePath เอง
+            */}
+            <a
+              href="/vmi/"
+              style={{
+                padding: "0.625rem 1.25rem",
+                borderRadius: "0.75rem",
+                border: "1px solid #cbd5e1",
+                color: "#0f172a",
+                fontSize: "0.875rem",
+                fontWeight: 600,
+                textDecoration: "none",
+              }}
+            >
+              กลับหน้าแรก
+            </a>
+          </div>
         </div>
       </body>
     </html>

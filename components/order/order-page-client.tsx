@@ -1018,7 +1018,17 @@ export function OrderPageClient({
   if (success) {
     return (
       <PageShell>
-        <div className="flex min-h-screen items-center justify-center px-4">
+        <AppHeader
+          compact
+          wide
+          title={`ตรวจสอบคำสั่ง · ${storeCode.toUpperCase()}`}
+          storeCode={storeCode}
+          storeName={storeName}
+          storeAddress={storeAddress}
+          isVda={isVda}
+          role="customer"
+        />
+        <div className="flex min-h-[70vh] items-center justify-center px-4">
           <div className="vmi-card-elevated max-w-md p-10 text-center">
             <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400">
               <CheckCircle2 className="h-8 w-8" />
@@ -1043,7 +1053,17 @@ export function OrderPageClient({
     if (ready) {
       return (
         <PageShell>
-          <div className="flex min-h-screen items-center justify-center px-4">
+          <AppHeader
+            compact
+            wide
+            title={`ตรวจสอบคำสั่ง · ${storeCode.toUpperCase()}`}
+            storeCode={storeCode}
+            storeName={storeName}
+            storeAddress={storeAddress}
+            isVda={isVda}
+            role="customer"
+          />
+          <div className="flex min-h-[70vh] items-center justify-center px-4">
             <div className="vmi-card-elevated max-w-md p-10 text-center">
               <h2 className="text-lg font-bold">ไม่มีรายการที่จะสั่ง</h2>
               <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
@@ -1062,7 +1082,17 @@ export function OrderPageClient({
     }
     return (
       <PageShell>
-        <div className="flex min-h-screen items-center justify-center text-slate-500 dark:text-slate-400">
+        <AppHeader
+          compact
+          wide
+          title={`ตรวจสอบคำสั่ง · ${storeCode.toUpperCase()}`}
+          storeCode={storeCode}
+          storeName={storeName}
+          storeAddress={storeAddress}
+          isVda={isVda}
+          role="customer"
+        />
+        <div className="flex min-h-[70vh] items-center justify-center text-slate-500 dark:text-slate-400">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-teal-600 border-t-transparent" />
         </div>
       </PageShell>

@@ -14,6 +14,7 @@ import {
 import { useRouter } from "next/navigation";
 import { AppHeader } from "@/components/layout/app-header";
 import { PageShell } from "@/components/layout/page-shell";
+import { useSalesSession } from "@/hooks/use-sales-session";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { SalesNav } from "./sales-nav";
@@ -81,6 +82,7 @@ function fmt(iso: string): string {
 
 export function SalesNotificationsClient() {
   const qc = useQueryClient();
+  const { session } = useSalesSession();
   const router = useRouter();
   const [acking, setAcking] = useState(false);
 
@@ -136,7 +138,7 @@ export function SalesNotificationsClient() {
         compact
         title="การแจ้งเตือน"
         subtitle="ออเดอร์ใหม่และรายการหยุดสั่งจากร้านที่คุณดูแล"
-        role="sales"
+        role={session?.role ?? "sales"}
       />
       {/* รายการอ่าน — ขยายพอให้ไม่เสียพื้นที่ แต่ไม่เต็มจอ บรรทัดยาวเกินอ่านยาก */}
       <main className="mx-auto w-full max-w-5xl space-y-3 px-3 py-4 sm:px-4">

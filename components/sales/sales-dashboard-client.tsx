@@ -83,6 +83,7 @@ export function SalesDashboardClient() {
     <PageShell>
       <AppHeader
         compact
+        wide
         title="ภาพรวม"
         subtitle={
           salesPreview

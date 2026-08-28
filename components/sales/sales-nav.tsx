@@ -1,6 +1,6 @@
 "use client";
 
-import { appPath } from "@/lib/paths";
+import { appPath, isPathUnder, normalizePathname } from "@/lib/paths";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
@@ -10,7 +10,9 @@ import { apiFetch } from "@/lib/api-fetch";
 
 /** แถบสลับหน้า ฝั่งเซลล์: คำสั่งซื้อ / การแจ้งเตือน (พร้อม badge จำนวนที่ยังไม่อ่าน) */
 export function SalesNav() {
-  const pathname = usePathname();
+  // usePathname() คืนค่าพร้อม basePath และ / ปิดท้าย — ต้อง normalize ก่อนเทียบ
+  // ไม่งั้นไม่มีแท็บไหนไฮไลต์เลย (ดู lib/paths.ts)
+  const pathname = normalizePathname(usePathname());
   const { data } = useQuery<{ unseenCount: number }>({
     queryKey: ["sales-notifications"],
     queryFn: () => apiFetch(appPath("/api/sales/notifications")).then((r) => r.json()),
@@ -79,7 +81,12 @@ export function SalesNav() {
   return (
     <nav className="mb-2 flex shrink-0 gap-1.5" role="tablist">
       {tabs.map((t) => {
-        const active = pathname === t.href;
+        // "ภาพรวม" ที่ /sales เป็น prefix ของทุกแท็บ จึงต้องเทียบแบบตรงตัวเท่านั้น
+        // ส่วนแท็บอื่นนับหน้าลูกด้วย (เผื่อมีหน้าย่อยในอนาคต)
+        const active =
+          t.href === "/sales"
+            ? pathname === "/sales"
+            : isPathUnder(pathname, t.href);
         const Icon = t.icon;
         return (
           <Link

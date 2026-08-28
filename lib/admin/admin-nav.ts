@@ -7,6 +7,7 @@
  * ไฟล์นี้เป็น .ts ล้วนโดยตั้งใจ — ไอคอนเก็บเป็น "iconKey" แล้วค่อยไป map เป็น component
  * ในไฟล์ .tsx เพื่อให้เทสต์รันได้ใต้ environment: "node" ตามนโยบายใน vitest.config.ts
  */
+import { isPathUnder, normalizePathname } from "@/lib/paths";
 
 export type AdminIconKey = "database" | "store" | "tag" | "eye" | "shield";
 export type AdminBadgeKey = "storePending" | "syncFailed" | "promoNotReady";
@@ -97,29 +98,20 @@ export const ADMIN_LEGACY_REDIRECTS: Record<string, string> = {
   "/admin/settings": "/admin/system/admins",
 };
 
-const BASE_PATH = "/vmi";
-
 /**
  * ตัด basePath กับ trailing slash ออกให้เหลือ path ที่เทียบกับทะเบียนได้
  *
- * next.config.ts ตั้ง basePath: "/vmi" และ trailingSlash: true — usePathname() จึงคืน
- * "/vmi/admin/data/sync/" ไม่ใช่ "/admin/data/sync" · ของเดิมเทียบด้วย startsWith เฉย ๆ
- * เลยรอดมาได้เพราะบังเอิญ (prefix ตรงพอดี) แต่ทำให้ /admin/storesomething ติดว่าเป็น
+ * `usePathname()` ตัด basePath ออกให้แล้ว แต่ไม่ตัด `/` ปิดท้ายที่มาจาก
+ * `trailingSlash: true` — ค่าจริงคือ "/admin/data/sync/" · ของเดิมเทียบด้วย
+ * startsWith เฉย ๆ เลยรอดมาได้ แต่ทำให้ /admin/storesomething ติดว่าเป็น
  * /admin/stores ไปด้วย
+ *
+ * ตัวจริงย้ายไปอยู่ที่ `lib/paths.ts` แล้ว เพราะแถบเมนูฝั่งเซลล์เจอปัญหาเดียวกัน
+ * คงชื่อนี้ไว้เพราะมีเทสต์และผู้เรียกอ้างอยู่
  */
-export function normalizeAdminPath(pathname: string | null | undefined): string {
-  if (!pathname) return "";
-  let p = pathname.split("?")[0].split("#")[0];
-  if (p === BASE_PATH) return "/";
-  if (p.startsWith(`${BASE_PATH}/`)) p = p.slice(BASE_PATH.length);
-  while (p.length > 1 && p.endsWith("/")) p = p.slice(0, -1);
-  return p;
-}
+export const normalizeAdminPath = normalizePathname;
 
-/** ตรงกันพอดี หรือเป็นโฟลเดอร์ลูก — ไม่ใช่แค่ขึ้นต้นเหมือนกัน */
-function isUnder(p: string, base: string): boolean {
-  return p === base || p.startsWith(`${base}/`);
-}
+const isUnder = isPathUnder;
 
 export interface AdminNavMatch {
   group: AdminGroupDef;

@@ -16,6 +16,7 @@ import { useAsyncAction } from "@/hooks/use-async-action";
 import { useVdaOptions } from "@/hooks/use-vda-options";
 import { AppHeader } from "@/components/layout/app-header";
 import { PageShell } from "@/components/layout/page-shell";
+import { useSalesSession } from "@/hooks/use-sales-session";
 import { SalesNav } from "@/components/sales/sales-nav";
 import { NotifyStoreCheckbox } from "@/components/sales/notify-store-checkbox";
 import { PoDetailPanel } from "@/components/sales/po-detail-panel";
@@ -106,6 +107,7 @@ function downloadPo(poNumber: string, format: "xlsx" | "json") {
  */
 export function SalesPoClient() {
   const queryClient = useQueryClient();
+  const { session } = useSalesSession();
   // useVdaOptions ดู session ให้แล้ว — vdaReady ครอบทั้ง "มี session" และ "สิทธิ์ VDA มาถึง"
   const {
     availableVdas,
@@ -342,9 +344,10 @@ export function SalesPoClient() {
     <PageShell>
       <AppHeader
         compact
+        wide
         title="ใบสั่งซื้อ (PO)"
         subtitle="PO ที่ออกจากออเดอร์ที่อนุมัติแล้ว"
-        role="sales"
+        role={session?.role ?? "sales"}
       />
 
       {/* ตาราง 10 คอลัมน์ — ใช้ความกว้างเดียวกับหน้าตรวจออเดอร์ ให้สองหน้าฝั่งเซลล์เท่ากัน */}

@@ -25,8 +25,11 @@ export default async function HomePage() {
   const salesSession = await getRawSalesSession();
 
   if (storeId) redirect("/stock");
-  if (salesSession?.role === "admin") redirect("/admin");
-  if (salesSession?.role === "sales") redirect("/sales/orders");
+  // ต้องครอบทุก role ที่ล็อกอินได้ — เดิมตกหล่น supervisor/manager ทำให้คนที่มี
+  // session อยู่แล้วกด "กลับหน้าแรก" (จากหน้า error/404) แล้วมาเจอหน้าเลือกล็อกอิน
+  if (salesSession) {
+    redirect(salesSession.role === "admin" ? "/admin" : "/sales");
+  }
   return (
     <div className="relative min-h-screen overflow-hidden vmi-mesh-bg">
       <PublicTopbar />

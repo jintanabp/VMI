@@ -30,11 +30,10 @@ export default async function LoginPage({
   const salesSession = await getRawSalesSession();
   const customerStore = await getCustomerStoreFromCookie();
 
-  if (mode === "sales" && salesSession?.role === "sales") {
-    redirect("/sales/orders");
-  }
-  if (mode === "sales" && salesSession?.role === "admin") {
-    redirect("/admin");
+  // ครอบทุก role ที่ล็อกอินได้ — เดิมเช็คแค่ "sales" กับ "admin" ทำให้ supervisor
+  // และ manager ที่มี session อยู่แล้วยังเห็นปุ่มล็อกอินซ้ำ เหมือนเข้าระบบไม่ได้
+  if (mode === "sales" && salesSession) {
+    redirect(salesSession.role === "admin" ? "/admin" : "/sales");
   }
   if (mode === "customer" && customerStore && !salesSession) {
     redirect("/stock");
