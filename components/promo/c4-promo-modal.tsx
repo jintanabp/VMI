@@ -3,6 +3,7 @@
 import { appPath } from "@/lib/paths";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useFocusTrap } from "@/hooks/use-focus-trap";
 import { Eye, Gift, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -55,6 +56,7 @@ export function C4PromoModal({
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [staged, setStaged] = useState<Record<string, number>>({});
+  const dialogRef = useRef<HTMLDivElement>(null);
   const { label: groupLabel } = usePromoGroupNames();
   const stagedQtyRef = useRef(stagedQty);
   stagedQtyRef.current = stagedQty;
@@ -77,6 +79,9 @@ export function C4PromoModal({
   // กล่องนี้เขียน portal เอง ไม่ได้ใช้ <Modal> กลาง จึงไม่ได้อะไรมาฟรีสักอย่าง
   // Escape ปิดได้ (ทุก dialog อื่นในระบบทำได้) และล็อกไม่ให้หน้าหลังเลื่อนตาม
   // — บนมือถือเดิมเลื่อนทะลุไปโดนตารางข้างหลัง
+  // ส่วนกับดักโฟกัสยืมของกลางมาใช้ ไม่ได้เขียนซ้ำ
+  useFocusTrap(dialogRef, true);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -222,12 +227,15 @@ export function C4PromoModal({
       }}
     >
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="c4-promo-modal-title"
+        // -1 เพื่อให้โฟกัสกล่องได้เองระหว่างเนื้อหายังโหลดไม่เสร็จ
+        tabIndex={-1}
         // dvh ไม่ใช่ vh — บนมือถือ vh ไม่หดตามแถบ URL/คีย์บอร์ด ทำให้ท้ายกล่อง
         // (ปุ่ม "ใช้จำนวนนี้") มุดใต้ browser chrome
-        className="flex max-h-[88dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-slate-200 bg-white shadow-2xl sm:max-w-2xl sm:rounded-2xl dark:border-slate-700 dark:bg-slate-900"
+        className="flex max-h-[88dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-slate-200 bg-white shadow-2xl outline-none sm:max-w-2xl sm:rounded-2xl dark:border-slate-700 dark:bg-slate-900"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-700">

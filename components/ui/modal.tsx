@@ -2,17 +2,8 @@
 
 import { useEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { useFocusTrap } from "@/hooks/use-focus-trap";
 import { cn } from "@/lib/utils";
-
-/** element ที่โฟกัสได้และมองเห็นอยู่จริง (ข้ามตัวที่ disabled/ซ่อน) */
-const FOCUSABLE =
-  'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
-
-function focusableIn(root: HTMLElement): HTMLElement[] {
-  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
-    (el) => el.offsetParent !== null || el === document.activeElement
-  );
-}
 
 /**
  * โครงกล่อง modal ที่ใช้ร่วมกันทุกที่
@@ -57,49 +48,8 @@ export function Modal({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, busy, onClose]);
 
-  /**
-   * ขังโฟกัสไว้ในกล่อง แล้วคืนให้ปุ่มเดิมตอนปิด
-   *
-   * เดิมเปิด modal แล้วกด Tab โฟกัสจะหลุดไปโดนเนื้อหาหลังฉากทันที ผู้ใช้คีย์บอร์ด
-   * และ screen reader จึงหลงว่าตัวเองอยู่ตรงไหน และพอปิดกล่องก็ต้องไล่ Tab
-   * กลับมาที่ปุ่มเดิมใหม่ทั้งหมด
-   */
-  useEffect(() => {
-    if (!open) return;
-    const panel = panelRef.current;
-    if (!panel) return;
-
-    const previouslyFocused = document.activeElement as HTMLElement | null;
-    // โฟกัสตัวแรกในกล่อง — ถ้าไม่มีอะไรโฟกัสได้ ให้โฟกัสตัวกล่องเอง
-    const first = focusableIn(panel)[0];
-    (first ?? panel).focus();
-
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== "Tab") return;
-      const items = focusableIn(panel);
-      if (items.length === 0) {
-        e.preventDefault();
-        return;
-      }
-      const firstEl = items[0]!;
-      const lastEl = items[items.length - 1]!;
-      const active = document.activeElement;
-
-      if (e.shiftKey && (active === firstEl || active === panel)) {
-        e.preventDefault();
-        lastEl.focus();
-      } else if (!e.shiftKey && active === lastEl) {
-        e.preventDefault();
-        firstEl.focus();
-      }
-    };
-
-    panel.addEventListener("keydown", onKeyDown);
-    return () => {
-      panel.removeEventListener("keydown", onKeyDown);
-      previouslyFocused?.focus?.();
-    };
-  }, [open]);
+  // ขังโฟกัสไว้ในกล่อง แล้วคืนให้ปุ่มเดิมตอนปิด (hooks/use-focus-trap.ts)
+  useFocusTrap(panelRef, open);
 
   // ล็อกไม่ให้หน้าข้างหลังเลื่อนตอน modal เปิด — บนมือถือเดิมเลื่อนทะลุไปโดนหน้าหลัก
   useEffect(() => {

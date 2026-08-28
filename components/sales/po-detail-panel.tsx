@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
+import { useFocusTrap } from "@/hooks/use-focus-trap";
 import { useQuery } from "@tanstack/react-query";
 import { Download, Gift, Printer, Sparkles, X } from "lucide-react";
 import { appPath } from "@/lib/paths";
@@ -64,6 +65,7 @@ export function PoDetailPanel({
     },
   });
 
+  const panelRef = useRef<HTMLDivElement>(null);
   const { label: groupLabel, tooltip: groupTooltip } = usePromoGroupNames();
 
   const owedFreeGoods = useMemo(
@@ -79,6 +81,10 @@ export function PoDetailPanel({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // แผงนี้เขียน portal เอง จึงต้องขอกับดักโฟกัสมาใช้เอง — เปิดด้วย Enter จากแถวตาราง
+  // แล้วโฟกัสเคยค้างอยู่ที่แถวข้างหลัง กด Tab ต่อก็ไล่ไปทั้งตารางที่มองไม่เห็น
+  useFocusTrap(panelRef, true);
+
   if (typeof document === "undefined") return null;
 
   return createPortal(
@@ -87,10 +93,12 @@ export function PoDetailPanel({
       onClick={onClose}
     >
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label={`รายละเอียด PO ${poNumber}`}
-        className="vmi-po-detail flex h-full w-full max-w-3xl flex-col bg-white shadow-xl dark:bg-slate-900"
+        tabIndex={-1}
+        className="vmi-po-detail flex h-full w-full max-w-3xl flex-col bg-white shadow-xl outline-none dark:bg-slate-900"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="flex shrink-0 items-start justify-between gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
