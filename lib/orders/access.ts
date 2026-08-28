@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { SalesSession } from "@/lib/auth/sales-session";
 import { getPersonSalesCodes } from "@/lib/admin/vda-sales-directory";
@@ -121,6 +122,36 @@ export function resolveAllPersonVdaCodes(email: string): string[] {
     }
   }
   return [...vdas].sort();
+}
+
+/**
+ * เงื่อนไข Prisma ของ "ร้านที่ออเดอร์ของคนนี้อยู่" — ใช้กับ count/groupBy
+ *
+ * ลำดับต้องตรงกับที่ `GET /api/orders` ใช้เลือกลิสต์ (route.ts) เป๊ะ ไม่งั้นตัวเลข
+ * สรุปกับลิสต์ที่กดเข้าไปดูจะไม่ตรงกัน: มี VDA → กรองด้วย VDA เท่านั้น ·
+ * ไม่มี VDA + เป็น sales → ไม่เห็นอะไรเลย · ไม่มี VDA + หัวหน้า → กรองด้วยอีเมลลูกทีม
+ *
+ * คืน `null` = ไม่มีสิทธิ์ (ผู้เรียกตอบ 401) · `{}` = เห็นทุกร้าน (admin)
+ * `"none"` = ล็อกอินถูกต้องแต่ไม่มีร้านในความดูแล (ผู้เรียกตอบ 0 โดยไม่ต้อง query)
+ */
+export function resolveOrderStoreScope(
+  session: SalesSession | null
+): Prisma.StoreWhereInput | "none" | null {
+  if (!session) return null;
+  if (session.role === "admin") return {};
+
+  const email = session.email.toLowerCase();
+  const salesmanCodes = resolveSalesmanCodesForFilter(session);
+  let vdas = resolveVdaCodesForSalesmanCodes(salesmanCodes);
+  if (vdas.length === 0 && session.role === "sales") {
+    vdas = resolveAllPersonVdaCodes(email);
+  }
+
+  if (vdas.length > 0) return { code: { in: vdas } };
+  if (session.role === "sales") return "none";
+
+  const emails = (session.scopeEmails ?? [email]).map((e) => e.toLowerCase());
+  return { salesRep: { is: { email: { in: emails } } } };
 }
 
 export function resolveSalesRepEmailsForFilter(

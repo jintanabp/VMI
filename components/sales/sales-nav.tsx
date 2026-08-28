@@ -4,15 +4,16 @@ import { appPath } from "@/lib/paths";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { Bell, ClipboardList, FileText } from "lucide-react";
+import { Bell, ClipboardList, FileText, LayoutDashboard } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { apiFetch } from "@/lib/api-fetch";
 
 /** แถบสลับหน้า ฝั่งเซลล์: คำสั่งซื้อ / การแจ้งเตือน (พร้อม badge จำนวนที่ยังไม่อ่าน) */
 export function SalesNav() {
   const pathname = usePathname();
   const { data } = useQuery<{ unseenCount: number }>({
     queryKey: ["sales-notifications"],
-    queryFn: () => fetch(appPath("/api/sales/notifications")).then((r) => r.json()),
+    queryFn: () => apiFetch(appPath("/api/sales/notifications")).then((r) => r.json()),
     refetchInterval: 60_000,
   });
   const unseen = data?.unseenCount ?? 0;
@@ -23,7 +24,7 @@ export function SalesNav() {
   const { data: counts } = useQuery<{ pending: number; priceFlagged: number }>({
     queryKey: ["sales-pending-count"],
     queryFn: async () => {
-      const r = await fetch(appPath("/api/sales/pending-count"));
+      const r = await apiFetch(appPath("/api/sales/pending-count"));
       if (!r.ok) return { pending: 0, priceFlagged: 0 };
       return r.json();
     },
@@ -33,6 +34,16 @@ export function SalesNav() {
   const priceFlaggedCount = counts?.priceFlagged ?? 0;
 
   const tabs = [
+    {
+      href: "/sales",
+      label: "ภาพรวม",
+      icon: LayoutDashboard,
+      // ไม่มี badge — ตัวเลขอยู่บนการ์ดในหน้านั้นอยู่แล้ว
+      badge: 0,
+      badgeTitle: "",
+      warnBadge: 0,
+      warnTitle: "",
+    },
     {
       href: "/sales/orders",
       label: "คำสั่งซื้อ",
