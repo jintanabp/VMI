@@ -617,8 +617,20 @@ export function SalesPoClient() {
                   {items.map((po) => (
                     <tr
                       key={po.id}
-                      className="cursor-pointer border-t border-slate-100 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/40"
+                      // ทั้งแถวคลิกเพื่อเปิดรายละเอียด — ต้องเข้าถึงด้วยคีย์บอร์ดได้ด้วย
+                      // ไม่งั้นคนที่ใช้ Tab เปิดดูรายละเอียด PO ไม่ได้เลยสักใบ
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`ดูรายละเอียด ${po.poNumber}`}
+                      className="cursor-pointer border-t border-slate-100 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-teal-500 dark:border-slate-800 dark:hover:bg-slate-800/40"
                       onClick={() => setDetailPo(po.poNumber)}
+                      onKeyDown={(e) => {
+                        if (e.target !== e.currentTarget) return;
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setDetailPo(po.poNumber);
+                        }
+                      }}
                     >
                       <td
                         className="px-2 py-2"

@@ -198,7 +198,12 @@ function OrderTimeline({ order }: { order: OrderHistoryEntry }) {
               {s.label}
             </span>
             <span className="text-[11px] tabular-nums text-slate-400">
-              {s.at ? fmtDateTime(s.at) : "รอดำเนินการ"}
+              {/*
+                "รอดำเนินการ" ใช้ได้เฉพาะขั้นที่ยังไม่เกิดขึ้น — ออเดอร์เก่าที่ถูกปฏิเสธ
+                ก่อนมีคอลัมน์ decidedAt ไม่มีเวลาให้แสดง เดิมจึงขึ้นป้าย "ปฏิเสธ"
+                คู่กับข้อความ "รอดำเนินการ" ซึ่งขัดกันเองในบรรทัดเดียว
+              */}
+              {s.at ? fmtDateTime(s.at) : s.done ? "ไม่มีข้อมูลเวลา" : "รอดำเนินการ"}
             </span>
           </span>
           {idx < steps.length - 1 && (
@@ -610,10 +615,17 @@ export function OrderHistoryClient({
                         </div>
                       )}
 
-                      {order.rejectReason && (
+                      {/*
+                        ปฏิเสธแล้วต้องบอกเสมอว่าเพราะอะไร — เหตุผลเป็นช่องที่ไม่บังคับ
+                        ถ้าพนักงานไม่กรอก ร้านจะเห็นแค่ป้ายแดงแล้วเดาเองว่าทำอะไรผิด
+                        บอกตรง ๆ ว่า "ไม่ได้ระบุ" ดีกว่าปล่อยว่างให้เข้าใจว่า UI ซ่อนอยู่
+                      */}
+                      {order.status === "rejected" && (
                         <p className="mt-1.5 flex items-start gap-1.5 rounded-lg bg-red-50 px-2 py-1 text-xs text-red-700 dark:bg-red-950/30 dark:text-red-300">
                           <Trash2 className="mt-0.5 h-3 w-3 shrink-0" />
-                          เหตุผลที่ปฏิเสธ: {order.rejectReason}
+                          {order.rejectReason
+                            ? `เหตุผลที่ปฏิเสธ: ${order.rejectReason}`
+                            : "ถูกปฏิเสธ — พนักงานไม่ได้ระบุเหตุผล สอบถามเซลล์ที่ดูแลได้"}
                         </p>
                       )}
                     </div>
@@ -664,8 +676,16 @@ export function OrderHistoryClient({
                               <th className="w-[30%] px-3 py-1.5 font-medium">
                                 ชื่อสินค้า
                               </th>
-                              <th className="px-3 py-1.5 text-right font-medium">
-                                ขอ (หีบ)
+                              {/*
+                                คอลัมน์นี้คือ suggestedQty = จำนวนที่ "ระบบแนะนำ"
+                                หัวเดิมเขียนว่า "ขอ" ทำให้อ่านเป็นจำนวนที่ร้านขอไป
+                                แล้วงงเมื่อเห็น "ขอ 0 · สั่งจริง 3" ทั้งที่ร้านสั่ง 3 จริง
+                              */}
+                              <th
+                                className="px-3 py-1.5 text-right font-medium"
+                                title="จำนวนที่ระบบคำนวณและแนะนำ ณ ตอนที่ร้านเปิดหน้าสั่งซื้อ"
+                              >
+                                ระบบแนะนำ (หีบ)
                               </th>
                               <th className="px-3 py-1.5 text-right font-medium">
                                 สั่งจริง (หีบ)

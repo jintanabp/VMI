@@ -61,6 +61,27 @@ export async function GET() {
     }),
   ]);
 
+  /**
+   * สถานะปัจจุบันของออเดอร์ที่ถูกแจ้ง — เดิมหน้าจอขึ้น "ออเดอร์ใหม่" พร้อมปุ่ม "ตรวจ"
+   * ต่อไปเรื่อย ๆ แม้จะอนุมัติไปแล้ว เซลล์จึงกดเข้าไปดูซ้ำโดยไม่รู้ว่าจัดการไปแล้ว
+   *
+   * `orderId` เก็บเป็น String ไม่มี FK โดยตั้งใจ (ออเดอร์ที่ถูกลบก็ยังต้องแจ้งได้)
+   * จึงต้องดึงสถานะแยก · id ที่หาไม่เจอ = ออเดอร์ถูกลบไปแล้ว
+   */
+  const notifOrderIds = [
+    ...new Set(orderNotifs.map((n) => n.orderId).filter((id): id is string => !!id)),
+  ];
+  const orderStatuses = new Map(
+    notifOrderIds.length > 0
+      ? (
+          await prisma.order.findMany({
+            where: { id: { in: notifOrderIds } },
+            select: { id: true, status: true },
+          })
+        ).map((o) => [o.id, o.status])
+      : []
+  );
+
   const orderItems = orderNotifs
     .map((n) => ({
       id: n.id,
@@ -72,6 +93,8 @@ export async function GET() {
       storeName: n.store.name,
       createdAt: n.createdAt.toISOString(),
       acknowledged: n.acknowledgedAt != null,
+      /** null = ออเดอร์ถูกลบไปแล้ว */
+      orderStatus: n.orderId ? (orderStatuses.get(n.orderId) ?? null) : null,
     }))
     .sort((a, b) => Number(a.acknowledged) - Number(b.acknowledged));
 

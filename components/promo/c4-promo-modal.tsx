@@ -74,6 +74,22 @@ export function C4PromoModal({
     stockMemberSkus.length > 0 &&
     c4GroupSize > storeGroupSize;
 
+  // กล่องนี้เขียน portal เอง ไม่ได้ใช้ <Modal> กลาง จึงไม่ได้อะไรมาฟรีสักอย่าง
+  // Escape ปิดได้ (ทุก dialog อื่นในระบบทำได้) และล็อกไม่ให้หน้าหลังเลื่อนตาม
+  // — บนมือถือเดิมเลื่อนทะลุไปโดนตารางข้างหลัง
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [onClose]);
+
   useEffect(() => {
     let alive = true;
     setLoading(true);
@@ -206,6 +222,9 @@ export function C4PromoModal({
       }}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="c4-promo-modal-title"
         // dvh ไม่ใช่ vh — บนมือถือ vh ไม่หดตามแถบ URL/คีย์บอร์ด ทำให้ท้ายกล่อง
         // (ปุ่ม "ใช้จำนวนนี้") มุดใต้ browser chrome
         className="flex max-h-[88dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-slate-200 bg-white shadow-2xl sm:max-w-2xl sm:rounded-2xl dark:border-slate-700 dark:bg-slate-900"
@@ -213,7 +232,10 @@ export function C4PromoModal({
       >
         <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-700">
           <div className="min-w-0">
-            <h2 className="line-clamp-2 break-words text-sm font-bold text-slate-900 dark:text-slate-50">
+            <h2
+              id="c4-promo-modal-title"
+              className="line-clamp-2 break-words text-sm font-bold text-slate-900 dark:text-slate-50"
+            >
               {title}
             </h2>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">

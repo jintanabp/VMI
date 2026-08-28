@@ -42,6 +42,8 @@ interface OrderNotiItem {
   storeName: string;
   createdAt: string;
   acknowledged: boolean;
+  /** สถานะปัจจุบันของออเดอร์ · null = ถูกลบไปแล้ว */
+  orderStatus?: string | null;
 }
 
 interface NotiResponse {
@@ -238,16 +240,36 @@ export function SalesNotificationsClient() {
                         </p>
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
-                        {n.kind === "order_created" && n.orderId && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => router.push("/sales/orders")}
-                            title="ไปหน้าตรวจออเดอร์"
-                          >
-                            ตรวจ
-                          </Button>
-                        )}
+                        {/*
+                          บอกสถานะปัจจุบันของออเดอร์ — เดิมขึ้น "ออเดอร์ใหม่" พร้อมปุ่ม
+                          "ตรวจ" ตลอดไปแม้อนุมัติไปแล้ว เซลล์จึงกดเข้าไปดูซ้ำเรื่อย ๆ
+                        */}
+                        {n.kind === "order_created" &&
+                          n.orderStatus &&
+                          n.orderStatus !== "pending_approval" && (
+                            <span
+                              className={cn(
+                                "rounded-md px-1.5 py-0.5 text-[11px] font-semibold",
+                                n.orderStatus === "approved"
+                                  ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+                                  : "bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-300"
+                              )}
+                            >
+                              {n.orderStatus === "approved" ? "อนุมัติแล้ว" : "ปฏิเสธแล้ว"}
+                            </span>
+                          )}
+                        {n.kind === "order_created" &&
+                          n.orderId &&
+                          n.orderStatus === "pending_approval" && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => router.push("/sales/orders")}
+                              title="ไปหน้าตรวจออเดอร์"
+                            >
+                              ตรวจ
+                            </Button>
+                          )}
                         {!n.acknowledged && (
                           <Button
                             size="sm"

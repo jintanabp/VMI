@@ -203,26 +203,46 @@ export function StoreLoginForm() {
         <div className="rounded-xl border border-teal-200 bg-teal-50/80 px-3 py-2 text-xs text-teal-800 dark:border-teal-900/50 dark:bg-teal-950/30 dark:text-teal-200">
           ยินดีต้อนรับ {email} — ตั้งรหัสผ่านสำหรับเข้าใช้งานครั้งต่อไป
         </div>
-        <div className="relative">
-          <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <Input
-            type="password"
-            className="pl-9"
-            placeholder="ตั้งรหัสผ่านใหม่"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoFocus
-          />
+        <div>
+          <label
+            htmlFor="new-password"
+            className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400"
+          >
+            ตั้งรหัสผ่านใหม่ (อย่างน้อย 8 ตัวอักษร)
+          </label>
+          <div className="relative">
+            <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <Input
+              id="new-password"
+              name="new-password"
+              type="password"
+              autoComplete="new-password"
+              className="pl-9"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoFocus
+            />
+          </div>
         </div>
-        <div className="relative">
-          <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <Input
-            type="password"
-            className="pl-9"
-            placeholder="ยืนยันรหัสผ่าน"
-            value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
-          />
+        <div>
+          <label
+            htmlFor="confirm-password"
+            className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400"
+          >
+            ยืนยันรหัสผ่าน
+          </label>
+          <div className="relative">
+            <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <Input
+              id="confirm-password"
+              name="confirm-password"
+              type="password"
+              autoComplete="new-password"
+              className="pl-9"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+            />
+          </div>
         </div>
         {errorBox}
         <Button type="submit" className="w-full" size="lg" disabled={loading}>
@@ -235,20 +255,48 @@ export function StoreLoginForm() {
   if (step === "login") {
     return (
       <form onSubmit={submitLogin} className="space-y-4">
-        <div className="relative">
-          <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <Input className="pl-9" value={email} disabled />
+        <div>
+          <label
+            htmlFor="login-email"
+            className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400"
+          >
+            อีเมลร้านค้า
+          </label>
+          <div className="relative">
+            <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            {/* readOnly ไม่ใช่ disabled — ช่องที่ disabled ไม่ถูกส่งไปกับฟอร์ม
+                password manager จึงจับคู่อีเมลกับรหัสผ่านไม่ได้ */}
+            <Input
+              id="login-email"
+              name="email"
+              type="email"
+              autoComplete="email"
+              className="pl-9"
+              value={email}
+              readOnly
+            />
+          </div>
         </div>
-        <div className="relative">
-          <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <Input
-            type="password"
-            className="pl-9"
-            placeholder="รหัสผ่าน"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoFocus
-          />
+        <div>
+          <label
+            htmlFor="login-password"
+            className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400"
+          >
+            รหัสผ่าน
+          </label>
+          <div className="relative">
+            <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <Input
+              id="login-password"
+              name="password"
+              type="password"
+              autoComplete="current-password"
+              className="pl-9"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoFocus
+            />
+          </div>
         </div>
         {errorBox}
         {infoBox}
@@ -282,16 +330,27 @@ export function StoreLoginForm() {
       <p className="text-sm text-slate-600 dark:text-slate-400">
         กรอกอีเมลของทางร้านค้าเพื่อเข้าสู่ระบบ
       </p>
-      <div className="relative">
-        <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-        <Input
-          type="email"
-          className="pl-9"
-          placeholder="อีเมลร้านค้า"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          autoFocus
-        />
+      <div>
+        <label
+          htmlFor="store-email"
+          className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400"
+        >
+          อีเมลร้านค้า
+        </label>
+        <div className="relative">
+          <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <Input
+            id="store-email"
+            name="email"
+            type="email"
+            autoComplete="email"
+            className="pl-9"
+            placeholder="you@example.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            autoFocus
+          />
+        </div>
       </div>
       {needVda && (
         <div className="relative">
