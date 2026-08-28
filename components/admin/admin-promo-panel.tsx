@@ -312,9 +312,11 @@ export function AdminPromoPanel() {
               </CardTitle>
               {/* แยกให้เห็นว่าเลขแต่ละตัวมาจากไหน — เดิมเขียน "N แถวจากไฟล์ C4"
                   ทั้งที่ N คือจำนวนหลังกรองแล้ว เทียบกับไฟล์จริงไม่ตรงเลย */}
+              {/* ระบุให้ชัดว่าเลขไหนเป็นของทั้งไฟล์ เลขไหนกรองตามคลังที่เลือกแล้ว
+                  — สองชุดนี้วางติดกัน ถ้าไม่บอกจะดูเหมือนตัวกรองคลังไม่ทำงาน */}
               <CardDescription>
                 {data
-                  ? `ไฟล์มี ${data.totals.rowsInFile.toLocaleString("th-TH")} แถว · ทับซ้อนเดือนนี้ ${data.totals.rowsInMonth.toLocaleString("th-TH")} แถว · ใช้จริง ${data.totals.rows.toLocaleString("th-TH")} แถว · ช่วง ${data.from} ถึง ${data.to}`
+                  ? `ทั้งไฟล์ ${data.totals.rowsInFile.toLocaleString("th-TH")} แถว · ทับซ้อนเดือนนี้ ${data.totals.rowsInMonth.toLocaleString("th-TH")} แถว · ใช้จริง${vda ? ` (${vda.toUpperCase()})` : ""} ${data.totals.rows.toLocaleString("th-TH")} แถว · ช่วง ${data.from} ถึง ${data.to}`
                   : "กำลังอ่านไฟล์โปร C4"}
               </CardDescription>
 
@@ -350,6 +352,20 @@ export function AdminPromoPanel() {
                         {" "}
                         ตัดออก{" "}
                         {data.totals.rowsOtherContext.toLocaleString("th-TH")} แถว
+                      </>
+                    )}
+                    {/*
+                      คลังคนละรหัสแต่บริบทเดียวกัน (เช่น vda1 กับ vda3 ที่อยู่
+                      BANGKOK เหมือนกัน) จะได้โปรชุดเดียวกันเป๊ะ ถ้าไม่เขียนไว้
+                      ผู้ใช้สลับคลังแล้วเห็นตัวเลขเท่าเดิมจะนึกว่าตัวกรองพัง
+                    */}
+                    {vda && (
+                      <>
+                        {" "}
+                        <span className="text-teal-700/80 dark:text-teal-200/80">
+                          · คลังอื่นที่อยู่บริบทเดียวกันนี้จะเห็นโปรชุดเดียวกัน
+                          ตัวเลขจึงเท่ากันได้
+                        </span>
                       </>
                     )}
                   </span>
@@ -393,7 +409,8 @@ export function AdminPromoPanel() {
                       );
                     })}
                   <span className="text-slate-400">
-                    (ให้ประโยชน์จริง/ทั้งหมด · เขียว = มีคลังของเราอยู่ภาคนั้น)
+                    (ให้ประโยชน์จริง/ทั้งหมด · เขียว = มีคลังของเราอยู่ภาคนั้น ·
+                    นับจากทั้งไฟล์ ไม่กรองตามคลังที่เลือก)
                   </span>
                 </div>
               )}
