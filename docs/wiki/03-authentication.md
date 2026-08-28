@@ -6,16 +6,29 @@
 
 | บทบาท | วิธีเข้า | Cookie | ไฟล์หลัก |
 |---|---|---|---|
-| คลัง VDA | เลือกรหัส VDA จากรายการ (ไม่มี password) | `CUSTOMER_STORE_COOKIE` | `lib/auth/customer-session.ts` |
-| ร้านค้าที่มีบัญชี | รหัสร้าน + password | store session | `lib/auth/store-session.ts`, `store-password.ts` |
+| ร้านค้า / คลัง VDA | อีเมล + password (`StoreAccount`) | store session (เซ็นแล้ว) | `lib/auth/store-session.ts`, `store-password.ts` |
+| แอดมินเข้าดูร้าน | เลือกรหัส VDA — **ต้องมี sales session role=admin ก่อน** | `CUSTOMER_STORE_COOKIE` | `lib/auth/customer-session.ts` |
 | เซลล์ / Admin | Microsoft Entra ID (OAuth) | `SALES_SESSION_COOKIE` | `lib/auth/microsoft-oauth.ts`, `sales-session.ts` |
 
-## 1. คลัง VDA — ไม่ใช้ password
-
-ออกแบบมาให้เร็วที่สุดสำหรับหน้างานคลัง เลือกรหัสแล้วเข้าได้เลย
-เหมาะกับเครื่องที่วางอยู่ในคลังซึ่งควบคุมการเข้าถึงทางกายภาพอยู่แล้ว
+## 1. เลือกรหัส VDA — เฉพาะแอดมิน (โหมดเข้าดูร้าน)
 
 `POST /api/auth/customer/login` → ตั้ง cookie เก็บ `storeId`
+
+**เดิมเส้นทางนี้ไม่เช็คอะไรเลย** — ยิง `{vda: "vda1"}` เข้ามาก็ได้ session ร้านเต็ม
+(สั่งของ แก้ราคา ยกเลิกออเดอร์ได้) และ `GET /api/vda` แจกรายชื่อ VDA ที่ใช้ได้โดยไม่ต้อง auth
+เอกสารเดิมอธิบายว่าตั้งใจให้เครื่อง kiosk ในคลังใช้ ซึ่งใช้ไม่ได้กับระบบที่เปิดบน hostname สาธารณะ
+
+**ตั้งแต่ 28 ส.ค. 2569 ต้องเป็น sales session ที่ `role === "admin"` เท่านั้น** ร้านจริงทุกร้าน
+เข้าผ่านอีเมล + รหัสผ่าน (`StoreAccount`) · แอดมินสร้างบัญชีร้านได้จากหน้า `/admin`
+
+### ตัวตนร้านมาจาก session ที่เซ็นแล้วเท่านั้น
+
+`lib/auth/store-context.ts` → `getAuthorizedStore()` เป็นทางเดียวที่ API ฝั่งร้านใช้ตัดสินว่า
+"นี่คือร้านไหน" — ยอมรับแค่ StoreSession ที่เซ็น HMAC แล้ว หรือแอดมินตัวจริงในโหมดเข้าดูร้าน
+
+ห้ามอ่าน cookie `vmi_store_id` ตรง ๆ ในโค้ดใหม่ มันเป็น cuid ดิบไม่ได้เซ็น (httpOnly กัน JS ได้
+แต่ไม่กัน HTTP request ที่ประกอบเอง) — เดิมทั้งระบบเชื่อค่านี้ ทำให้ตั้ง cookie เป็น id ร้านอื่น
+แล้วอ่าน/แก้ข้อมูลร้านนั้นได้ และ `GET /api/stock?storeId=` ก็ไม่ต้องมี session เลยด้วยซ้ำ
 
 ## 2. ร้านค้าที่มีบัญชี
 

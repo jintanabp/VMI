@@ -50,7 +50,7 @@ flowchart LR
 
 | บทบาท | เข้าสู่ระบบ | หน้าหลัก |
 |-------|-------------|----------|
-| **คลัง VDA** | เลือกรหัส VDA (ไม่ใช้ password) | `/stock`, `/order`, `/history`, `/manage` |
+| **คลัง VDA** | อีเมล + รหัสผ่าน (`StoreAccount`) · แอดมินเข้าดูได้โดยเลือกรหัส VDA | `/stock`, `/order`, `/history`, `/manage` |
 | **ร้านค้า (มีบัญชี)** | รหัสร้าน + password | เหมือน VDA |
 | **เซลล์** | Microsoft Entra ID | `/sales/orders`, `/sales/po`, `/sales/notifications` |
 | **Admin** | Microsoft + อีเมลใน `ADMIN_EMAILS` | `/admin` |
