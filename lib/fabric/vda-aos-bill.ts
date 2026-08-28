@@ -32,10 +32,6 @@ function normSalesman(code: string): string {
   return code.trim().toUpperCase();
 }
 
-function normCustomer(code: string): string {
-  return code.trim().toLowerCase();
-}
-
 function parseEnvMap(raw: string): Map<string, string> {
   const out = new Map<string, string>();
   for (const part of raw.split(",")) {

@@ -42,7 +42,7 @@
 | Health check | `/vmi/api/health` |
 | Admin panel | `/vmi/admin` |
 | เอกสาร env | `.env.example` |
-| เทสต์ | `npm test` (vitest · 269 เคส / 24 ไฟล์) |
+| เทสต์ | `npm test` (vitest · 305 เคส / 27 ไฟล์) |
 
 > **basePath คือ `/vmi`** — ทุก URL ของแอปมี prefix นี้เสมอ (ตั้งใน `next.config.ts`)
 

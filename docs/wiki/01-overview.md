@@ -62,6 +62,10 @@
 4. **หยุด `npm run dev` ก่อน `npm run build`** — ใช้โฟลเดอร์ `.next/` ร่วมกัน
 5. **ตัวตนร้านมาจาก `getAuthorizedStore()` เท่านั้น** ห้ามอ่าน cookie `vmi_store_id` ตรง ๆ
    (มันเป็นค่าดิบที่ไม่ได้เซ็น ปลอมได้) · ฝั่ง client ใช้ `apiFetch` ไม่ใช่ `fetch`
+6. **ห้ามใช้ `window.confirm` / `alert` / `prompt`** — บล็อก main thread ทั้งหน้า และบน webview
+   กล่องอาจไม่แสดงให้ผู้ใช้เห็นเลย อาการที่ได้คือ "กดแล้วเว็บค้าง" · ใช้ `ConfirmDialog`
+   หรือ `Modal` ใน `components/ui` แทน (ทั้งคู่มีกับดักโฟกัสจาก `hooks/use-focus-trap.ts` ให้แล้ว
+   กล่องที่เขียน portal เองต้องเรียก `useFocusTrap` เอง)
 
 รายละเอียดทั้งหมดอยู่ใน [11 — คู่มือนักพัฒนา](./11-developer-guide.md)
 
