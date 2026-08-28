@@ -18,6 +18,7 @@
 | `02-architecture.md` | 02 — สถาปัตยกรรม |
 | `03-authentication.md` | 03 — การยืนยันตัวตน |
 | `04-user-guide.md` | 04 — คู่มือผู้ใช้ |
+| `11-developer-guide.md` | 11 — คู่มือนักพัฒนา |
 | `05-api-reference.md` | 05 — API Reference |
 | `06-fabric-integration.md` | 06 — Fabric / OneLake |
 | `07-data-model.md` | 07 — Data Model |
@@ -60,4 +61,5 @@
 
 เมื่อโค้ดเปลี่ยน ให้แก้ไฟล์ใน `docs/wiki/` แล้ว re-import หรือ sync หน้าที่เปลี่ยนใน Notion
 
-แหล่งความจริง (source of truth): repository `README.md`, `.env.example`, และโค้ดใน `app/`, `lib/`
+แหล่งความจริง (source of truth): `.env.example` และโค้ดใน `app/`, `lib/`
+(`README.md` เป็นเอกสารประกอบ ไม่ใช่แหล่งอ้างอิงหลัก)

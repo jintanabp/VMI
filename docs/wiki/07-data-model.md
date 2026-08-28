@@ -26,7 +26,7 @@ erDiagram
 ### `Order` — ออเดอร์ที่ร้านส่ง
 | ฟิลด์ | หมายเหตุ |
 |---|---|
-| `status` | `pending_approval` · `approved` · `rejected` |
+| `status` | `pending_approval` · `approved` · `rejected` — ไม่มี `cancelled` เพราะร้านยกเลิก = ลบแถวทิ้ง |
 | `createdAt` | เวลาที่ร้านกดส่ง |
 | `approvedAt` | เวลาที่อนุมัติ (null เมื่อถูกปฏิเสธ) |
 | `decidedAt` | เวลาที่ตัดสิน **ทั้งอนุมัติและปฏิเสธ** |
@@ -79,7 +79,7 @@ erDiagram
 
 | ตาราง | ทิศทาง | kind |
 |---|---|---|
-| `StoreNotification` | พนักงาน → ร้าน | `approved` `rejected` `deleted` `price_changed` `qty_changed` `po_issued` |
+| `StoreNotification` | พนักงาน → ร้าน | `approved` `rejected` `deleted` `price_changed` `qty_changed` `po_issued` `po_cancelled` `po_received` |
 | `SalesNotification` | ร้าน → พนักงาน | `order_created` `order_cancelled` |
 
 ทั้งคู่เก็บ**ข้อความเป็น snapshot** ไม่ผูก FK กับ `Order` เพราะออเดอร์ที่ถูกลบก็ยังต้องแจ้งให้รู้ว่าถูกลบ
@@ -97,6 +97,17 @@ erDiagram
 | `StoreGroupThreshold` | MIN/MAX ระดับกลุ่มสินค้า |
 | `StoreSkuBlock` | รายการหยุดสั่ง (มี `acknowledgedAt` ให้เซลล์รับทราบ) |
 | `PromoTier` | ขั้นโปรแบบเก่า ราย SKU (โปรจริงมาจาก Fabric) |
+| `VdaWarehouse` | **ทะเบียนคลัง VDA ↔ รหัสลูกค้า** แก้จาก `/admin/data/warehouses` · ค่าใน `.env` (`VDA_CUSTOMER_MAP`) ใช้เป็น seed/fallback เท่านั้น แถวใน DB ชนะเสมอ |
+
+### Index ที่ใส่ไว้ตั้งใจ
+
+SQLite ไม่สร้าง index ให้ FK อัตโนมัติ — คิวรีหลักเคยเป็น full scan ทั้งหมด
+
+| ตาราง | Index | ใช้กับ |
+|---|---|---|
+| `Order` | `[storeId, createdAt]` | ประวัติของร้าน |
+| `Order` | `[status, createdAt]` | badge ออเดอร์รอตรวจ (poll ทุก 60 วิ) + แดชบอร์ด |
+| `PurchaseOrder` | `[status]` ฯลฯ | ตัวกรองสถานะในหน้า PO |
 
 ## Migrations
 
@@ -105,13 +116,20 @@ erDiagram
 | Migration | เพิ่มอะไร |
 |---|---|
 | `20260617022603_init` | โครงแรก |
+| `20260617093224_allowed_sales_codes` | รหัสเซลล์ที่อนุญาต |
 | `20260708090000_store_accounts` | บัญชีร้าน |
+| `20260710024057_new_products_and_sku_blocklist` | ป้ายสินค้าใหม่ + รายการหยุดสั่ง |
+| `20260710030654_normalize_sku_createdat` | จัดรูป `Sku.createdAt` |
 | `20260714035025_order_item_cvd_thresholds` | แช่ MIN/MAX ลงบรรทัด |
+| `20260729022223_store_sku_block_effective_to` | วันสิ้นสุดของรายการหยุดสั่ง |
 | `20260729093651_order_item_price_override` | ราคาที่ร้านแก้ |
 | `20260730040841_po_split_and_sales_price` | แบ่ง PO + ราคาเซลล์ |
 | `20260730045109_store_notifications` | แจ้งเตือนร้าน |
 | `20260731021725_sales_notifications` | แจ้งเตือนเซลล์ |
 | `20260731031133_order_promo_snapshot_and_decided_at` | สแนปช็อตโปร/ของแถม + `decidedAt` |
 | `20260731065557_po_status` | สถานะ PO |
+| `20260826075310_vda_warehouse` | ตาราง `VdaWarehouse` |
+| `20260826080500_seed_vda_warehouses` | ย้ายค่าจาก `.env` เข้าตาราง |
+| `20260827085727_order_po_indexes` | index ของ `Order` / `PurchaseOrder` |
 
 > ทุก migration ที่เพิ่มคอลัมน์เป็น **nullable หรือมีค่า default** เสมอ — ข้อมูลเดิมไม่พัง

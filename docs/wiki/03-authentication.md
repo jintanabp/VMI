@@ -14,21 +14,27 @@
 
 `POST /api/auth/customer/login` → ตั้ง cookie เก็บ `storeId`
 
-**เดิมเส้นทางนี้ไม่เช็คอะไรเลย** — ยิง `{vda: "vda1"}` เข้ามาก็ได้ session ร้านเต็ม
-(สั่งของ แก้ราคา ยกเลิกออเดอร์ได้) และ `GET /api/vda` แจกรายชื่อ VDA ที่ใช้ได้โดยไม่ต้อง auth
-เอกสารเดิมอธิบายว่าตั้งใจให้เครื่อง kiosk ในคลังใช้ ซึ่งใช้ไม่ได้กับระบบที่เปิดบน hostname สาธารณะ
+**เดิมเส้นทางนี้ไม่มีการตรวจสอบสิทธิ์ใด ๆ** การส่งค่า `{vda: "vda1"}` เข้ามาจะได้รับ session
+ของร้านค้าโดยสมบูรณ์ ซึ่งสามารถสั่งสินค้า แก้ไขราคา และยกเลิกคำสั่งซื้อได้
+ประกอบกับ `GET /api/vda` เปิดให้เรียกดูรายชื่อ VDA ได้โดยไม่ต้องยืนยันตัวตน
+เอกสารฉบับเดิมระบุว่าออกแบบไว้สำหรับเครื่อง kiosk ภายในคลัง ซึ่งไม่สอดคล้องกับระบบ
+ที่เปิดให้เข้าถึงผ่าน hostname สาธารณะ
 
-**ตั้งแต่ 28 ส.ค. 2569 ต้องเป็น sales session ที่ `role === "admin"` เท่านั้น** ร้านจริงทุกร้าน
-เข้าผ่านอีเมล + รหัสผ่าน (`StoreAccount`) · แอดมินสร้างบัญชีร้านได้จากหน้า `/admin`
+**ตั้งแต่วันที่ 28 สิงหาคม 2569 ต้องมี sales session ที่มี `role === "admin"` เท่านั้น**
+ร้านค้าทุกแห่งเข้าสู่ระบบด้วยอีเมลและรหัสผ่าน (`StoreAccount`) โดยผู้ดูแลระบบเป็นผู้สร้างบัญชี
+ให้จากหน้า `/admin/stores/accounts`
 
-### ตัวตนร้านมาจาก session ที่เซ็นแล้วเท่านั้น
+### ตัวตนของร้านค้ามาจาก session ที่ลงลายเซ็นแล้วเท่านั้น
 
-`lib/auth/store-context.ts` → `getAuthorizedStore()` เป็นทางเดียวที่ API ฝั่งร้านใช้ตัดสินว่า
-"นี่คือร้านไหน" — ยอมรับแค่ StoreSession ที่เซ็น HMAC แล้ว หรือแอดมินตัวจริงในโหมดเข้าดูร้าน
+`lib/auth/store-context.ts` → `getAuthorizedStore()` เป็นช่องทางเดียวที่ API ฝั่งร้านค้า
+ใช้ระบุว่าเป็นร้านใด โดยรับเฉพาะ StoreSession ที่ลงลายเซ็น HMAC แล้ว
+หรือผู้ดูแลระบบที่อยู่ในโหมดเข้าดูข้อมูลร้านค้า
 
-ห้ามอ่าน cookie `vmi_store_id` ตรง ๆ ในโค้ดใหม่ มันเป็น cuid ดิบไม่ได้เซ็น (httpOnly กัน JS ได้
-แต่ไม่กัน HTTP request ที่ประกอบเอง) — เดิมทั้งระบบเชื่อค่านี้ ทำให้ตั้ง cookie เป็น id ร้านอื่น
-แล้วอ่าน/แก้ข้อมูลร้านนั้นได้ และ `GET /api/stock?storeId=` ก็ไม่ต้องมี session เลยด้วยซ้ำ
+**ห้ามอ่าน cookie `vmi_store_id` โดยตรงในโค้ดใหม่** เนื่องจากเป็นค่า cuid ที่ไม่ได้ลงลายเซ็น
+คุณสมบัติ httpOnly ป้องกันการเข้าถึงจาก JavaScript ได้ แต่ไม่สามารถป้องกัน HTTP request
+ที่ประกอบขึ้นเองได้ เดิมทั้งระบบใช้ค่านี้เป็นตัวระบุตัวตน ทำให้ผู้ที่กำหนด cookie เป็นรหัส
+ของร้านอื่นสามารถเข้าถึงและแก้ไขข้อมูลของร้านนั้นได้ และ `GET /api/stock?storeId=`
+สามารถเรียกใช้ได้โดยไม่ต้องมี session แต่อย่างใด
 
 ## 2. ร้านค้าที่มีบัญชี
 
@@ -43,21 +49,30 @@
 
 ## 3. เซลล์ / Admin — Microsoft Entra ID
 
-ใช้ OAuth authorization-code ฝั่ง server (ไม่ใช่ MSAL ฝั่งเบราว์เซอร์)
+ใช้ **authorization code + PKCE ฝั่งเบราว์เซอร์** (SPA flow) — `lib/auth/microsoft-oauth-client.ts`
+เบราว์เซอร์เป็นคนแลก code เป็น token เอง แล้วส่งแค่อีเมล/ชื่อมาให้เซิร์ฟเวอร์ออก session
 
 ```mermaid
 sequenceDiagram
     participant U as ผู้ใช้
-    participant A as แอป
+    participant B as เบราว์เซอร์ (แอป)
     participant M as Microsoft
-    U->>A: กด "เข้าสู่ระบบด้วย Microsoft"
-    A->>M: redirect ไป /authorize
+    participant S as เซิร์ฟเวอร์
+    U->>B: กด "เข้าสู่ระบบด้วย Microsoft"
+    B->>M: /authorize (PKCE)
     M->>U: หน้า login ขององค์กร
-    M->>A: redirect กลับ /auth/microsoft/callback?code=...
-    A->>M: แลก code เป็น token
-    A->>A: อ่านอีเมล → buildSalesSessionWithAccess()
-    A->>U: ตั้ง cookie แล้วเข้าหน้า /sales/orders
+    M->>B: redirect กลับ /vmi/auth/callback?code=...
+    B->>M: แลก code เป็น token (ในเบราว์เซอร์)
+    B->>S: POST /api/auth/msal/session { email, name }
+    S->>S: buildSalesSessionWithAccess() → หา role/scope จาก master
+    S->>U: ตั้ง cookie ที่เซ็นแล้ว → เข้าหน้า /sales
 ```
+
+> ⚠️ **ข้อควรทราบสำหรับนักพัฒนา:** `POST /api/auth/msal/session` รับค่า `{ email, name }`
+> และเชื่อถือค่าดังกล่าวโดยยังไม่ได้ตรวจสอบ `id_token` จาก Microsoft ที่ฝั่งเซิร์ฟเวอร์
+> ส่วน `lib/auth/microsoft-oauth.ts` (โค้ด server-side flow เดิม) และ route
+> `/api/auth/microsoft/*` ปัจจุบันไม่มีการเรียกใช้งานแล้ว
+> หากต้องการเพิ่มความปลอดภัยในอนาคต จุดนี้คือตำแหน่งที่ต้องปรับปรุง
 
 ### session token
 `lib/auth/sales-session.ts` เซ็น payload ด้วย HMAC-SHA256 โดยใช้ `NEXTAUTH_SECRET`
@@ -96,13 +111,25 @@ Admin ดูระบบในมุมของคนอื่นได้โ�
 
 ## ตั้งค่า Azure Portal
 
-Redirect URI ต้องตรงกับที่แอปใช้จริง (มี basePath `/vmi`)
+Redirect URI ต้องตรงกับค่าที่ระบบใช้งานจริง คือ **มี basePath `/vmi` และลงท้ายด้วย
+`/auth/callback`** (ไม่ใช่ `/auth/microsoft/callback` ซึ่งเป็น route เดิมที่คงไว้สำหรับ redirect เท่านั้น)
 
 ```
-https://<โดเมน>/vmi/auth/microsoft/callback
-http://localhost:3000/vmi/auth/microsoft/callback   ← สำหรับ dev
+https://<โดเมน>/vmi/auth/callback
+http://localhost:3000/vmi/auth/callback   ← สำหรับ dev
 ```
+
+ลงทะเบียนภายใต้ประเภท **Single-page application (SPA)** ไม่ใช่ Web และห้ามมีเครื่องหมาย
+`/` ปิดท้าย
+
+ค่าที่ระบบใช้จริงมาจาก `getMicrosoftCallbackPath()` ใน `lib/auth/microsoft-oauth-client.ts`
+หากมีการเปลี่ยนแปลง path ต้องแก้ไขทั้งใน Azure และค่า `NEXT_PUBLIC_AZURE_REDIRECT_URI`
 
 env ที่ต้องมี: `NEXT_PUBLIC_AZURE_AD_CLIENT_ID`, `NEXT_PUBLIC_AZURE_AD_TENANT_ID`, `NEXTAUTH_SECRET`, `ADMIN_EMAILS`
+
+> **`NEXTAUTH_SECRET` มีเงื่อนไขเพิ่มเติมนอกเหนือจากการมีค่า** ระบบ production
+> จะ**ไม่เริ่มทำงาน** หากไม่ได้กำหนด สั้นกว่า 32 ตัวอักษร หรือยังเป็นค่าตัวอย่าง
+> (`vmi-dev-secret`, `your-random-secret-here`) รายละเอียดที่ `lib/auth/session-secret.ts`
+> การออกแบบให้หยุดทำงานทันทีเป็นไปเพื่อป้องกันกรณีที่ cookie ทุกใบสามารถถูกปลอมแปลงได้
 
 > `NEXT_PUBLIC_*` ถูก bake ตอน build — Docker ต้องมี `.env` ครบ**ก่อน** `docker compose build`

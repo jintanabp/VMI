@@ -47,13 +47,15 @@ npm run sync:masters
 
 | env | ค่าเริ่มต้น |
 |---|---|
-| `MASTER_REFRESH_ENABLED` | เปิด/ปิด scheduler |
+| `MASTER_REFRESH_ENABLED` | เปิด/ปิด scheduler (เปิดโดย default) |
 | `MASTER_REFRESH_HOUR` | `3` |
 | `MASTER_REFRESH_MINUTE` | `30` |
-| `ALERT_EMAIL` | อีเมลรับแจ้งเมื่อ sync ล้ม |
+| `MASTER_REFRESH_MAX_AGE_HOURS` | ข้อมูลเก่ากว่านี้ถือว่าค้าง (default `20`) — ใช้ทั้งตอน boot ไล่ตามรอบที่พลาด และเปลี่ยนสีป้าย "ข้อมูล ณ" บนหน้าร้าน |
+| `ALERT_EMAIL` | อีเมลผู้รับแจ้งเมื่อ sync ล้ม |
+| `SENDER_EMAIL` | **mailbox ผู้ส่ง (Graph `Mail.Send`) — ต้องตั้งคู่กับ `ALERT_EMAIL`** ขาดตัวใดตัวหนึ่งระบบข้ามการส่งเงียบ ๆ |
 
 ### ผ่านหน้าเว็บ
-`/admin/sync` → กดดึงข้อมูล และดูสถานะรอบล่าสุด
+`/admin/data/sync` → กดดึงข้อมูล และดูสถานะรอบล่าสุด
 
 ## กลไกกันข้อมูลพัง
 
@@ -81,7 +83,9 @@ ONELAKE_TENANT_ID= ONELAKE_CLIENT_ID= ONELAKE_CLIENT_SECRET=
 ONELAKE_WORKSPACE_ID= ONELAKE_LAKEHOUSE_ID= ONELAKE_SCAN_DIR=
 STOCK_ONELAKE_*             # ชุดแยกสำหรับสต็อก
 CFT_*                       # ชุดแยกสำหรับโปรโมชัน
-VDA_CUSTOMER_MAP            # ทะเบียน VDA ↔ รหัสลูกค้า (ตั้งใน .env — เพิ่ม VDA ใหม่แก้ที่นี่)
+VDA_CUSTOMER_MAP            # ทะเบียน VDA ↔ รหัสลูกค้า — seed/fallback เท่านั้น
+                            # เพิ่ม/แก้ VDA ใหม่ทำที่ /admin/data/warehouses (เก็บในตาราง
+                            # VdaWarehouse) ถ้าข้อมูลขัดกัน แถวใน DB ชนะค่าใน .env เสมอ
                             # รหัสเซลล์หาเองจาก cross_target_current_month
 SKU_MIN_ROWS= SOLD_HISTORY_MIN_ROWS= ...   # เกณฑ์กันไฟล์พัง
 ```
