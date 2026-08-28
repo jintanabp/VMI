@@ -443,7 +443,7 @@ export function OrderReviewTable({
               ·
             </span>
             <CompactStat
-              label="แก้ราคา"
+              label="ราคาต่างระบบ"
               value={`${stats.priceFlagged}`}
               icon={<AlertTriangle className="h-3 w-3 text-amber-500" />}
             />

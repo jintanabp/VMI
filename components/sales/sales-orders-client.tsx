@@ -365,7 +365,7 @@ export function SalesOrdersClient() {
     setIssuedPos([]);
   }, [selected?.id]);
 
-  /** จำนวนบรรทัดที่ร้านตั้งราคาต่างจากระบบในออเดอร์ที่เลือกอยู่ */
+  /** จำนวนบรรทัดที่ราคาต่างจากระบบ — ร้านตั้งมาเอง หรือเซลล์แก้ในหน้านี้ก็นับ */
   const selectedPriceFlagged =
     selected?.items?.filter((i) => i.priceFlagged).length ?? 0;
   const approveNeedsConfirm = selectedPriceFlagged > 0;
@@ -819,7 +819,7 @@ export function SalesOrdersClient() {
                 </p>
                 {priceFlagged > 0 && (
                   <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:ring-amber-800">
-                    <AlertTriangle className="h-3 w-3" /> ร้านแก้ราคา{" "}
+                    <AlertTriangle className="h-3 w-3" /> ราคาต่างระบบ{" "}
                     {priceFlagged}
                   </span>
                 )}
@@ -888,10 +888,16 @@ export function SalesOrdersClient() {
               {selected.items.some((i) => i.priceFlagged) && (
                 <div className="mb-2 flex shrink-0 items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/40 dark:text-amber-200">
                   <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  {/*
+                    ธงนี้ขึ้นเมื่อราคาบนบรรทัดต่างจากราคาระบบ ไม่ว่าใครเป็นคนตั้ง
+                    — เซลล์ที่แก้ราคาเองในหน้านี้ก็ทำให้ขึ้นได้ ข้อความเดิมเขียนว่า
+                    "ร้านแก้ราคา" จึงโยนความผิดให้ร้านทั้งที่บางบรรทัดเซลล์แก้เอง
+                  */}
                   <span>
-                    ร้านแก้ราคา/หีบ{" "}
+                    ราคา/หีบ{" "}
                     {selected.items.filter((i) => i.priceFlagged).length}{" "}
-                    รายการ ไม่ตรงกับราคาในระบบ — ตรวจสอบก่อนอนุมัติ
+                    รายการไม่ตรงกับราคาในระบบ (ร้านตั้งมา หรือแก้ในหน้านี้) —
+                    ตรวจสอบก่อนอนุมัติ
                   </span>
                 </div>
               )}
@@ -1100,15 +1106,15 @@ export function SalesOrdersClient() {
       <ConfirmDialog
         open={approveOpen}
         tone="default"
-        title="อนุมัติออเดอร์ที่ร้านแก้ราคาเอง?"
+        title="อนุมัติออเดอร์ที่ราคาไม่ตรงระบบ?"
         confirmLabel="อนุมัติและออก PO"
         body={
           <>
             ออเดอร์นี้มี{" "}
             <span className="font-semibold text-amber-700 dark:text-amber-400">
-              {selectedPriceFlagged} รายการที่ร้านตั้งราคาต่างจากระบบ
+              {selectedPriceFlagged} รายการที่ราคาต่างจากระบบ
             </span>{" "}
-            — ราคาที่ร้านตั้งจะถูกใช้บนเอกสาร PO ที่ส่งฝ่ายจัดซื้อ
+            — ราคาที่แสดงอยู่ตอนนี้จะถูกใช้บนเอกสาร PO ที่ส่งฝ่ายจัดซื้อ
             <br />
             กรุณาตรวจราคาอีกครั้งก่อนยืนยัน เพราะเมื่อออกเลข PO แล้วย้อนกลับไม่ได้
           </>

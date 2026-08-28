@@ -124,7 +124,7 @@ export function SalesDashboardClient() {
           </Link>
           <StatCard
             icon={<AlertTriangle className="h-4 w-4" />}
-            label="มีราคาที่ร้านแก้เอง"
+            label="มีราคาไม่ตรงระบบ"
             value={formatNumber(data?.priceFlagged ?? 0, 0)}
             tone={(data?.priceFlagged ?? 0) > 0 ? "amber" : "default"}
           />
