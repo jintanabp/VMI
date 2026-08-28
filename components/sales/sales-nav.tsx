@@ -4,12 +4,12 @@ import { appPath, isPathUnder, normalizePathname } from "@/lib/paths";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { Bell, ClipboardList, FileText, LayoutDashboard } from "lucide-react";
+import { Bell, ClipboardList, FileText, LayoutDashboard, Tag } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
 
 /**
- * แถบสลับหน้า ฝั่งเซลล์: ภาพรวม / ออเดอร์ / PO / การแจ้งเตือน
+ * แถบสลับหน้า ฝั่งเซลล์: ภาพรวม / ออเดอร์ / PO / โปรโมชั่น / การแจ้งเตือน
  *
  * ป้ายแท็บใช้คำเดียวกับเนื้อหาข้างใน — เดิมแท็บเขียน "คำสั่งซื้อ" แต่ทุกข้อความ
  * ในหน้านั้นเรียก "ออเดอร์" ("ไม่มีออเดอร์ในสถานะนี้", "ลบออเดอร์นี้?")
@@ -67,6 +67,16 @@ export function SalesNav() {
       // ไม่มี badge โดยตั้งใจ — เคยโชว์จำนวน "PO ที่ออกวันนี้" เป็นจุดแดง
       // แต่มันไม่ใช่ตัวนับที่ยังไม่อ่าน กดเข้าไปดูก็ไม่หาย ค้างแดงทั้งวัน
       // จำนวน PO ดูได้จากการ์ดสรุปในหน้านั้นอยู่แล้ว
+      badge: 0,
+      badgeTitle: "",
+      warnBadge: 0,
+      warnTitle: "",
+    },
+    {
+      href: "/sales/promotions",
+      label: "โปรโมชั่น",
+      icon: Tag,
+      // ไม่มี badge — โปรเปลี่ยนเดือนละครั้ง ไม่ใช่ของที่ต้องเร่งดู
       badge: 0,
       badgeTitle: "",
       warnBadge: 0,

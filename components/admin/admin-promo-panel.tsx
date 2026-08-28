@@ -29,6 +29,7 @@ import type {
 } from "@/lib/promo/promo-month";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
+import { friendlyError } from "@/lib/error-message";
 
 /** ชื่อภาคแบบไทย — คีย์ตรงกับหัวคอลัมน์ภูมิภาคในไฟล์ C4 */
 const REGION_LABEL: Record<string, string> = {
@@ -111,12 +112,16 @@ export function AdminPromoPanel() {
   const [view, setView] = useState<"group" | "sku">("sku");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [limit, setLimit] = useState(PAGE_SIZE);
+  /** คลังที่เลือกดู — "" = รวมทุกคลังที่มีสิทธิ์ */
+  const [vda, setVda] = useState("");
+  const [availableVdas, setAvailableVdas] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiFetch(appPath("/api/admin/promo"), {
+      const qs = vda ? `?vdaCode=${encodeURIComponent(vda)}` : "";
+      const res = await apiFetch(appPath(`/api/promo/month${qs}`), {
         cache: "no-store",
       });
       if (!res.ok) {
@@ -124,17 +129,22 @@ export function AdminPromoPanel() {
           error?: string;
         } | null;
         throw new Error(
-          body?.error ?? `โหลดข้อมูลโปรไม่สำเร็จ (${res.status})`
+          friendlyError(body?.error, `โหลดข้อมูลโปรไม่สำเร็จ (${res.status})`)
         );
       }
-      setData((await res.json()) as PromoMonthReport);
+      const body = (await res.json()) as {
+        availableVdas: string[];
+        report: PromoMonthReport | null;
+      };
+      setAvailableVdas(body.availableVdas ?? []);
+      setData(body.report);
     } catch (err) {
       setData(null);
       setError(err instanceof Error ? err.message : "โหลดข้อมูลโปรไม่สำเร็จ");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [vda]);
 
   useEffect(() => {
     void load();
@@ -417,6 +427,40 @@ export function AdminPromoPanel() {
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
+          {/*
+            เลือกดูโปรรายคลัง — โปรผูกกับบริบท (division, cusgroup, region) ของแต่ละคลัง
+            และ region ต่างกันได้จริง คลังคนละภาคจึงได้โปรคนละชุด
+            รวมทุกคลังไว้ด้วยกันจะแยกไม่ออกว่าโปรไหนเป็นของคลังไหน
+          */}
+          {availableVdas.length > 1 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <label
+                htmlFor="promo-vda"
+                className="text-xs font-medium text-slate-600 dark:text-slate-400"
+              >
+                ดูโปรของคลัง
+              </label>
+              <select
+                id="promo-vda"
+                value={vda}
+                onChange={(e) => setVda(e.target.value)}
+                className="h-9 rounded-lg border border-slate-300 bg-white px-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+              >
+                <option value="">ทุกคลัง ({availableVdas.length})</option>
+                {availableVdas.map((v) => (
+                  <option key={v} value={v}>
+                    {v.toUpperCase()}
+                  </option>
+                ))}
+              </select>
+              {vda && (
+                <span className="text-xs text-slate-500 dark:text-slate-400">
+                  แสดงเฉพาะโปรที่คลัง {vda.toUpperCase()} ได้รับจริง
+                </span>
+              )}
+            </div>
+          )}
+
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <Input

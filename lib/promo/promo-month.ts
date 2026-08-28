@@ -246,6 +246,14 @@ function kindOf(row: PromoRow): PromoBenefitKind {
 /** รายงานของ "เดือนปัจจุบัน" ตามปฏิทินไทย — ไฟล์ C4 อัปเดตเดือนละครั้ง ไม่มีเดือนอื่นให้ดู */
 export function buildPromoMonthReport(input?: {
   day?: Date;
+  /**
+   * จำกัดรายงานให้เห็นเฉพาะโปรของคลังที่ระบุ — ไม่ส่ง = ทุกคลังในระบบ
+   *
+   * โปรผูกกับบริบท (division, cusgroup, region) ของแต่ละคลัง และ **region ต่างกัน
+   * ได้จริง** คลังคนละภาคจึงเห็นโปรคนละชุด การรวมทุกคลังไว้ในรายงานเดียวทำให้
+   * เซลล์ที่ดูแลคลังภาคเหนือเห็นโปรของภาคใต้ปนมาด้วย แล้วไปแจ้งร้านผิด
+   */
+  storeCodes?: string[];
 }): PromoMonthReport {
   if (!fabricPromoReady()) {
     throw new Error("PROMO_NOT_LOADED");
@@ -265,7 +273,14 @@ export function buildPromoMonthReport(input?: {
    * ถ้าเอามาโชว์ทั้งหมด หน้ารายงานจะขัดกับหน้าสต็อก — เห็นโปรในแอดมินแต่ร้านไม่ได้
    * จำนวนที่ตัดทิ้งรายงานไว้ใน totals.rowsOtherContext ไม่ได้หายไปเงียบ ๆ
    */
-  const contexts = listStockFromDbSources()
+  const allStores = listStockFromDbSources();
+  const wanted = input?.storeCodes?.map((c) => c.trim().toLowerCase());
+  const scopedStores =
+    wanted && wanted.length > 0
+      ? allStores.filter((s) => wanted.includes(s.toLowerCase()))
+      : allStores;
+
+  const contexts = scopedStores
     .map((storeCode) => ({ storeCode, ...resolvePromoContext(storeCode) }))
     .reduce<PromoMonthReport["contexts"]>((acc, c) => {
       const hit = acc.find(
