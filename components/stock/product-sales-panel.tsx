@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { BarChart3, TrendingUp } from "lucide-react";
 import { formatNumber } from "@/lib/calculations";
 import { cn } from "@/lib/utils";
+import { apiFetch } from "@/lib/api-fetch";
 
 interface DailySale {
   date: string;
@@ -18,11 +19,16 @@ interface SalesSummary {
   avgPerDay: number;
   avgPerWeek: number;
   hasData: boolean;
+  /** จำนวนวันที่ข้อมูลจริงครอบคลุม — น้อยกว่าช่วงที่ขอได้ */
+  effectiveDays?: number;
 }
 
 interface SalesResponse {
   available?: boolean;
   lastDate?: string | null;
+  firstDate?: string | null;
+  /** ข้อมูลย้อนหลังทั้งไฟล์ครอบคลุมกี่วัน */
+  coverageDays?: number;
   summary?: SalesSummary | null;
 }
 
@@ -67,7 +73,37 @@ function toWeeklyBuckets(series: DailySale[]): WeekBucket[] {
   return weeks;
 }
 
-const DAY_OPTIONS = [7, 30] as const;
+/**
+ * 90 วันจะเปิดใช้เองเมื่อข้อมูลจริงสะสมพอ — ตอนนี้ต้นทาง (Fabric notebook
+ * factsales_odoo_daily_etl.py, LOOKBACK_DAYS) ส่งมา 30 วันแล้วเขียนทับทุกคืน
+ * ปุ่มจึงยังเทาอยู่ ไม่ต้องแก้โค้ดซ้ำเมื่อฝั่ง Fabric ขยายช่วงแล้ว
+ */
+const DAY_OPTIONS = [7, 30, 90] as const;
+
+/**
+ * %WoW = เทียบ 7 วันล่าสุดกับ 7 วันก่อนหน้า
+ * null เมื่อสัปดาห์ก่อนขายไม่ได้เลย — หารศูนย์ไม่ได้ และ "โต ∞%" ไม่มีความหมาย
+ */
+function calcWoW(weeks: WeekBucket[]): number | null {
+  if (weeks.length < 2) return null;
+  const last = weeks[weeks.length - 1]!.qty;
+  const prev = weeks[weeks.length - 2]!.qty;
+  if (prev <= 0) return null;
+  return ((last - prev) / prev) * 100;
+}
+
+/** ค่าเฉลี่ยเคลื่อนที่ 7 วัน — กลบความแกว่งรายวันให้เห็นทิศทางจริง */
+function movingAverage(series: DailySale[], window = 7): DailySale[] {
+  if (series.length < window) return [];
+  const out: DailySale[] = [];
+  let sum = 0;
+  for (let i = 0; i < series.length; i++) {
+    sum += series[i]!.qty;
+    if (i >= window) sum -= series[i - window]!.qty;
+    if (i >= window - 1) out.push({ date: series[i]!.date, qty: sum / window });
+  }
+  return out;
+}
 
 export function ProductSalesPanel({
   skuCode,
@@ -92,7 +128,7 @@ export function ProductSalesPanel({
     queryFn: async () => {
       const params = new URLSearchParams({ sku: skuCode, days: String(viewDays) });
       if (fromDb) params.set("fromDb", fromDb);
-      const r = await fetch(`${appPath("/api/sales/daily")}?${params.toString()}`);
+      const r = await apiFetch(`${appPath("/api/sales/daily")}?${params.toString()}`);
       if (!r.ok) throw new Error("failed to load daily sales");
       return (await r.json()) as SalesResponse;
     },
@@ -134,26 +170,51 @@ export function ProductSalesPanel({
     [isMonthView, series]
   );
 
+  // ข้อมูลจริงครอบคลุมกี่วัน — ใช้ปิดตัวเลือกช่วงที่ยาวเกินข้อมูลที่มี
+  const coverageDays = data?.coverageDays ?? 0;
+  const effectiveDays = summary?.effectiveDays ?? 0;
+  const truncated = effectiveDays > 0 && effectiveDays < viewDays;
+  const wow = useMemo(() => (effectiveDays >= 14 ? calcWoW(weeks) : null), [
+    effectiveDays,
+    weeks,
+  ]);
+  const ma = useMemo(
+    () => (effectiveDays >= 14 ? movingAverage(series) : []),
+    [effectiveDays, series]
+  );
+
   const dayToggle = (
     <div className="inline-flex overflow-hidden rounded-md border border-slate-200 dark:border-slate-700">
-      {DAY_OPTIONS.map((d) => (
-        <button
-          key={d}
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            setViewDays(d);
-          }}
-          className={cn(
-            "px-2 py-0.5 text-[11px] font-medium transition",
-            viewDays === d
-              ? "bg-teal-600 text-white"
-              : "bg-white text-slate-500 hover:bg-slate-100 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800"
-          )}
-        >
-          {d} วัน
-        </button>
-      ))}
+      {DAY_OPTIONS.map((d) => {
+        // ข้อมูลไม่ถึงช่วงนี้ → ปิดไว้ ดีกว่าวาดกราฟจากศูนย์ที่เติมเอง
+        const unavailable = coverageDays > 0 && coverageDays < d;
+        return (
+          <button
+            key={d}
+            type="button"
+            disabled={unavailable}
+            title={
+              unavailable
+                ? `ข้อมูลจริงยังไม่ถึง ${d} วัน (มี ${coverageDays} วัน)`
+                : undefined
+            }
+            onClick={(e) => {
+              e.stopPropagation();
+              setViewDays(d);
+            }}
+            className={cn(
+              "px-2 py-0.5 text-[11px] font-medium transition",
+              unavailable
+                ? "cursor-not-allowed bg-slate-50 text-slate-300 dark:bg-slate-900 dark:text-slate-600"
+                : viewDays === d
+                  ? "bg-teal-600 text-white"
+                  : "bg-white text-slate-500 hover:bg-slate-100 dark:bg-slate-900 dark:text-slate-400 dark:hover:bg-slate-800"
+            )}
+          >
+            {d} วัน
+          </button>
+        );
+      })}
     </div>
   );
 
@@ -223,6 +284,19 @@ export function ProductSalesPanel({
           icon
         />
         <SummaryPill label="รวม" value={formatNumber(total, 0)} />
+        {wow !== null && (
+          <SummaryPill
+            label="สัปดาห์นี้"
+            value={`${wow >= 0 ? "+" : ""}${formatNumber(wow, 0)}%`}
+            tone={wow >= 0 ? "teal" : "amber"}
+          />
+        )}
+        {ma.length > 0 && (
+          <SummaryPill
+            label="เฉลี่ย 7 วันล่าสุด"
+            value={formatNumber(ma[ma.length - 1]!.qty, 1)}
+          />
+        )}
         {isMonthView && peak && (
           <SummaryPill
             label="สูงสุด"
@@ -230,6 +304,13 @@ export function ProductSalesPanel({
           />
         )}
       </div>
+
+      {truncated && (
+        <p className="text-[11px] text-amber-600 dark:text-amber-400">
+          ข้อมูลจริงมี {effectiveDays} วัน (ขอ {viewDays} วัน) — ค่าเฉลี่ยคิดจาก{" "}
+          {effectiveDays} วันที่มีจริง ไม่ได้เติมศูนย์ให้ครบช่วง
+        </p>
+      )}
 
       {total === 0 ? (
         <p
@@ -389,16 +470,19 @@ function SummaryPill({
 }: {
   label: string;
   value: string;
-  tone?: "slate" | "teal";
+  tone?: "slate" | "teal" | "amber";
   icon?: boolean;
 }) {
   return (
     <span
       className={cn(
         "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px]",
-        tone === "teal"
-          ? "bg-teal-100 text-teal-800 ring-1 ring-teal-200 dark:bg-teal-500/15 dark:text-teal-200 dark:ring-teal-500/25"
-          : "bg-white text-slate-600 ring-1 ring-slate-200 dark:bg-slate-900/40 dark:text-slate-300 dark:ring-slate-700"
+        tone === "teal" &&
+          "bg-teal-100 text-teal-800 ring-1 ring-teal-200 dark:bg-teal-500/15 dark:text-teal-200 dark:ring-teal-500/25",
+        tone === "amber" &&
+          "bg-amber-100 text-amber-800 ring-1 ring-amber-200 dark:bg-amber-500/15 dark:text-amber-200 dark:ring-amber-500/25",
+        tone === "slate" &&
+          "bg-white text-slate-600 ring-1 ring-slate-200 dark:bg-slate-900/40 dark:text-slate-300 dark:ring-slate-700"
       )}
     >
       {icon && <TrendingUp className="h-3 w-3" />}

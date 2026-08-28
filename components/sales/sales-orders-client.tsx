@@ -28,6 +28,7 @@ import {
 } from "@/components/sales/order-review-table";
 import { formatStoreLabel } from "@/lib/format-store-label";
 import { getCvdFlag } from "@/lib/calculations";
+import { apiFetch } from "@/lib/api-fetch";
 
 // ใช้ type เดียวกับตารางรีวิว เพื่อไม่ให้ฟิลด์สองที่หลุดกัน
 type OrderItem = ReviewOrderItem;
@@ -117,7 +118,7 @@ export function SalesOrdersClient() {
 
   const { data: salesReps = [] } = useQuery<SalesRep[]>({
     queryKey: ["admin-salesmen"],
-    queryFn: () => fetch(appPath("/api/admin/salesmen")).then((r) => r.json()),
+    queryFn: () => apiFetch(appPath("/api/admin/salesmen")).then((r) => r.json()),
     enabled: isAdmin,
   });
 
@@ -132,7 +133,7 @@ export function SalesOrdersClient() {
     setSwitchingCode(true);
     setCodeError(null);
     try {
-      const res = await fetch(appPath("/api/sales/active-code"), {
+      const res = await apiFetch(appPath("/api/sales/active-code"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code }),
@@ -178,7 +179,7 @@ export function SalesOrdersClient() {
     queryKey: ["orders", statusFilter, salesRepFilter, vdaFilter, allPersonVdas, isAdmin],
     enabled: ordersReady,
     queryFn: async () => {
-      const res = await fetch(ordersUrl);
+      const res = await apiFetch(ordersUrl);
       if (!res.ok) throw new Error(`โหลดออเดอร์ไม่สำเร็จ (${res.status})`);
       // เส้น 401 คืน { error } ซึ่งเป็น object — ถ้าหลุดมาโดย res.ok
       // จะระเบิดที่ sorted.map ทีหลัง กันไว้แบบเดียวกับ sales-nav.tsx
@@ -266,7 +267,7 @@ export function SalesOrdersClient() {
     for (const [i, order] of targets.entries()) {
       const label = formatStoreLabel(order.store.code, order.store.name);
       try {
-        const res = await fetch(appPath("/api/orders"), {
+        const res = await apiFetch(appPath("/api/orders"), {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ orderId: order.id, action: "approve" }),
@@ -352,7 +353,7 @@ export function SalesOrdersClient() {
         withPo: "1",
       });
       if (!vars.notify) params.set("notify", "0");
-      const res = await fetch(
+      const res = await apiFetch(
         `${appPath("/api/orders")}?${params.toString()}`,
         { method: "DELETE" }
       );
@@ -398,9 +399,10 @@ export function SalesOrdersClient() {
       reason?: string;
       itemId?: string;
       unitPriceOverride?: number | null;
+      finalQty?: number;
       assignments?: { itemId: string; poGroup: string }[];
     }) => {
-      const res = await fetch(appPath("/api/orders"), {
+      const res = await apiFetch(appPath("/api/orders"), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -897,6 +899,17 @@ export function SalesOrdersClient() {
                           action: "updatePrice",
                           itemId,
                           unitPriceOverride,
+                        })
+                    : undefined
+                }
+                onQtyChange={
+                  selected.status === "pending_approval"
+                    ? (itemId, finalQty) =>
+                        actionMutation.mutate({
+                          orderId: selected.id,
+                          action: "updateQty",
+                          itemId,
+                          finalQty,
                         })
                     : undefined
                 }

@@ -8,6 +8,7 @@ import { VAT_RATE, type PoDocument } from "@/lib/po/po-document";
 import { sanitizePoNumber } from "@/lib/po/po-number";
 import { rebuildPoDocumentFromDb } from "@/lib/po/po-from-db";
 import { isPoStatus } from "@/lib/po/po-status";
+import { notifyStore } from "@/lib/orders/store-notify";
 import { collectOwedFreeGoods } from "@/lib/promo/order-free-goods";
 
 /**
@@ -43,7 +44,11 @@ export async function PATCH(
 
   const po = await prisma.purchaseOrder.findUnique({
     where: { poNumber },
-    select: { orderId: true },
+    select: {
+      orderId: true,
+      status: true,
+      order: { select: { storeId: true } },
+    },
   });
   if (!po) {
     return NextResponse.json({ error: "ไม่พบ PO" }, { status: 404 });
@@ -64,6 +69,37 @@ export async function PATCH(
     },
     select: { poNumber: true, status: true, statusAt: true, statusBy: true },
   });
+
+  // ร้านต้องรู้เมื่อของไม่มาแล้ว (ยกเลิก) หรือมาถึงแล้ว (รับของ)
+  // — สองสถานะนี้เปลี่ยนสิ่งที่ร้านต้องทำต่อ ต่างจาก "ส่งซัพแล้ว" ที่เป็นงานภายใน
+  if (po.status !== body.status && po.order?.storeId) {
+    const notify =
+      body.status === "cancelled"
+        ? {
+            kind: "po_cancelled" as const,
+            title: `ยกเลิกใบสั่งซื้อ ${poNumber}`,
+            detail: note || "ใบสั่งซื้อนี้ถูกยกเลิก — ของจะไม่ถูกส่ง",
+          }
+        : body.status === "received"
+          ? {
+              kind: "po_received" as const,
+              title: `รับของครบแล้ว ${poNumber}`,
+              detail: note || "ของตามใบสั่งซื้อนี้เข้าคลังครบแล้ว",
+            }
+          : null;
+
+    if (notify) {
+      await notifyStore({
+        storeId: po.order.storeId,
+        kind: notify.kind,
+        title: notify.title,
+        detail: notify.detail,
+        poNumbers: [poNumber],
+        orderId: po.orderId,
+        actorEmail: session.email,
+      });
+    }
+  }
 
   return NextResponse.json(updated);
 }

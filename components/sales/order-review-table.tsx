@@ -2,7 +2,7 @@
 
 import { appPath } from "@/lib/paths";
 import { StorePriceInput } from "@/components/order/store-price-input";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Filter, Sparkles } from "lucide-react";
 import { PromoDetailCell } from "@/components/promo/promo-detail-cell";
@@ -33,6 +33,7 @@ import {
   sortRowsByPromoGroup,
 } from "@/lib/promo/promo-group-display";
 import { Checkbox } from "@/components/ui/checkbox";
+import { apiFetch } from "@/lib/api-fetch";
 
 export interface ReviewOrderItem {
   id: string;
@@ -83,6 +84,11 @@ interface OrderReviewTableProps {
   items: ReviewOrderItem[];
   /** แก้ราคาได้เมื่อส่งมา (หน้าตรวจของพนักงาน) — null = ล้างราคาที่ตั้งไว้ */
   onPriceChange?: (itemId: string, override: number | null) => void;
+  /**
+   * แก้จำนวนรายบรรทัดก่อนอนุมัติ — API `action:"updateQty"` มีมานานแล้วแต่ไม่มีปุ่ม
+   * ให้กด ต้องยิงเองผ่าน curl · ตั้ง 0 = ตัดบรรทัดนั้นออกจากใบสั่งซื้อ
+   */
+  onQtyChange?: (itemId: string, finalQty: number) => void;
   /** เลือกแถวเพื่อย้ายกลุ่ม PO */
   selectedIds?: Set<string>;
   onToggleSelect?: (itemId: string) => void;
@@ -279,6 +285,7 @@ export function OrderReviewTable({
   storeCode,
   items,
   onPriceChange,
+  onQtyChange,
   selectedIds,
   onToggleSelect,
   showPoGroups,
@@ -292,7 +299,7 @@ export function OrderReviewTable({
   }>({
     queryKey: ["order-promo", storeCode, lineKey],
     queryFn: () =>
-      fetch(appPath("/api/sales/order-promo"), {
+      apiFetch(appPath("/api/sales/order-promo"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -706,12 +713,20 @@ export function OrderReviewTable({
                       </div>
                     </td>
                     <td className="w-[4.5rem] px-2 py-2.5 align-top text-right">
-                      <p
-                        className="whitespace-nowrap text-base font-bold tabular-nums text-slate-900 dark:text-slate-100"
-                        title={`แนะนำ ${item.suggestedQty} · สั่ง ${item.finalQty}`}
-                      >
-                        {formatQtyPair(item.suggestedQty, item.finalQty)}
-                      </p>
+                      {onQtyChange ? (
+                        <QtyStepper
+                          value={item.finalQty}
+                          suggested={item.suggestedQty}
+                          onChange={(v) => onQtyChange(item.id, v)}
+                        />
+                      ) : (
+                        <p
+                          className="whitespace-nowrap text-base font-bold tabular-nums text-slate-900 dark:text-slate-100"
+                          title={`แนะนำ ${item.suggestedQty} · สั่ง ${item.finalQty}`}
+                        >
+                          {formatQtyPair(item.suggestedQty, item.finalQty)}
+                        </p>
+                      )}
                     </td>
                     <td className="w-[7rem] py-2.5 pl-2 pr-4 align-top text-right sm:w-[7.5rem]">
                       {promoLoading ? (
@@ -742,6 +757,75 @@ export function OrderReviewTable({
           </table>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * แก้จำนวนก่อนอนุมัติ — ตั้ง 0 ได้ (ตัดบรรทัดออก) แต่ติดลบไม่ได้
+ *
+ * ยิงเมื่อค่าเปลี่ยนจริงเท่านั้น (blur/Enter) ไม่ยิงทุกตัวอักษรที่พิมพ์ เพราะ
+ * ปลายทางเขียน DB + แจ้งเตือนร้านทุกครั้ง
+ */
+function QtyStepper({
+  value,
+  suggested,
+  onChange,
+}: {
+  value: number;
+  suggested: number;
+  onChange: (qty: number) => void;
+}) {
+  const [draft, setDraft] = useState(String(value));
+
+  // ค่าจากเซิร์ฟเวอร์เปลี่ยน (อีกคนแก้ / โหลดใหม่) → ตามค่าล่าสุดเสมอ
+  useEffect(() => setDraft(String(value)), [value]);
+
+  function commit(next: number) {
+    const qty = Math.max(0, Math.trunc(Number.isFinite(next) ? next : value));
+    setDraft(String(qty));
+    if (qty !== value) onChange(qty);
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-0.5">
+      <div className="inline-flex items-center rounded-lg border border-slate-200 dark:border-slate-700">
+        <button
+          type="button"
+          className="px-1.5 py-0.5 text-sm font-bold text-slate-500 hover:bg-slate-100 disabled:opacity-30 dark:hover:bg-slate-800"
+          disabled={value <= 0}
+          onClick={() => commit(value - 1)}
+          aria-label="ลดจำนวน"
+        >
+          −
+        </button>
+        <input
+          type="text"
+          inputMode="numeric"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value.replace(/[^\d]/g, ""))}
+          onBlur={() => commit(Number(draft))}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur();
+          }}
+          className={cn(
+            "w-10 border-x border-slate-200 bg-transparent py-0.5 text-center text-sm font-bold tabular-nums outline-none dark:border-slate-700",
+            value === 0
+              ? "text-red-600 dark:text-red-400"
+              : "text-slate-900 dark:text-slate-100"
+          )}
+          title={`แนะนำ ${suggested} · สั่ง ${value}`}
+        />
+        <button
+          type="button"
+          className="px-1.5 py-0.5 text-sm font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+          onClick={() => commit(value + 1)}
+          aria-label="เพิ่มจำนวน"
+        >
+          +
+        </button>
+      </div>
+      <span className="text-[10px] text-slate-400">แนะนำ {suggested}</span>
     </div>
   );
 }

@@ -27,7 +27,13 @@ export async function GET(request: Request) {
   }
 
   if (!fabricSoldHistoryReady()) {
-    return NextResponse.json({ sku, days, available: false, summary: null });
+    return NextResponse.json({
+      sku,
+      days,
+      available: false,
+      coverageDays: 0,
+      summary: null,
+    });
   }
 
   const dir = getSoldHistoryDirectory();
@@ -62,6 +68,10 @@ export async function GET(request: Request) {
     available: true,
     filteredByCustomer,
     lastDate: dir.lastDate,
+    // ครอบคลุมจริงกี่วัน — หน้าจอใช้ปิดตัวเลือกช่วงที่ยาวเกินข้อมูล แทนที่จะ
+    // วาดกราฟจากศูนย์ที่เติมเข้าไปเองแล้วดูเหมือนยอดตก
+    firstDate: dir.firstDate,
+    coverageDays: dir.coverageDays,
     summary,
   });
 }

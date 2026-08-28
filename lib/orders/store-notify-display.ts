@@ -33,6 +33,15 @@ export const NOTIF_META: Record<string, { label: string; className: string }> = 
     className:
       "bg-teal-100 text-teal-800 dark:bg-teal-500/15 dark:text-teal-200",
   },
+  po_cancelled: {
+    label: "ยกเลิก PO",
+    className: "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-200",
+  },
+  po_received: {
+    label: "รับของแล้ว",
+    className:
+      "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-200",
+  },
 };
 
 export function fmtDateTime(iso: string): string {
@@ -57,7 +66,15 @@ export function relativeTime(iso: string): string {
 
 /** โทนสีของ toast ตามชนิดแจ้งเตือน */
 export function notifTone(kind: string): "success" | "warn" | "info" {
-  if (kind === "rejected" || kind === "deleted") return "warn";
-  if (kind === "approved" || kind === "po_issued") return "success";
+  if (kind === "rejected" || kind === "deleted" || kind === "po_cancelled") {
+    return "warn";
+  }
+  if (
+    kind === "approved" ||
+    kind === "po_issued" ||
+    kind === "po_received"
+  ) {
+    return "success";
+  }
   return "info";
 }

@@ -129,6 +129,28 @@ export async function approveWithPoSplit(
         poNumber = single ? base : buildChildPoNumber(base, g.groupKey);
       }
 
+      /**
+       * บรรทัดที่พนักงานตั้งจำนวนเป็น 0 = ตั้งใจตัดออก แต่เดิมยังไหลเข้าเอกสาร PO
+       * เป็นแถว qty 0 พร้อมของแถมติดไปด้วย ฝ่ายจัดซื้อเห็นแล้วสับสน
+       *
+       * ตัดเฉพาะบรรทัดที่ **ไม่ได้อยู่ในโปรกลุ่ม** — ถ้าเป็นสมาชิกกลุ่ม การเอาออก
+       * เงียบ ๆ จะทำให้บรรทัดที่เหลือถือ snapshot ส่วนลด/ของแถมของกลุ่มที่ไม่ครบแล้ว
+       * = ราคาบนเอกสารผิด (กับดักเดียวกับที่ทำให้ A1b ยังทำไม่ได้) บรรทัดกลุ่มจึง
+       * คงไว้พร้อมหมายเหตุให้คนตรวจก่อนส่ง
+       *
+       * ใช้ชุด id เดียวกันทั้งเอกสารและแถว PurchaseOrder เพื่อให้ itemCount กับ
+       * เอกสารที่ประกอบใหม่จาก DB (po-from-db) ตรงกับไฟล์ที่เขียนไว้เสมอ
+       */
+      const includedItems = g.itemIds
+        .map((id) => itemById.get(id)!)
+        .filter((item) => item.finalQty > 0 || item.c4PromoGroup);
+
+      if (includedItems.length === 0) {
+        throw new Error(
+          "ทุกรายการในกลุ่มนี้จำนวนเป็น 0 — ถ้าไม่ต้องการสั่งให้ปฏิเสธออเดอร์แทนการอนุมัติ"
+        );
+      }
+
       const doc = buildPoDocument({
         poNumber,
         groupKey: g.groupKey,
@@ -138,8 +160,7 @@ export async function approveWithPoSplit(
         storeName,
         approvedAt: now,
         approvedBy: actorEmail,
-        lines: g.itemIds.map((id) => {
-          const item = itemById.get(id)!;
+        lines: includedItems.map((item) => {
           const { unitPrice, source } = resolveOrderLinePrice({
             salesPriceOverride: item.salesPriceOverride,
             unitPriceOverride: item.unitPriceOverride,
@@ -176,6 +197,10 @@ export async function approveWithPoSplit(
               : null,
             priceFlagged: item.priceFlagged,
             priceFlagReason: item.priceFlagReason,
+            note:
+              item.finalQty === 0
+                ? "จำนวน 0 — อยู่ในโปรกลุ่ม ตรวจขั้นโปรก่อนส่ง"
+                : undefined,
           };
         }),
       });
@@ -186,7 +211,7 @@ export async function approveWithPoSplit(
         groupKey: g.groupKey,
         poNumber,
         priceKind: g.priceKind,
-        itemIds: g.itemIds,
+        itemIds: includedItems.map((i) => i.id),
         totalQty: doc.totalQty,
         totalAmount: doc.totalAmount,
         exportPath,
@@ -209,15 +234,27 @@ export async function approveWithPoSplit(
   } catch (err) {
     // สร้าง PO/เขียนไฟล์ไม่สำเร็จหลังจองออเดอร์ไว้แล้ว — คืนสถานะเป็น pending_approval
     // ให้กด approve ใหม่ได้ · เลข/ไฟล์ที่เผาไปแล้วปล่อยค้าง ไม่มี PO row อ้างถึง
-    await prisma.order.updateMany({
-      where: { id: orderId, status: "approved" },
-      data: {
-        status: "pending_approval",
-        approvedAt: null,
-        decidedAt: null,
-        decidedBy: "",
-      },
-    });
+    //
+    // `decidedBy` เป็น String non-null (@default("")) — ต้องเขียน "" ไม่ใช่ null
+    // ไม่งั้น updateMany เองจะโยน แล้วออเดอร์ค้างที่ approved ทั้งที่ไม่มี PO
+    try {
+      await prisma.order.updateMany({
+        where: { id: orderId, status: "approved" },
+        data: {
+          status: "pending_approval",
+          approvedAt: null,
+          decidedAt: null,
+          decidedBy: "",
+        },
+      });
+    } catch (rollbackErr) {
+      // rollback พังเอง = ออเดอร์ค้างที่ approved โดยไม่มี PO ต้องแก้มือ
+      // ต้องดังพอให้เห็นใน log และห้ามกลบ error ต้นเหตุที่ผู้ใช้ต้องเห็น
+      console.error(
+        `[approve] rollback ล้มเหลว — ออเดอร์ ${orderId} ค้างสถานะ approved โดยไม่มี PO:`,
+        rollbackErr
+      );
+    }
     throw err;
   }
 

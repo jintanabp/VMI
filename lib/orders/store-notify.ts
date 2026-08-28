@@ -15,7 +15,10 @@ export type StoreNotificationKind =
   | "deleted"
   | "price_changed"
   | "qty_changed"
-  | "po_issued";
+  | "po_issued"
+  // สถานะ PO เปลี่ยนหลังออกเลขแล้ว — ร้านต้องรู้ ไม่งั้นรอของที่ถูกยกเลิกไปแล้ว
+  | "po_cancelled"
+  | "po_received";
 
 export async function notifyStore(args: {
   storeId: string;

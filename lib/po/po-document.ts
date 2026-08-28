@@ -42,6 +42,8 @@ export interface PoDocumentLine {
   /** ราคาไม่ตรง C4 ณ เวลาออก PO */
   priceFlagged: boolean;
   priceFlagReason: string | null;
+  /** หมายเหตุถึงฝ่ายจัดซื้อ — ว่างเมื่อไม่มีอะไรต้องเตือน */
+  note?: string;
 }
 
 export interface PoDocument {

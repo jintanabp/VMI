@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
-import { getStoreSession } from "@/lib/auth/store-session";
-import { CUSTOMER_STORE_COOKIE } from "@/lib/auth/roles";
+import { getAuthorizedStoreId } from "@/lib/auth/store-context";
 import {
   calcNetUnitPrice,
   LEAD_TIME_DAYS,
@@ -18,12 +16,7 @@ const MAX_ORDERS = 100;
 /** ช่วงวันเริ่มต้นของโหมด summary (ใช้เตือนสั่งซ้ำ) */
 const DEFAULT_SUMMARY_DAYS = 14;
 
-async function resolveStoreId(): Promise<string | null> {
-  const session = await getStoreSession();
-  if (session) return session.storeId;
-  const cookieStore = await cookies();
-  return cookieStore.get(CUSTOMER_STORE_COOKIE)?.value ?? null;
-}
+const resolveStoreId = getAuthorizedStoreId;
 
 export interface OrderHistoryItem {
   skuId: string;
@@ -130,7 +123,14 @@ export async function GET(request: Request) {
   const orders = await prisma.order.findMany({
     where,
     include: {
-      items: { include: { sku: true } },
+      items: {
+        include: {
+          sku: true,
+          // สถานะ PO ราย "บรรทัด" — บรรทัดในออเดอร์เดียวกันอาจถูกแยกเป็นหลาย PO
+          // และแต่ละใบมีชะตากรรมต่างกัน (ใบหนึ่งยกเลิก อีกใบของมาแล้ว)
+          purchaseOrder: { select: { status: true } },
+        },
+      },
       purchaseOrders: { select: { poNumber: true, issuedAt: true } },
     },
     orderBy: { createdAt: "desc" },
@@ -142,15 +142,25 @@ export async function GET(request: Request) {
     const bySku: Record<string, OrderHistorySummaryEntry> = {};
     const now = Date.now();
     for (const order of orders) {
-      // ปฏิเสธ/ยกเลิก = ของจะไม่มา ต้องไม่นับว่า "สั่งไปแล้ว" และห้ามเอาไปหักจำนวนแนะนำ
+      // ปฏิเสธ = ของจะไม่มา ต้องไม่นับว่า "สั่งไปแล้ว" และห้ามเอาไปหักจำนวนแนะนำ
+      // ("cancelled" ไม่เคยถูกเขียนลง DB — ร้านยกเลิกคือลบแถวทิ้งที่
+      // app/api/store/orders/route.ts — เก็บเงื่อนไขไว้เผื่อวันหนึ่งเปลี่ยนเป็น soft cancel)
       if (order.status === "rejected" || order.status === "cancelled") continue;
       const daysAgo = Math.floor(
         (now - order.createdAt.getTime()) / 86_400_000
       );
-      const inFlight =
+      const orderInFlight =
         order.status === "pending_approval" || daysAgo < LEAD_TIME_DAYS;
       for (const item of order.items) {
         const code = item.sku.code;
+        // สถานะ PO ชนะการเดาจากปฏิทิน: ยกเลิก = ของไม่มาแน่ · รับของแล้ว = มาถึงแล้ว
+        // (เข้า stock_cover_day เรียบร้อย) ทั้งสองกรณีต้องเลิกกดยอด "แนะนำ" ทันที
+        // ไม่ใช่รอให้ครบ LEAD_TIME_DAYS แล้วร้านสั่งของไม่ได้ทั้งที่ควรสั่ง
+        const poStatus = item.purchaseOrder?.status;
+        const inFlight =
+          poStatus === "cancelled" || poStatus === "received"
+            ? false
+            : orderInFlight;
         const existing = bySku[code];
         // orders เรียง createdAt desc อยู่แล้ว — ตัวแรกที่เจอคือครั้งล่าสุด
         if (existing) {
@@ -236,7 +246,11 @@ export async function GET(request: Request) {
               Math.min(...pos.map((po) => po.issuedAt.getTime()))
             ).toISOString()
           : null,
-      freeGoods: collectOwedFreeGoods(items),
+      // ส่ง finalQty เป็น qty ให้ตัวรวมของแถมด้วย — บรรทัดที่พนักงานตัดเหลือ 0
+      // ไม่ควรขึ้นว่าร้านยังได้ของแถมของบรรทัดนั้น
+      freeGoods: collectOwedFreeGoods(
+        items.map((i) => ({ ...i, qty: i.finalQty }))
+      ),
       items,
     };
   });

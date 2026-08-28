@@ -77,4 +77,38 @@ describe("collectOwedFreeGoods", () => {
     ]);
     expect(owed[0].qty).toBe(8);
   });
+
+  /**
+   * พนักงานตัดจำนวนเหลือ 0 ก่อนอนุมัติ = ตั้งใจไม่สั่งบรรทัดนั้น
+   * เดิมของแถมยังตามไปทั้งในเอกสาร PO และหน้าประวัติร้าน
+   */
+  describe("บรรทัดที่ถูกตัดเหลือจำนวน 0", () => {
+    it("โปรราย SKU สั่ง 0 → ไม่ได้ของแถม", () => {
+      const owed = collectOwedFreeGoods([
+        { skuCode: "Z1", qty: 0, promoGroup: null, promoGroupMembers: null, freeGood: fg("F", 5) },
+        { skuCode: "Z2", qty: 3, promoGroup: null, promoGroupMembers: null, freeGood: fg("F", 5) },
+      ]);
+      expect(owed).toHaveLength(1);
+      expect(owed[0].fromSkuCodes).toEqual(["Z2"]);
+    });
+
+    it("โปรกลุ่ม: สมาชิกตัวหนึ่งถูกตัดเหลือ 0 → กลุ่มยังได้ของแถมก้อนเดิมครั้งเดียว", () => {
+      // ของแถมเป็นของ "กลุ่ม" — สมาชิกที่เหลือยังซื้อครบขั้น กลุ่มจึงยังได้ของแถม
+      const owed = collectOwedFreeGoods([
+        { skuCode: "G1", qty: 0, promoGroup: "GRP", promoGroupMembers: 3, freeGood: fg("F", 600) },
+        { skuCode: "G2", qty: 20, promoGroup: "GRP", promoGroupMembers: 3, freeGood: fg("F", 600) },
+        { skuCode: "G3", qty: 20, promoGroup: "GRP", promoGroupMembers: 3, freeGood: fg("F", 600) },
+      ]);
+      expect(owed).toHaveLength(1);
+      expect(owed[0].qty).toBe(600);
+    });
+
+    it("ไม่ส่ง qty มาเลย → ทำงานเหมือนเดิม (ผู้เรียกเก่าไม่พัง)", () => {
+      const owed = collectOwedFreeGoods([
+        { skuCode: "N1", promoGroup: null, promoGroupMembers: null, freeGood: fg("F", 2) },
+      ]);
+      expect(owed).toHaveLength(1);
+      expect(owed[0].qty).toBe(2);
+    });
+  });
 });
