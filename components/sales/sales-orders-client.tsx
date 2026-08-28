@@ -30,6 +30,7 @@ import {
 import { formatStoreLabel } from "@/lib/format-store-label";
 import { getCvdFlag } from "@/lib/calculations";
 import { apiFetch } from "@/lib/api-fetch";
+import { friendlyError } from "@/lib/error-message";
 
 // ใช้ type เดียวกับตารางรีวิว เพื่อไม่ให้ฟิลด์สองที่หลุดกัน
 type OrderItem = ReviewOrderItem;
@@ -143,7 +144,7 @@ export function SalesOrdersClient() {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.error ?? "เปลี่ยนรหัสไม่สำเร็จ");
+        throw new Error(friendlyError(data.error, "เปลี่ยนรหัสไม่สำเร็จ"));
       }
       setVdaFilter("");
       setAllPersonVdas(false);

@@ -543,10 +543,32 @@ export function OrderHistoryClient({
                 ? "ยังไม่มีประวัติการสั่ง"
                 : "ไม่พบออเดอร์ตามตัวกรอง"}
             </p>
-            {orders.length === 0 && (
+            {orders.length === 0 ? (
               <p className="mt-1 text-xs text-slate-500">
                 เลือกสินค้าที่หน้า &quot;สินค้า&quot; แล้วกดตรวจสอบคำสั่งเพื่อส่งออเดอร์แรก
               </p>
+            ) : (
+              /*
+                "ไม่พบตามตัวกรอง" มีตัวกรองอยู่ 3 ชุด (สถานะ · ช่วงวัน · ค้นหา)
+                เดิมผู้ใช้ต้องไล่รีเซ็ตเองทีละอันจึงจะเห็นของอีกครั้ง
+              */
+              <>
+                <p className="mt-1 text-xs text-slate-500">
+                  ลองล้างตัวกรองเพื่อดูออเดอร์ทั้งหมด {orders.length} รายการ
+                </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="mt-3"
+                  onClick={() => {
+                    setStatusFilter("");
+                    setDayFilter(0);
+                    setSearch("");
+                  }}
+                >
+                  ล้างตัวกรอง
+                </Button>
+              </>
             )}
           </div>
         ) : (

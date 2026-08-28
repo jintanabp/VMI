@@ -14,6 +14,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { apiFetch } from "@/lib/api-fetch";
+import { friendlyError } from "@/lib/error-message";
 
 export function AdminEmailsSection() {
   const [admins, setAdmins] = useState<
@@ -49,7 +50,7 @@ export function AdminEmailsSection() {
         error?: string;
       } | null;
       if (!res.ok) {
-        setMsg(data?.error ?? `เพิ่มไม่สำเร็จ (${res.status})`);
+        setMsg(friendlyError(data?.error, `เพิ่มไม่สำเร็จ (${res.status})`));
         return;
       }
       setNewEmail("");

@@ -29,6 +29,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useDataVersion } from "@/hooks/use-data-version";
 import { cn, matchesProductSearch } from "@/lib/utils";
 import type { StockRowComputed } from "@/lib/repositories/types";
+import { friendlyError } from "@/lib/error-message";
 
 interface ManageClientProps {
   storeCode: string;
@@ -739,7 +740,7 @@ function BulkBrandThresholds({
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "บันทึกไม่สำเร็จ");
+        setError(friendlyError(data.error, "บันทึกไม่สำเร็จ"));
         return;
       }
       setMsg(
@@ -1001,7 +1002,7 @@ function SectionCard({
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "บันทึกไม่สำเร็จ");
+        setError(friendlyError(data.error, "บันทึกไม่สำเร็จ"));
         return;
       }
       setMinDays(String(suggestion.minDays));
@@ -1030,7 +1031,7 @@ function SectionCard({
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "บันทึกไม่สำเร็จ");
+        setError(friendlyError(data.error, "บันทึกไม่สำเร็จ"));
         return;
       }
       setSavedFlag(true);
@@ -1065,7 +1066,7 @@ function SectionCard({
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "รีเซ็ตไม่สำเร็จ");
+        setError(friendlyError(data.error, "รีเซ็ตไม่สำเร็จ"));
         return;
       }
       setMinDays(String(DEFAULT_MIN_DAYS));

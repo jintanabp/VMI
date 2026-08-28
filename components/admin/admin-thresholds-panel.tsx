@@ -18,6 +18,7 @@ import {
 } from "@/lib/stock/threshold-defaults";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
+import { friendlyError } from "@/lib/error-message";
 
 interface GroupThreshold {
   section: string;
@@ -168,7 +169,7 @@ export function AdminThresholdsPanel() {
       const data = (await res.json().catch(() => null)) as {
         error?: string;
       } | null;
-      if (!res.ok) throw new Error(data?.error ?? `บันทึกไม่สำเร็จ (${res.status})`);
+      if (!res.ok) throw new Error(friendlyError(data?.error, `บันทึกไม่สำเร็จ (${res.status})`));
       setMsg({ tone: "ok", text: `บันทึก ${section} แล้ว` });
       await load(storeCode);
     } catch (err) {

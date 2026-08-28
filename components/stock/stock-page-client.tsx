@@ -29,6 +29,7 @@ import {
   isStockBrowseMode,
   type StockBrowseMode,
 } from "@/lib/stock/browse-mode";
+import { friendlyError } from "@/lib/error-message";
 import {
   ShoppingCart,
   BarChart3,
@@ -537,7 +538,7 @@ export function StockPageClient({
       };
       if (!res.ok || data.ok === false) {
         setRefreshMsg(
-          data.message ?? data.error ?? "ตรวจข้อมูลไม่สำเร็จ — แสดง cache"
+          data.message ?? friendlyError(data.error, "ตรวจข้อมูลไม่สำเร็จ — แสดง cache")
         );
       } else {
         // queued = ข้อมูลกลางเก่าจนต้องดึงใหม่จาก Fabric ซึ่งกินเวลาเป็นนาที
@@ -1278,6 +1279,19 @@ export function StockPageClient({
     return () => window.clearTimeout(timer);
   }, [sessionReady, selectedItems, qtyOverrides, orderQty]);
 
+  /** มีตัวกรองอะไรทำงานอยู่ไหม — ใช้ตัดสินว่าควรเสนอปุ่มล้างตัวกรองหรือไม่ */
+  const hasActiveFilter =
+    filters.view !== "all" ||
+    filters.brand !== null ||
+    filters.section !== null ||
+    filters.hideNoSales ||
+    search.trim() !== "";
+
+  function clearFilters() {
+    setFilters(DEFAULT_STOCK_FILTERS);
+    setSearch("");
+  }
+
   function goToOrder() {
     if (selectedItems.length === 0) return;
     const qtyMap: Record<string, number> = {};
@@ -1451,11 +1465,23 @@ export function StockPageClient({
                   กำลังโหลด...
                 </p>
               ) : displayRows.length === 0 ? (
-                <p className="px-3 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
-                  {deferredSearch.trim()
-                    ? `ไม่พบสินค้าที่ตรงกับ "${deferredSearch.trim()}"`
-                    : "ไม่มีรายการตามตัวกรอง"}
-                </p>
+                <div className="px-3 py-8 text-center">
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
+                    {deferredSearch.trim()
+                      ? `ไม่พบสินค้าที่ตรงกับ "${deferredSearch.trim()}"`
+                      : "ไม่มีรายการตามตัวกรอง"}
+                  </p>
+                  {hasActiveFilter && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="mt-3"
+                      onClick={clearFilters}
+                    >
+                      ล้างตัวกรอง
+                    </Button>
+                  )}
+                </div>
               ) : (
                 <MobileRowList grid>
                   {displayRows.map((row, index) => {
@@ -1663,6 +1689,16 @@ export function StockPageClient({
                     {deferredSearch.trim()
                       ? `ไม่พบสินค้าที่ตรงกับ "${deferredSearch.trim()}"`
                       : "ไม่มีรายการตามตัวกรอง"}
+                    {hasActiveFilter && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="ml-3"
+                        onClick={clearFilters}
+                      >
+                        ล้างตัวกรอง
+                      </Button>
+                    )}
                   </td>
                 </tr>
               )}

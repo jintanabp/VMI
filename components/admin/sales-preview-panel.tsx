@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
+import { friendlyError } from "@/lib/error-message";
 
 type SalesPreviewScope = "with_vda" | "all";
 
@@ -80,7 +81,7 @@ export function SalesPreviewPanel() {
           error?: string;
         } | null;
         // ไม่ใช้ alert() — บล็อก main thread และดูเหมือนแอปค้างบน webview
-        setPreviewError(data?.error ?? "ไม่สามารถเปิดมุมมองทดสอบได้");
+        setPreviewError(friendlyError(data?.error, "ไม่สามารถเปิดมุมมองทดสอบได้"));
         return;
       }
       router.push("/sales/orders");

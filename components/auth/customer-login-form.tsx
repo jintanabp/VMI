@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Check, Loader2, Warehouse } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { friendlyError } from "@/lib/error-message";
 
 function formatVdaLabel(code: string) {
   return code.toUpperCase();
@@ -58,7 +59,7 @@ export function CustomerLoginForm({
         const data = (await res.json().catch(() => null)) as {
           error?: string;
         } | null;
-        setError(data?.error ?? `เข้าสู่ระบบไม่สำเร็จ (${res.status})`);
+        setError(friendlyError(data?.error, `เข้าสู่ระบบไม่สำเร็จ (${res.status})`));
         setLoading(false);
         return;
       }

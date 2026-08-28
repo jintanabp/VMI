@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Loader2, Mail, Lock, Clock, ShieldX, KeyRound, Warehouse } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { friendlyError } from "@/lib/error-message";
 
 type Step = "email" | "set-password" | "login" | "pending" | "rejected";
 
@@ -68,7 +69,7 @@ export function StoreLoginForm() {
           setInfo("ร้านค้าใหม่ — กรุณาเลือก VDA ของร้านเพื่อส่งคำขอ");
           return;
         }
-        setError(data.error ?? "เกิดข้อผิดพลาด");
+        setError(friendlyError(data.error, "เกิดข้อผิดพลาด"));
         return;
       }
       reset(data.step as Step);
@@ -98,7 +99,7 @@ export function StoreLoginForm() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "ตั้งรหัสไม่สำเร็จ");
+        setError(friendlyError(data.error, "ตั้งรหัสไม่สำเร็จ"));
         return;
       }
       router.push("/stock");
@@ -121,7 +122,7 @@ export function StoreLoginForm() {
       const data = await res.json();
       if (!res.ok) {
         if (data.step) reset(data.step as Step);
-        setError(data.error ?? "เข้าสู่ระบบไม่สำเร็จ");
+        setError(friendlyError(data.error, "เข้าสู่ระบบไม่สำเร็จ"));
         return;
       }
       router.push("/stock");

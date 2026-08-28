@@ -14,6 +14,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { apiFetch } from "@/lib/api-fetch";
+import { friendlyError } from "@/lib/error-message";
 
 export interface StoreAccountRow {
   id: string;
@@ -119,7 +120,7 @@ export function StoreAccountsPanel({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setAddError(data.error ?? "เพิ่มบัญชีไม่สำเร็จ");
+        setAddError(friendlyError(data.error, "เพิ่มบัญชีไม่สำเร็จ"));
         return;
       }
       setAddForm({ email: "", vdaCode: "", canManageMinMax: false });
@@ -150,7 +151,7 @@ export function StoreAccountsPanel({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setActionError(data.error ?? "เปลี่ยนอีเมลไม่สำเร็จ");
+        setActionError(friendlyError(data.error, "เปลี่ยนอีเมลไม่สำเร็จ"));
         return;
       }
       setActionError(null);
