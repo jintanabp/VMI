@@ -74,6 +74,7 @@ import {
 import { FlagBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   MobileRow,
   MobileRowExtra,
@@ -730,11 +731,17 @@ export function StockPageClient({
     return { all, needs, critical, new: fresh, noSales, deadStock, target };
   }, [enrichedRows]);
 
-  function unblock(skuId: string) {
-    if (unblockAction.pending) return;
-    if (!confirm("ยกเลิกการหยุดสั่งสินค้านี้?")) return;
-    unblockAction.run(skuId);
-  }
+  /**
+   * ยืนยันก่อนยกเลิกหยุดสั่ง
+   *
+   * เดิมใช้ confirm() ซึ่งบล็อก main thread ทั้งหน้า — บน webview หน้าจะเหมือนค้าง
+   * ไปเฉย ๆ จนกว่าจะมีคนตอบกล่องที่ผู้ใช้อาจมองไม่เห็นด้วยซ้ำ
+   */
+  const [unblockTarget, setUnblockTarget] = useState<{
+    skuId: string;
+    skuCode: string;
+    skuName: string;
+  } | null>(null);
 
   const [promoApplyVersion, setPromoApplyVersion] = useState(0);
 
@@ -1825,8 +1832,15 @@ export function StockPageClient({
                           {row.blocked && (
                             <button
                               type="button"
-                              onClick={() => unblock(row.skuId)}
-                              className="inline-flex shrink-0 items-center gap-0.5 rounded bg-red-100 px-1 py-0.5 vmi-t-xs font-bold text-red-700 hover:bg-red-200 dark:bg-red-950/50 dark:text-red-300"
+                              onClick={() =>
+                                setUnblockTarget({
+                                  skuId: row.skuId,
+                                  skuCode: row.skuCode,
+                                  skuName: row.skuName,
+                                })
+                              }
+                              disabled={unblockAction.pending}
+                              className="inline-flex shrink-0 items-center gap-0.5 rounded bg-red-100 px-1 py-0.5 vmi-t-xs font-bold text-red-700 hover:bg-red-200 disabled:opacity-60 dark:bg-red-950/50 dark:text-red-300"
                               title={`${formatBlockTitle(row)} — กดเพื่อยกเลิก`}
                             >
                               <Ban className="h-2.5 w-2.5" />
@@ -2174,6 +2188,28 @@ export function StockPageClient({
           clearSelection();
           await queryClient.invalidateQueries({ queryKey: ["stock"] });
         }}
+      />
+
+      <ConfirmDialog
+        open={unblockTarget != null}
+        title="ยกเลิกการหยุดสั่งสินค้านี้?"
+        body={
+          unblockTarget ? (
+            <>
+              <span className="font-mono">{unblockTarget.skuCode}</span>{" "}
+              {unblockTarget.skuName}
+              <br />
+              ระบบจะกลับมาแนะนำจำนวนสั่งของสินค้านี้ตามปกติ
+            </>
+          ) : null
+        }
+        confirmLabel="ยกเลิกหยุดสั่ง"
+        cancelLabel="ไม่ใช่ตอนนี้"
+        // run() เป็น fire-and-forget และมี toast แจ้ง error ในตัว — กล่องปิดได้เลย
+        onConfirm={() => {
+          if (unblockTarget) unblockAction.run(unblockTarget.skuId);
+        }}
+        onClose={() => setUnblockTarget(null)}
       />
     </PageShell>
   );

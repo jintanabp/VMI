@@ -26,6 +26,7 @@ import { AppHeader } from "@/components/layout/app-header";
 import { PageShell } from "@/components/layout/page-shell";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useDataVersion } from "@/hooks/use-data-version";
 import { cn, matchesProductSearch } from "@/lib/utils";
 import type { StockRowComputed } from "@/lib/repositories/types";
@@ -500,6 +501,7 @@ function BlockRow({
   const [permanent, setPermanent] = useState(block.effectiveTo == null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [confirmRemove, setConfirmRemove] = useState(false);
 
   useEffect(() => {
     setReason(block.reason);
@@ -546,7 +548,6 @@ function BlockRow({
   }
 
   async function remove() {
-    if (!confirm("ยกเลิกการหยุดสั่งสินค้านี้? ระบบจะกลับมาแนะนำสั่งตามปกติ")) return;
     setBusy(true);
     try {
       const res = await apiFetch(appPath("/api/store/blocklist"), {
@@ -584,7 +585,7 @@ function BlockRow({
               size="sm"
               variant="ghost"
               className="text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
-              onClick={remove}
+              onClick={() => setConfirmRemove(true)}
               disabled={busy}
               title="ยกเลิกหยุดสั่ง"
             >
@@ -683,6 +684,22 @@ function BlockRow({
           </p>
         </>
       )}
+
+      <ConfirmDialog
+        open={confirmRemove}
+        title="ยกเลิกการหยุดสั่งสินค้านี้?"
+        body={
+          <>
+            <span className="font-mono">{block.skuCode}</span> {block.skuName}
+            <br />
+            ระบบจะกลับมาแนะนำจำนวนสั่งของสินค้านี้ตามปกติ
+          </>
+        }
+        confirmLabel="ยกเลิกหยุดสั่ง"
+        cancelLabel="ไม่ใช่ตอนนี้"
+        onConfirm={remove}
+        onClose={() => setConfirmRemove(false)}
+      />
     </li>
   );
 }
@@ -955,6 +972,7 @@ function SectionCard({
   const [resetting, setResetting] = useState(false);
   const [savedFlag, setSavedFlag] = useState(false);
   const [error, setError] = useState("");
+  const [confirmReset, setConfirmReset] = useState(false);
 
   const brandLabel = useMemo(() => {
     const brands = [
@@ -1044,13 +1062,6 @@ function SectionCard({
   }
 
   async function resetToDefault() {
-    if (
-      !confirm(
-        `รีเซ็ต MIN / MAX ของ "${section}" กลับเป็นค่าเริ่มต้น (${DEFAULT_MIN_DAYS} / ${DEFAULT_MAX_DAYS} วัน)?`
-      )
-    ) {
-      return;
-    }
     setResetting(true);
     setError("");
     setSavedFlag(false);
@@ -1155,7 +1166,7 @@ function SectionCard({
               <Button
                 size="sm"
                 variant="ghost"
-                onClick={resetToDefault}
+                onClick={() => setConfirmReset(true)}
                 disabled={resetting || saving || !canResetGroup}
                 title="รีเซ็ตเป็นค่าเริ่มต้น"
               >
@@ -1212,6 +1223,21 @@ function SectionCard({
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmReset}
+        title="รีเซ็ต MIN / MAX กลับเป็นค่าเริ่มต้น?"
+        body={
+          <>
+            &ldquo;{section}&rdquo; จะกลับไปใช้ {DEFAULT_MIN_DAYS} /{" "}
+            {DEFAULT_MAX_DAYS} วัน และค่าที่ตั้งไว้รายสินค้าในกลุ่มนี้จะถูกล้างด้วย
+          </>
+        }
+        confirmLabel="รีเซ็ต"
+        cancelLabel="ไม่ใช่ตอนนี้"
+        onConfirm={resetToDefault}
+        onClose={() => setConfirmReset(false)}
+      />
     </div>
   );
 }
