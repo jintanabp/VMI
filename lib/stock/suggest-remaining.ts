@@ -1,5 +1,3 @@
-import { isPooledPromoGroup } from "@/lib/promo/promo-group-display";
-import { snapQtyToPromoStep } from "@/lib/promo/promo-step";
 import type { StockRowComputed } from "@/lib/repositories/types";
 
 /**
@@ -10,8 +8,11 @@ import type { StockRowComputed } from "@/lib/repositories/types";
  * ทั้งที่ร้านสั่งไปแล้ว → สั่งเบิ้ลจนกลายเป็นของค้างสต็อก
  *
  * หักเฉพาะที่ยังไม่ถึงร้าน (pendingQty จาก /api/store/order-history) ของที่มาถึงแล้ว
- * ถูกนับใน stock อยู่แล้ว หักซ้ำจะแนะนำน้อยเกินจริง · หักแล้วมักเหลือเศษไม่ลงล็อตโปร
- * จึง snap กลับเข้าขั้นโปร (ยกเว้นโปรกลุ่มที่คุมยอดรวม ไม่ใช่รายบรรทัด)
+ * ถูกนับใน stock อยู่แล้ว หักซ้ำจะแนะนำน้อยเกินจริง
+ *
+ * ไม่ปัดเข้าขั้นโปรที่นี่ — เลขที่คืนออกไปคือ "ที่ยังควรสั่งเพิ่มจริง ๆ" ตามสูตร
+ * การตัดสินว่าจะปัดขึ้นรับของแถมหรือตัดเศษทิ้ง อยู่ที่หน้าตรวจโปรก่อนสั่งจุดเดียว
+ * (planPromoStepRound) ซึ่งโชว์เลขเดิมคู่กับเลขใหม่ให้ร้านเลือกได้
  *
  * แยกเป็น pure function ให้ /stock กับ /order เรียกตัวเดียวกัน — เดิม /order ใช้
  * suggestOrder ดิบ ทำให้ตารางบอก "แนะนำอีก 4" แต่หน้า /order (ปุ่ม ↺, รีเซ็ต, ชิป)
@@ -25,7 +26,5 @@ export function suggestRemainingQty(
   pendingQty: number
 ): number {
   const base = row.suggestOrder > 0 ? row.suggestOrder : 0;
-  const left = Math.max(0, base - Math.max(0, pendingQty));
-  if (isPooledPromoGroup(row.promoGroup, row.promoGroupMembers)) return left;
-  return snapQtyToPromoStep(row.promoTiers, left);
+  return Math.max(0, base - Math.max(0, pendingQty));
 }

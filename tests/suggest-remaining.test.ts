@@ -40,6 +40,23 @@ describe("suggestRemainingQty", () => {
     expect(suggestRemainingQty(row({ suggestOrder: 10 }), -3)).toBe(10);
   });
 
+  it("มีโปรของแถมก็ไม่ปัดเข้าขั้น — เลขแนะนำต้องเป็นเลขที่สูตรคำนวณได้จริง", () => {
+    // โปร 12 แถม 1: เดิมตรงนี้ดันเป็น 12 ตั้งแต่ต้นทาง ร้านเลยไม่เคยเห็นเลข 9
+    // ตอนนี้ปล่อยผ่าน แล้วให้หน้าตรวจโปรตอนกด "ตรวจสอบคำสั่ง" เป็นคนตัดสิน
+    const tiers = [
+      {
+        minQty: 12,
+        discount: "แถม ×1",
+        sortOrder: 12,
+        kind: "premium" as const,
+        premiumProduct: "P1",
+        premiumQty: 1,
+      },
+    ];
+    expect(suggestRemainingQty(row({ suggestOrder: 9, promoTiers: tiers }), 0)).toBe(9);
+    expect(suggestRemainingQty(row({ suggestOrder: 10, promoTiers: tiers }), 9)).toBe(1);
+  });
+
   it("โปรกลุ่ม (pooled) ไม่ snap ต่อบรรทัด — คืนเลขที่หักแล้วตรง ๆ", () => {
     // promoGroup + members >= 2 = pooled → ไม่ snapQtyToPromoStep
     const r = row({ suggestOrder: 10, promoGroup: "G1", promoGroupMembers: 3 });

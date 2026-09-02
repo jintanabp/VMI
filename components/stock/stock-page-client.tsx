@@ -60,6 +60,7 @@ import {
 import { ProductSalesPanel } from "@/components/stock/product-sales-panel";
 import { StopOrderModal } from "@/components/stock/stop-order-modal";
 import { OrderReviewDialog } from "@/components/stock/order-review-dialog";
+import { PromoStepReviewDialog } from "@/components/stock/promo-step-review-dialog";
 import {
   StockToolbar,
   type StockViewCounts,
@@ -130,8 +131,6 @@ import {
   prevPromoStepQty,
   promoGroupStepNote,
   promoStepLot,
-  promoStepNote,
-  snapQtyToPromoStep,
 } from "@/lib/promo/promo-step";
 import { useToast } from "@/components/ui/toast";
 import type { StockRowComputed } from "@/lib/repositories/types";
@@ -202,6 +201,8 @@ export function StockPageClient({
   const [refreshMsg, setRefreshMsg] = useState("");
   const [stopOpen, setStopOpen] = useState(false);
   const [confirmRiskyOpen, setConfirmRiskyOpen] = useState(false);
+  /** ขั้นที่ 1 ของการตรวจคำสั่ง — เฉพาะสินค้าที่มีโปรของแถม */
+  const [promoReviewOpen, setPromoReviewOpen] = useState(false);
   const [sort, setSort] = useState<StockSortState>(DEFAULT_STOCK_SORT);
   const [mode, setMode] = useState<StockBrowseMode>(DEFAULT_STOCK_BROWSE_MODE);
   const [sessionReady, setSessionReady] = useState(false);
@@ -882,14 +883,14 @@ export function StockPageClient({
    */
   const setLineQty = useCallback(
     (skuCode: string, qty: number) => {
-      const requested = Math.max(0, Math.floor(qty));
-      // ของแถมนับเป็นล็อต — จำนวนที่ไม่ลงล็อตคือจ่ายเต็มแล้วไม่ได้แถมส่วนที่เกิน
-      const tiers = lineStepTiers(skuCode);
-      const nextQty = snapQtyToPromoStep(tiers, requested);
-      const note = promoStepNote(tiers, requested, nextQty);
-      if (note) {
-        toast({ title: `${skuCode} · ${note}`, tone: "info", duration: 4500 });
-      }
+      /**
+       * เก็บเลขที่ผู้ใช้ตั้งไว้ตรง ๆ ไม่ปัดเข้าขั้นโปรที่นี่
+       *
+       * เดิมปัดทันทีทุกครั้งที่พิมพ์ ทำให้เลขเดิมหายไปก่อนที่ร้านจะได้เห็นว่าถูกเปลี่ยน
+       * (พิมพ์ 1 ในโปร 12 แถม 1 เด้งเป็น 12) ตอนนี้ไปตัดสินรวดเดียวที่หน้าตรวจโปร
+       * ตอนกด "ตรวจสอบคำสั่ง" ซึ่งโชว์เลขเดิมคู่เลขใหม่และกดคืนค่าเดิมได้
+       */
+      const nextQty = Math.max(0, Math.floor(qty));
       setQtyOverrides((prev) => ({ ...prev, [skuCode]: nextQty }));
       const skuId = skuIdByCode.get(skuCode);
       if (!skuId) return;
@@ -903,7 +904,7 @@ export function StockPageClient({
         return next;
       });
     },
-    [skuIdByCode, lineStepTiers, toast]
+    [skuIdByCode]
   );
 
   /** ลบค่าที่ผู้ใช้ตั้ง → ช่องกลับไปเป็น 0 และชิป "แนะนำ" โผล่กลับมา */
@@ -993,18 +994,12 @@ export function StockPageClient({
   }
 
   /** ติ๊กแถวแล้วต้องได้จำนวนที่สั่งได้จริง — แถวที่ระบบไม่แนะนำใช้ 1 หีบ (ขั้นต่ำ)
-   *  ไม่งั้นจะได้ "ติ๊กไว้แต่จำนวน 0" ซึ่งเป็นสถานะที่ปุ่มส่งกั้นไว้ */
+   *  ไม่งั้นจะได้ "ติ๊กไว้แต่จำนวน 0" ซึ่งเป็นสถานะที่ปุ่มส่งกั้นไว้
+   *  ไม่ปัดเข้าขั้นโปรที่นี่ — หน้าตรวจโปรตอนกดตรวจสอบคำสั่งเป็นคนตัดสิน */
   function initQtyForRow(row: StockRowComputed) {
     setQtyOverrides((prev) => {
       if (prev[row.skuCode] != null && prev[row.skuCode]! > 0) return prev;
-      return {
-        ...prev,
-        // ต้องลงล็อตโปรเหมือนช่องกรอก ไม่งั้นติ๊กแล้วได้ 1 หีบในโปรที่ขั้นละ 3
-        [row.skuCode]: snapQtyToPromoStep(
-          lineStepTiers(row.skuCode),
-          defaultLineQty(row) || 1
-        ),
-      };
+      return { ...prev, [row.skuCode]: defaultLineQty(row) || 1 };
     });
   }
 
@@ -1085,10 +1080,7 @@ export function StockPageClient({
       const next = { ...prev };
       for (const r of selectableRows) {
         if (next[r.skuCode] == null || next[r.skuCode] === 0) {
-          next[r.skuCode] = snapQtyToPromoStep(
-            lineStepTiers(r.skuCode),
-            suggestRemaining(r) || 1
-          );
+          next[r.skuCode] = suggestRemaining(r) || 1;
         }
       }
       return next;
@@ -1256,6 +1248,15 @@ export function StockPageClient({
     [selectedItems, orderQty]
   );
 
+  /** มีของที่ติดโปรของแถมอยู่ในคำสั่งไหม — ไม่มีก็ข้ามหน้าตรวจโปรไปขั้นที่สองเลย */
+  const hasPromoStepItems = useMemo(
+    () =>
+      selectedItems.some(
+        (item) => orderQty(item) > 0 && hasPromoStep(item.promoTiers)
+      ),
+    [selectedItems, orderQty]
+  );
+
   useEffect(() => {
     if (!sessionReady) return;
     const timer = window.setTimeout(() => {
@@ -1307,34 +1308,10 @@ export function StockPageClient({
     }
 
     /**
-     * โปรกลุ่มบังคับที่ "ยอดรวม" จึงรอมาปรับตรงนี้ — ระหว่างที่ผู้ใช้ไล่ใส่จำนวน
-     * ทีละบรรทัด ยอดรวมยังไม่ลงล็อตเป็นเรื่องปกติ ถ้าไปเด้งแก้บรรทัดอื่นให้ทุกครั้ง
-     * ที่พิมพ์ จะกลายเป็นแย่งกันแก้จนใส่เลขที่ต้องการไม่ได้
+     * ไม่ปรับยอดโปรกลุ่มเงียบ ๆ ตรงนี้แล้ว — หน้าตรวจโปร (ขั้นที่ 1 ตอนกดตรวจสอบคำสั่ง)
+     * ถามร้านไปแล้วว่าจะปรับหรือใช้ยอดเดิม ถ้ามาปัดซ้ำที่นี่ ปุ่ม «ใช้จำนวนเดิม»
+     * ก็ไม่มีความหมาย
      */
-    const applied: { group: string; fix: ReturnType<typeof planGroupStep> }[] = [];
-    for (const [group, memberSkus] of groupMemberSkusMap) {
-      const fix = planGroupStep(memberSkus, qtyMap);
-      if (!fix) continue;
-      qtyMap[fix.topUpSku] = (qtyMap[fix.topUpSku] ?? 0) + fix.delta;
-      applied.push({ group, fix });
-    }
-    if (applied.length > 0) {
-      setQtyOverrides((prev) => {
-        const next = { ...prev };
-        for (const { fix } of applied) {
-          if (fix) next[fix.topUpSku] = qtyMap[fix.topUpSku] ?? 0;
-        }
-        return next;
-      });
-      for (const { group, fix } of applied) {
-        if (!fix) continue;
-        toast({
-          title: promoGroupStepNote(fix, `กลุ่ม ${group}`),
-          tone: "info",
-          duration: 8000,
-        });
-      }
-    }
 
     // เขียนไม่สำเร็จแล้ว push ไป /order = เด้งกลับ /stock ทันที (order อ่าน draft ไม่เจอ)
     // จึงต้องแจ้งเตือนแล้วอยู่ที่เดิม ให้ผู้ใช้ลดจำนวนสินค้า ดีกว่าเด้งไปเด้งกลับแบบงง ๆ
@@ -2143,18 +2120,19 @@ export function StockPageClient({
             // จำนวน 0 กั้นได้ (ส่งไปก็ไม่มีความหมาย) แต่ "จำนวนไม่เหมาะสม" เป็นคำแนะนำ
             // ห้ามกั้นจนส่งไม่ได้ — ขอให้ยืนยันครั้งเดียวแทน
             disabled={selected.size === 0 || selectedZeroQtyCount > 0}
+            // สองขั้น: ตรวจของแถมก่อน (ถ้ามี) แล้วค่อยตรวจจำนวนรวม
             onClick={() => {
-              if (selectedRedCount > 0) {
-                setConfirmRiskyOpen(true);
+              if (hasPromoStepItems) {
+                setPromoReviewOpen(true);
                 return;
               }
-              goToOrder();
+              setConfirmRiskyOpen(true);
             }}
             title={
               selectedZeroQtyCount > 0
                 ? "มีรายการจำนวน 0 ปรับก่อนตรวจสอบ"
-                : selectedRedCount > 0
-                  ? "มีรายการจำนวนไม่เหมาะสม — กดแล้วจะให้ยืนยันก่อนส่ง"
+                : hasPromoStepItems
+                  ? "ตรวจสินค้าที่มีโปรของแถมก่อน แล้วค่อยตรวจจำนวนรวม"
                   : undefined
             }
           >
@@ -2166,6 +2144,20 @@ export function StockPageClient({
         </div>
       </div>
 
+      {/* ขั้นที่ 1 — เฉพาะสินค้าที่มีโปรของแถม (ปัดเข้าขั้นโปรที่นี่จุดเดียว) */}
+      <PromoStepReviewDialog
+        open={promoReviewOpen}
+        rows={selectedItems}
+        qtyOf={orderQty}
+        onSetQty={setLineQty}
+        onNext={() => {
+          setPromoReviewOpen(false);
+          setConfirmRiskyOpen(true);
+        }}
+        onClose={() => setPromoReviewOpen(false)}
+      />
+
+      {/* ขั้นที่ 2 — ตรวจจำนวนรวมเทียบ MIN/MAX เหมือนเดิม */}
       <OrderReviewDialog
         open={confirmRiskyOpen}
         rows={selectedItems}

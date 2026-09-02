@@ -21,7 +21,6 @@ import {
   countPromoGroupMembers,
   isPooledPromoGroup,
 } from "@/lib/promo/promo-group-display";
-import { snapSuggestOrdersToPromoStep } from "@/lib/promo/promo-step";
 import {
   getStockFilterConfig,
   resolveActiveFromDb,
@@ -461,26 +460,13 @@ export async function buildFabricStockPayload(
   }
 
   /**
-   * ปัดจำนวนแนะนำให้ลงล็อตโปรของแถม ก่อนเอาไปรวมกลุ่มและส่งให้หน้าจอ
+   * จำนวนแนะนำส่งออกไปดิบ ๆ ตามที่สูตร MIN/MAX คำนวณได้ — ไม่ปัดเข้าขั้นโปรที่นี่
    *
-   * ของแถมนับเป็นล็อต (floor(ยอด / ล็อต)) — แนะนำ 2 หีบในโปร "3 แถม 1" คือแนะนำให้
-   * ร้านจ่ายเต็มโดยไม่ได้ของแถม ต้องปัดตรงนี้จุดเดียว ปลายน้ำทั้งหมด (ชิป "แนะนำ N",
-   * ไฟล์ Excel, การเลือกทั้งหมด, ยอดรวมกลุ่มที่ใช้คิดขั้นโปร) จะได้ค่าเดียวกันเอง
+   * เดิมปัดตรงนี้ ทำให้ "แนะนำ 1 หีบ" ในโปร 12 แถม 1 กลายเป็น 12 ตั้งแต่ต้นทาง
+   * ร้านจึงไม่มีทางเห็นเลขจริงที่ระบบคำนวณได้เลย การตัดสินว่าจะปัดขึ้นขั้นโปรหรือ
+   * ตัดเศษทิ้ง ย้ายไปอยู่ที่หน้าตรวจโปรก่อนสั่ง (planPromoStepRound) จุดเดียว
+   * ซึ่งโชว์เลขเดิมคู่กับเลขใหม่ และร้านกดกลับไปใช้เลขเดิมได้
    */
-  const steppedSuggest = snapSuggestOrdersToPromoStep(
-    pending.map((item) => ({
-      skuCode: item.sku.code,
-      suggestOrder: item.suggestOrder,
-      promoTiers: item.promoTiers,
-      promoGroup: item.promoGroup,
-      promoGroupMembers: item.promoGroupMembers,
-    }))
-  );
-  for (const item of pending) {
-    const stepped = steppedSuggest.get(item.sku.code);
-    if (stepped != null) item.suggestOrder = stepped;
-  }
-
   const groupPools = new Map<string, number>();
   for (const item of pending) {
     if (!isPooledPromoGroup(item.promoGroup, item.promoGroupMembers)) continue;

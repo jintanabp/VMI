@@ -84,8 +84,6 @@ import {
   prevPromoStepQty,
   promoGroupStepNote,
   promoStepLot,
-  promoStepNote,
-  snapQtyToPromoStep,
   type PromoGroupStepFix,
 } from "@/lib/promo/promo-step";
 import { useToast } from "@/components/ui/toast";
@@ -188,9 +186,6 @@ export function OrderPageClient({
   const [submitError, setSubmitError] = useState<string | null>(null);
   /** ยืนยันอีกครั้งเมื่อมีรายการที่จำนวนไม่เข้าเป้าหมาย — เตือน ไม่ใช่ห้ามส่ง */
   const [confirmRiskyOpen, setConfirmRiskyOpen] = useState(false);
-  /** ยืนยันการปรับยอดกลุ่มโปรให้ลงล็อตของแถมก่อนส่ง */
-  const [confirmStepOpen, setConfirmStepOpen] = useState(false);
-  const [submitAfterStepFix, setSubmitAfterStepFix] = useState(false);
   /** ชิปคำเตือนที่กดค้างไว้ — กรองตารางให้เหลือเฉพาะรายการของคำเตือนนั้น */
   const [noticeFilter, setNoticeFilter] = useState<string | null>(null);
   /** รหัส SKU ที่ติ๊กไว้เพื่อลบออกจากคำสั่ง */
@@ -593,15 +588,12 @@ export function OrderPageClient({
   }
 
   function setLineQty(skuCode: string, qty: number) {
-    const requested = Math.max(0, Math.floor(qty));
-    const target = lines.find((l) => l.row.skuCode === skuCode);
-    // ของแถมนับเป็นล็อต — จำนวนที่ไม่ลงล็อตคือจ่ายเต็มแล้วไม่ได้แถมส่วนที่เกิน
-    const tiers = target ? lineStepTiers(target.row) : null;
-    const applied = snapQtyToPromoStep(tiers, requested);
-    const note = promoStepNote(tiers, requested, applied);
-    if (note) {
-      toast({ title: `${skuCode} · ${note}`, tone: "info", duration: 4500 });
-    }
+    /**
+     * เก็บเลขที่ร้านพิมพ์ไว้ตรง ๆ — หน้าตรวจโปรที่ /stock ตัดสินขั้นโปรไปแล้ว
+     * ถ้ามาปัดซ้ำที่นี่ จำนวนที่ร้านกด «ใช้จำนวนเดิม» ไว้จะเด้งกลับทันทีที่แตะช่อง
+     * ปุ่ม +/− ยังเดินทีละขั้นโปรอยู่ และคำเตือน "แถมไม่ลงตัว" ยังขึ้นให้เห็น
+     */
+    const applied = Math.max(0, Math.floor(qty));
     const next = lines.map((l) =>
       l.row.skuCode === skuCode ? { ...l, qty: applied } : l
     );
@@ -998,31 +990,17 @@ export function OrderPageClient({
    *  ทั้งที่หน้านี้ไม่มีช่องแก้จำนวนให้ปรับด้วยซ้ำ)
    */
   function requestSubmit() {
-    // ของแถมนับเป็นล็อต — ส่งยอดที่ไม่ลงล็อตคือจ่ายเต็มแล้วไม่ได้ของแถมส่วนที่เกิน
-    if (groupStepFixes.size > 0) {
-      setConfirmStepOpen(true);
-      return;
-    }
+    /**
+     * ยอดโปรกลุ่มที่ไม่ลงล็อตไม่กั้นการส่งแล้ว — หน้าตรวจโปร (ขั้นที่ 1 ที่ /stock)
+     * ถามไปแล้วว่าจะปรับหรือใช้ยอดเดิม ถ้ามากั้นซ้ำตรงนี้ ร้านที่เลือก "ใช้จำนวนเดิม"
+     * จะส่งคำสั่งไม่ได้เลย · คำเตือน "แถมไม่ลงตัว" พร้อมปุ่มปรับยังอยู่บนหน้านี้
+     */
     if (stats.blockingCount > 0) {
       setConfirmRiskyOpen(true);
       return;
     }
     submitOrder();
   }
-
-  /**
-   * ส่งต่อหลังปรับขั้นโปรเสร็จ
-   *
-   * ปรับจำนวนแล้วส่งในจังหวะเดียวไม่ได้ — submitMutation ปิดทับ submittableLines
-   * ของเรนเดอร์ปัจจุบัน จะได้จำนวนก่อนปรับติดไปกับคำสั่ง เลยรอให้ lines อัปเดต
-   * ก่อนแล้วค่อยเข้า requestSubmit อีกรอบ (ซึ่งจะไปเจอด่าน CVD ต่อตามปกติ)
-   */
-  useEffect(() => {
-    if (!submitAfterStepFix) return;
-    setSubmitAfterStepFix(false);
-    requestSubmit();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [submitAfterStepFix, lines]);
 
   if (success) {
     return (
@@ -1299,31 +1277,6 @@ export function OrderPageClient({
         cancelLabel="เก็บไว้"
         onConfirm={removeSelected}
         onClose={() => setConfirmRemoveOpen(false)}
-      />
-
-      <ConfirmDialog
-        open={confirmStepOpen}
-        tone="default"
-        title="ปรับจำนวนให้ได้ของแถมเต็ม"
-        body={
-          <>
-            โปรของแถมนับเป็นล็อต — ยอดรวมกลุ่มที่ไม่ลงล็อตจะจ่ายเต็มแต่ของแถมไม่ครบขั้น
-            ระบบจะปรับให้ลงล็อตที่ใกล้ที่สุด
-            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
-              {[...groupStepFixes.entries()].map(([group, fix]) => (
-                <li key={group}>{promoGroupStepNote(fix, `กลุ่ม ${group}`)}</li>
-              ))}
-            </ul>
-          </>
-        }
-        confirmLabel="ปรับแล้วส่งคำสั่งซื้อ"
-        cancelLabel="แก้เอง"
-        onConfirm={() => {
-          setConfirmStepOpen(false);
-          applyGroupStepFixes();
-          setSubmitAfterStepFix(true);
-        }}
-        onClose={() => setConfirmStepOpen(false)}
       />
 
       <ConfirmDialog

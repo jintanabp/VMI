@@ -4,11 +4,14 @@ import {
   isOnPromoStep,
   nextPromoStepQty,
   planPromoGroupStepFix,
+  planPromoGroupStepRound,
+  planPromoStepRound,
   prevPromoStepQty,
+  promoRoundUpRatio,
+  promoStepBounds,
   promoStepLot,
   promoStepLots,
   snapQtyToPromoStep,
-  snapSuggestOrdersToPromoStep,
 } from "@/lib/promo/promo-step";
 
 /**
@@ -227,29 +230,142 @@ describe("planPromoGroupStepFix", () => {
   });
 });
 
-describe("snapSuggestOrdersToPromoStep", () => {
-  it("ปัดจำนวนแนะนำรายตัว แต่ไม่ปลุกแถวที่ระบบไม่ได้แนะนำ", () => {
-    const out = snapSuggestOrdersToPromoStep([
-      { skuCode: "A", suggestOrder: 2, promoTiers: buy3 },
-      { skuCode: "B", suggestOrder: 6, promoTiers: buy3 },
-      { skuCode: "C", suggestOrder: 0, promoTiers: buy3 },
-      { skuCode: "D", suggestOrder: 4, promoTiers: [discount(5)] },
-    ]);
-    expect(out.get("A")).toBe(3);
-    expect(out.has("B")).toBe(false);
-    expect(out.has("C")).toBe(false);
-    expect(out.has("D")).toBe(false);
+/**
+ * ปัดเข้าขั้นโปรตามสัดส่วน — กติกาที่ใช้ในหน้าตรวจโปรก่อนสั่ง
+ *
+ * ต่างจาก snapQtyToPromoStep ข้างบนตรงที่ "ไม่ดันขึ้นเสมอ": ซื้อมาไม่ถึงสัดส่วนของขั้น
+ * ก็ตัดเศษทิ้ง (ยังไม่ซื้อรอบนี้) ล็อตที่ต้องซื้อเกิน 12 หีบถึงจะแถม ต้องถึงครึ่งขั้นก่อน
+ */
+describe("planPromoStepRound", () => {
+  /** โปร 12 แถม 1 — ตัวอย่างที่ใช้ตกลงกติกากันไว้ */
+  const buy12 = [premium(12)];
+  /** ล็อตใหญ่ (ต้องซื้อเกิน 12 หีบถึงจะแถม) — เกณฑ์ขยับเป็นครึ่งขั้น */
+  const buy24 = [premium(24)];
+
+  it("เกณฑ์ปัดขึ้น 30% ปกติ · ล็อตเกิน 12 หีบใช้ 50%", () => {
+    expect(promoRoundUpRatio(3)).toBe(0.3);
+    expect(promoRoundUpRatio(12)).toBe(0.3);
+    expect(promoRoundUpRatio(13)).toBe(0.5);
+    expect(promoRoundUpRatio(24)).toBe(0.5);
   });
 
-  it("โปรกลุ่มคิดที่ยอดรวม แล้วเติมส่วนที่ขาดตัวเดียว ไม่ใช่ปัดทุกบรรทัด", () => {
-    const lot24 = [premium(24, 6)];
-    const rows = [
-      { skuCode: "G1", suggestOrder: 10, promoTiers: lot24, promoGroup: "BSWFN", promoGroupMembers: 3 },
-      { skuCode: "G2", suggestOrder: 8, promoTiers: lot24, promoGroup: "BSWFN", promoGroupMembers: 3 },
-      { skuCode: "G3", suggestOrder: 2, promoTiers: lot24, promoGroup: "BSWFN", promoGroupMembers: 3 },
-    ];
-    const out = snapSuggestOrdersToPromoStep(rows);
-    expect(out.size).toBe(1);
-    expect(out.get("G1")).toBe(14); // รวม 20 → 24 เติม 4 ที่ตัวที่แนะนำมากสุด
+  it("ขั้นที่ขนาบยอด — ยังไม่ถึงขั้นแรก ขั้นล่างคือ 'ไม่ซื้อ' ไม่ใช่ขั้นแรก", () => {
+    expect(promoStepBounds(buy12, 9)).toEqual({ down: 0, up: 12 });
+    expect(promoStepBounds(buy12, 13)).toEqual({ down: 12, up: 24 });
+    expect(promoStepBounds(buy12, 12)).toEqual({ down: 12, up: 24 });
+    expect(promoStepBounds([discount(5)], 9)).toBeNull();
+  });
+
+  it("โปร 12 แถม 1 — แนะนำ 9 (75% ของขั้น) ปัดขึ้นเป็น 12", () => {
+    const round = planPromoStepRound(buy12, 9);
+    expect(round?.applied).toBe(12);
+    expect(round?.requested).toBe(9);
+    expect(round?.direction).toBe("up");
+    expect(round?.lot).toBe(12);
+  });
+
+  it("โปร 12 แถม 1 — แนะนำ 1 (8%) ยังไม่ซื้อรอบนี้", () => {
+    expect(planPromoStepRound(buy12, 1)?.applied).toBe(0);
+    expect(planPromoStepRound(buy12, 3)?.applied).toBe(0);
+  });
+
+  it("โปร 12 แถม 1 — แนะนำ 13 คิดจากเศษ 1 หีบ (12 แรกได้แถมไปแล้ว) เหลือ 12", () => {
+    const round = planPromoStepRound(buy12, 13);
+    expect(round?.applied).toBe(12);
+    expect(round?.direction).toBe("down");
+  });
+
+  it("เศษเกิน 30% ของขั้นก็ปัดขึ้นแม้จะเลยขั้นแรกมาแล้ว", () => {
+    // 17 = 12 + เศษ 5 (42%) → ขึ้นไป 24 · 15 = 12 + เศษ 3 (25%) → คงที่ 12
+    expect(planPromoStepRound(buy12, 17)?.applied).toBe(24);
+    expect(planPromoStepRound(buy12, 15)?.applied).toBe(12);
+  });
+
+  it("ล็อตเกิน 12 หีบต้องถึงครึ่งขั้น — ครึ่งพอดียังไม่พอ", () => {
+    expect(planPromoStepRound(buy24, 13)?.applied).toBe(24); // 54%
+    expect(planPromoStepRound(buy24, 11)?.applied).toBe(0); // 46%
+    expect(planPromoStepRound(buy24, 36)?.applied).toBe(24); // 50% พอดี = ไม่ขึ้น
+    expect(planPromoStepRound(buy24, 26)?.applied).toBe(24);
+  });
+
+  it("ลงขั้นพอดี / ไม่สั่ง / ไม่มีโปรของแถม → ไม่ต้องปรับ", () => {
+    expect(planPromoStepRound(buy12, 12)).toBeNull();
+    expect(planPromoStepRound(buy12, 24)).toBeNull();
+    expect(planPromoStepRound(buy12, 0)).toBeNull();
+    expect(planPromoStepRound([discount(5)], 7)).toBeNull();
+    expect(planPromoStepRound(undefined, 7)).toBeNull();
+  });
+
+  it("บันไดหลายขั้น — คิดสัดส่วนจากช่วงระหว่างขั้นที่ขนาบอยู่", () => {
+    // 45 อยู่ระหว่าง 30 กับ 50 — เศษ 15 จากช่วง 20 = 75% → ขึ้น 50
+    expect(planPromoStepRound(ladder, 45)?.applied).toBe(50);
+    // 35 — เศษ 5 จากช่วง 20 = 25% → คงที่ 30
+    expect(planPromoStepRound(ladder, 35)?.applied).toBe(30);
+    // 60 อยู่ระหว่าง 50 กับ 100 — เศษ 10 จากช่วง 50 = 20% → คงที่ 50
+    expect(planPromoStepRound(ladder, 60)?.applied).toBe(50);
   });
 });
+
+describe("planPromoGroupStepRound", () => {
+  const lot24 = [premium(24, 6)];
+  const lot12 = [premium(12)];
+
+  it("ยอดรวมถึงสัดส่วนแล้ว → เติมส่วนที่ขาดที่ SKU ที่ควรสั่งมากสุด", () => {
+    const round = planPromoGroupStepRound(lot24, [
+      { skuCode: "A", qty: 12, suggestOrder: 5 },
+      { skuCode: "B", qty: 8, suggestOrder: 9 },
+    ]);
+    expect(round?.target).toBe(24); // รวม 20 = 83% ของขั้น
+    expect(round?.changes).toEqual([{ skuCode: "B", from: 8, to: 12 }]);
+  });
+
+  it("ยอดรวมยังไม่ถึงสัดส่วน → ทั้งกลุ่มยังไม่ซื้อรอบนี้", () => {
+    const round = planPromoGroupStepRound(lot24, [
+      { skuCode: "A", qty: 2, suggestOrder: 5 },
+      { skuCode: "B", qty: 3, suggestOrder: 9 },
+    ]);
+    expect(round?.target).toBe(0);
+    expect(round?.changes).toEqual([
+      { skuCode: "B", from: 3, to: 0 },
+      { skuCode: "A", from: 2, to: 0 },
+    ]);
+  });
+
+  it("เกินขั้นนิดเดียว → ตัดเศษจากบรรทัดที่สั่งเยอะสุด ไม่มีใครติดลบ", () => {
+    const round = planPromoGroupStepRound(lot24, [
+      { skuCode: "A", qty: 20, suggestOrder: 9 },
+      { skuCode: "B", qty: 6, suggestOrder: 4 },
+    ]);
+    expect(round?.target).toBe(24);
+    expect(round?.changes).toEqual([{ skuCode: "A", from: 20, to: 18 }]);
+  });
+
+  it("ตัดเศษเกินกว่าบรรทัดเดียวจะรับไหว → ไล่ตัดหลายบรรทัด", () => {
+    const round = planPromoGroupStepRound(lot12, [
+      { skuCode: "A", qty: 1, suggestOrder: 1 },
+      { skuCode: "B", qty: 1, suggestOrder: 1 },
+      { skuCode: "C", qty: 12, suggestOrder: 1 },
+    ]);
+    // รวม 14 → เศษ 2 หีบ (17%) ตัดทิ้ง เหลือ 12
+    expect(round?.target).toBe(12);
+    expect(round?.changes).toEqual([
+      { skuCode: "C", from: 12, to: 10 },
+    ]);
+  });
+
+  it("ยอดรวมลงตัว / ไม่มีใครสั่ง → ไม่ต้องปรับ", () => {
+    expect(
+      planPromoGroupStepRound(lot24, [
+        { skuCode: "A", qty: 20 },
+        { skuCode: "B", qty: 4 },
+      ])
+    ).toBeNull();
+    expect(
+      planPromoGroupStepRound(lot24, [
+        { skuCode: "A", qty: 0 },
+        { skuCode: "B", qty: 0 },
+      ])
+    ).toBeNull();
+  });
+});
+

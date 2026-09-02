@@ -99,6 +99,196 @@ export function isOnPromoStep(
   return snapQtyToPromoStep(tiers, qty) === Math.max(0, Math.floor(qty));
 }
 
+/* ─────────────── ปัดเข้าขั้นโปรตามสัดส่วน (ใช้ที่หน้าตรวจโปรก่อนสั่ง) ───────────────
+   snapQtyToPromoStep ข้างบนปัดไป "ขั้นที่ใกล้ที่สุด" และดันขึ้นเสมอเมื่อยังไม่ถึงขั้นแรก
+   — แนะนำ 1 หีบในโปร "12 แถม 1" จึงกลายเป็นสั่ง 12 หีบทั้งที่ร้านไม่ได้ตั้งใจ และ
+   บังคับตั้งแต่ตอนพิมพ์ ทำให้จำนวนเดิมหายไปก่อนที่ร้านจะได้เห็นว่ามันถูกเปลี่ยน
+
+   กติกาใหม่: ปัดขึ้นเฉพาะเมื่อ "ซื้อมาถึงสัดส่วนที่คุ้มแล้ว" ที่เหลือปัดลง (เศษที่ไม่ครบ
+   ขั้นไม่ได้ของแถมอยู่ดี) แล้วเอาไปตัดสินที่หน้าตรวจโปรจุดเดียว พร้อมโชว์เลขเดิม
+   ------------------------------------------------------------------------------- */
+
+/** ขั้นล่าง/ขั้นบนที่ขนาบยอดนี้ — null = ไม่มีโปรของแถม (ไม่มีอะไรต้องปัด) */
+export function promoStepBounds(
+  tiers: PromoTierInput[] | null | undefined,
+  qty: number
+): { down: number; up: number } | null {
+  const lots = promoStepLots(tiers);
+  if (lots.length === 0) return null;
+  const q = Math.max(0, Math.floor(qty));
+  // ยังไม่ถึงขั้นแรก — ขั้นล่างคือ "ไม่ซื้อรอบนี้" ไม่ใช่ขั้นแรก
+  if (q < lots[0]!) return { down: 0, up: lots[0]! };
+  return { down: stepDownFrom(lots, q), up: stepUpFrom(lots, q + 1) };
+}
+
+/** ล็อตใหญ่ = ต้องซื้อเกินจำนวนนี้ถึงจะได้ของแถม 1 ชิ้น */
+export const PROMO_BIG_LOT = 12;
+
+/**
+ * สัดส่วนของขั้นที่ต้องซื้อถึงก่อน จึงจะคุ้มที่จะปัดขึ้นไปรับของแถม
+ *
+ * ปกติ 30% — แต่ล็อตที่ต้องซื้อเกิน 12 หีบถึงจะแถม 1 การขยับขึ้นอีกขั้นคือของเพิ่ม
+ * เป็นสิบหีบ ต้องซื้อถึงครึ่งขั้นก่อนถึงจะสมเหตุสมผล
+ */
+export function promoRoundUpRatio(lot: number): number {
+  return lot > PROMO_BIG_LOT ? 0.5 : 0.3;
+}
+
+export interface PromoStepRound {
+  /** จำนวนก่อนปรับ — ที่ร้านสั่งไว้หรือที่ระบบแนะนำ */
+  requested: number;
+  applied: number;
+  /** ขั้นที่ลงตัวขั้นล่าง (0 = ยังไม่ถึงขั้นแรก) */
+  down: number;
+  /** ขั้นที่ลงตัวขั้นถัดขึ้นไป */
+  up: number;
+  /** ขนาดขั้นที่กำลังตัดสิน = up − down */
+  lot: number;
+  /** เศษที่เลยขั้นล่างมา ÷ ขนาดขั้น */
+  ratio: number;
+  threshold: number;
+  direction: "up" | "down";
+}
+
+/**
+ * แผนปรับจำนวนของบรรทัดเดียว — null = ไม่ต้องปรับ
+ *
+ * null เมื่อ: ไม่สั่ง (0), ไม่มีโปรของแถม, หรือจำนวนลงขั้นพอดีอยู่แล้ว
+ */
+export function planPromoStepRound(
+  tiers: PromoTierInput[] | null | undefined,
+  qty: number
+): PromoStepRound | null {
+  const q = Math.max(0, Math.floor(qty));
+  if (q <= 0) return null;
+  const bounds = promoStepBounds(tiers, q);
+  if (!bounds) return null;
+  const { down, up } = bounds;
+  if (down === q) return null;
+
+  const lot = up - down;
+  const ratio = (q - down) / lot;
+  const threshold = promoRoundUpRatio(lot);
+  const applied = ratio > threshold ? up : down;
+  return {
+    requested: q,
+    applied,
+    down,
+    up,
+    lot,
+    ratio,
+    threshold,
+    direction: applied === up ? "up" : "down",
+  };
+}
+
+/** ข้อความอธิบายว่าทำไมจำนวนถึงเปลี่ยน — ใช้ทั้งบรรทัดเดี่ยวและยอดรวมกลุ่ม */
+export function promoStepRoundReason(round: {
+  lot: number;
+  ratio: number;
+  threshold: number;
+  direction: "up" | "down";
+}): string {
+  const pct = Math.round(round.ratio * 100);
+  const limit = Math.round(round.threshold * 100);
+  return round.direction === "up"
+    ? `ซื้อไปแล้ว ${pct}% ของขั้น (เกิน ${limit}%) — ปัดขึ้นให้ครบขั้นละ ${round.lot} หีบ จะได้ของแถม`
+    : `ซื้อไปแค่ ${pct}% ของขั้น (ไม่ถึง ${limit}%) — ส่วนที่ไม่ครบขั้นละ ${round.lot} หีบ ไม่ได้ของแถม`;
+}
+
+export interface PromoGroupRoundChange {
+  skuCode: string;
+  from: number;
+  to: number;
+}
+
+export interface PromoGroupStepRound {
+  lot: number;
+  /** ขั้นที่ลงตัวที่ขนาบยอดรวมอยู่ — ใช้บอกว่ากำลังพูดถึงขั้นโปรไหน */
+  down: number;
+  up: number;
+  pool: number;
+  target: number;
+  /** ส่วนที่ต้องปรับให้ยอดรวมลงตัว — ติดลบ = ต้องลดลง */
+  delta: number;
+  ratio: number;
+  threshold: number;
+  direction: "up" | "down";
+  /** บรรทัดที่ต้องเปลี่ยนจริง — ปัดขึ้นเติมที่เดียว ปัดลงไล่ตัดจากบรรทัดที่สั่งเยอะสุด */
+  changes: PromoGroupRoundChange[];
+}
+
+/**
+ * แผนปรับ "ยอดรวมกลุ่ม" ด้วยกติกาสัดส่วนเดียวกับบรรทัดเดี่ยว
+ *
+ * ต่างจาก planPromoGroupStepFix ตรงที่ยอมให้ผลลัพธ์เป็น 0 ได้ (ยอดรวมยังไม่ถึงสัดส่วน
+ * ของขั้นแรก = ทั้งกลุ่มยังไม่ต้องซื้อรอบนี้) จึงต้องกระจายส่วนที่ลดข้ามหลายบรรทัด
+ * ไม่ใช่หักที่บรรทัดเดียวแบบเดิม ซึ่งจะได้จำนวนติดลบ
+ */
+export function planPromoGroupStepRound(
+  tiers: PromoTierInput[] | null | undefined,
+  members: PromoStepGroupMember[],
+  opts?: { excludeSku?: string }
+): PromoGroupStepRound | null {
+  const inOrder = members
+    .map((m) => ({ ...m, qty: Math.max(0, Math.floor(m.qty)) }))
+    .filter((m) => m.qty > 0);
+  const pool = inOrder.reduce((sum, m) => sum + m.qty, 0);
+  if (pool <= 0) return null;
+
+  const round = planPromoStepRound(tiers, pool);
+  if (!round) return null;
+
+  const head = {
+    lot: round.lot,
+    down: round.down,
+    up: round.up,
+    pool,
+    target: round.applied,
+    delta: round.applied - pool,
+    ratio: round.ratio,
+    threshold: round.threshold,
+    direction: round.direction,
+  };
+
+  // ปัดขึ้น: เติมที่บรรทัดเดียว — ตัวที่ระบบแนะนำมากสุดในบรรดาที่สั่งอยู่แล้ว
+  if (head.delta > 0) {
+    const host =
+      [...inOrder]
+        .sort(
+          (a, b) =>
+            (b.suggestOrder ?? 0) - (a.suggestOrder ?? 0) ||
+            b.qty - a.qty ||
+            a.skuCode.localeCompare(b.skuCode, undefined, { numeric: true })
+        )
+        .find((m) => m.skuCode !== opts?.excludeSku) ?? inOrder[0]!;
+    return {
+      ...head,
+      changes: [
+        { skuCode: host.skuCode, from: host.qty, to: host.qty + head.delta },
+      ],
+    };
+  }
+
+  // ปัดลง: ไล่ตัดจากบรรทัดที่สั่งเยอะสุดก่อน จนครบส่วนที่ต้องลด (ไม่มีใครติดลบ)
+  let need = -head.delta;
+  const changes: PromoGroupRoundChange[] = [];
+  const order = [...inOrder].sort(
+    (a, b) =>
+      b.qty - a.qty ||
+      (a.suggestOrder ?? 0) - (b.suggestOrder ?? 0) ||
+      a.skuCode.localeCompare(b.skuCode, undefined, { numeric: true })
+  );
+  for (const m of order) {
+    if (need <= 0) break;
+    const cut = Math.min(need, m.qty);
+    if (cut <= 0) continue;
+    changes.push({ skuCode: m.skuCode, from: m.qty, to: m.qty - cut });
+    need -= cut;
+  }
+  return { ...head, changes };
+}
+
 /** ขั้นถัดขึ้นไป — ใช้กับปุ่ม + (ต้องมากกว่าเดิมเสมอ ห้ามใช้ snap ซึ่งปัดลงได้) */
 export function nextPromoStepQty(
   tiers: PromoTierInput[] | null | undefined,
@@ -266,64 +456,4 @@ export function promoGroupStepChipTitle(
   return actionable
     ? `${head} (กดเพื่อปรับให้อัตโนมัติ ระบบจะปรับที่ SKU ที่ควรสั่งมากสุด)`
     : head;
-}
-
-/* ────────────────────── จำนวนแนะนำของระบบ (suggestOrder) ────────────────────── */
-
-export interface PromoStepSuggestRow {
-  skuCode: string;
-  suggestOrder: number;
-  promoTiers?: PromoTierInput[] | null;
-  promoGroup?: string | null;
-  promoGroupMembers?: number | null;
-}
-
-/**
- * ปัดจำนวนแนะนำทั้งชุดให้ลงล็อตโปร — คืนเฉพาะ SKU ที่เปลี่ยน
- *
- * แถวที่ระบบไม่ได้แนะนำ (0) ไม่แตะ — "ไม่ต้องสั่ง" ต้องแปลว่าไม่ต้องสั่งจริง ๆ
- * ไม่ใช่ถูกดันขึ้นขั้นแรกเพราะบังเอิญมีโปรติดอยู่
- */
-export function snapSuggestOrdersToPromoStep(
-  rows: PromoStepSuggestRow[]
-): Map<string, number> {
-  const out = new Map<string, number>();
-  const groups = new Map<string, PromoStepSuggestRow[]>();
-
-  for (const row of rows) {
-    const group = row.promoGroup?.trim();
-    const pooled = Boolean(group) && (row.promoGroupMembers ?? 0) > 1;
-    if (pooled) {
-      const list = groups.get(group!) ?? [];
-      list.push(row);
-      groups.set(group!, list);
-      continue;
-    }
-    if (row.suggestOrder <= 0) continue;
-    const snapped = snapQtyToPromoStep(row.promoTiers, row.suggestOrder);
-    if (snapped !== row.suggestOrder) out.set(row.skuCode, snapped);
-  }
-
-  for (const members of groups.values()) {
-    const tiers = members.find(
-      (m) => promoStepLots(m.promoTiers).length > 0
-    )?.promoTiers;
-    const fix = planPromoGroupStepFix(
-      tiers,
-      members.map((m) => ({
-        skuCode: m.skuCode,
-        qty: Math.max(0, m.suggestOrder),
-        suggestOrder: m.suggestOrder,
-      }))
-    );
-    if (!fix) continue;
-    const host = members.find((m) => m.skuCode === fix.topUpSku);
-    if (!host) continue;
-    out.set(
-      host.skuCode,
-      Math.max(0, Math.max(0, host.suggestOrder) + fix.delta)
-    );
-  }
-
-  return out;
 }
