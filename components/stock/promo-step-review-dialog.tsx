@@ -4,7 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, Check, Gift, RotateCcw, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Modal, ModalBody, ModalFooter } from "@/components/ui/modal";
-import { formatPromoTierLabel } from "@/lib/calculations";
+import {
+  calcStepPremiumQty,
+  formatPremiumUnit,
+  formatPromoTierLabel,
+  type PromoTierInput,
+} from "@/lib/calculations";
 import { isPooledPromoGroup } from "@/lib/promo/promo-group-display";
 import {
   hasPromoStep,
@@ -50,16 +55,46 @@ type GroupItem = {
 
 type ReviewItem = LineItem | GroupItem;
 
+/** ขั้นของแถมที่คุมจำนวนนี้อยู่ — null = จับคู่ขั้นไม่ได้ (ไม่ควรเกิดกับโปรของแถม) */
+function activePremiumTier(
+  tiers: StockRowComputed["promoTiers"],
+  qty: number
+): PromoTierInput | null {
+  const lot = promoStepLot(tiers, qty);
+  if (lot == null) return null;
+  return (
+    tiers?.find(
+      (t) => t.kind === "premium" && Math.floor(t.minQty) === lot
+    ) ?? null
+  );
+}
+
 /** คำอธิบายขั้นโปรที่กำลังจะถึง — ใช้ป้ายจาก C4 ถ้าจับคู่ขั้นได้ */
 function promoTierLabel(row: StockRowComputed, targetQty: number): string {
   const lot = promoStepLot(row.promoTiers, targetQty);
   if (lot == null) return "";
-  const tier = row.promoTiers?.find(
-    (t) => t.kind === "premium" && Math.floor(t.minQty) === lot
-  );
+  const tier = activePremiumTier(row.promoTiers, targetQty);
   return tier
     ? `ซื้อ ${lot} หีบ ${formatPromoTierLabel(tier)}`
     : `ขั้นโปรละ ${lot} หีบ`;
+}
+
+/**
+ * ของแถมที่จะได้จริงจากจำนวนนี้ — คำถามที่ร้านอยากรู้ที่สุดตอนตัดสินใจว่าจะปรับไหม
+ *
+ * นับแบบเดียวกับที่ระบบคิดของแถมจริง (`floor(ยอด ÷ ล็อต) × ของแถมต่อล็อต`)
+ * โปรกลุ่มส่งยอดรวมของกลุ่มเข้ามา ไม่ใช่ยอดรายบรรทัด
+ */
+function earnedFreeGoods(
+  tiers: StockRowComputed["promoTiers"],
+  qty: number
+): { count: number; unit: string } | null {
+  const tier = activePremiumTier(tiers, qty);
+  if (!tier) return null;
+  return {
+    count: calcStepPremiumQty(qty, tier.minQty, tier.premiumQty ?? 0),
+    unit: formatPremiumUnit(tier.premiumUnit ?? ""),
+  };
 }
 
 function QtyChange({ from, to }: { from: number; to: number }) {
@@ -267,6 +302,13 @@ export function PromoStepReviewDialog({
                       up: item.round!.up,
                       changes: item.round!.changes,
                     };
+              const tiers =
+                item.kind === "line"
+                  ? item.row.promoTiers
+                  : item.rows[0]!.promoTiers;
+              // ของแถมที่จะได้จากจำนวนที่จะใช้จริง เทียบกับจำนวนเดิม
+              const gift = earnedFreeGoods(tiers, kept ? view.from : view.to);
+              const giftBefore = earnedFreeGoods(tiers, view.from);
               return (
                 <li
                   key={item.key}
@@ -339,6 +381,24 @@ export function PromoStepReviewDialog({
                       : promoStepRoundReason(round)}
                   </p>
 
+                  {/* คำถามจริงของร้านคือ "แล้วได้แถมกี่ชิ้น" — ตอบด้วยจำนวนที่จะได้จริง
+                      ไม่ขึ้นเมื่อได้ 0 เพราะบรรทัดเหตุผลข้างบนบอกไปแล้วว่าไม่ได้ */}
+                  {gift && gift.count > 0 && (
+                    <p className="mt-1 flex items-center gap-1 vmi-t-xs font-semibold text-emerald-700 dark:text-emerald-400">
+                      <Gift className="h-3 w-3 shrink-0" />
+                      ได้ของแถม {gift.count} {gift.unit}
+                      {!kept && giftBefore && (
+                        <span className="font-normal text-slate-500 dark:text-slate-400">
+                          {giftBefore.count === gift.count
+                            ? "· เท่าเดิม (เศษที่ตัดออกไม่ได้แถมอยู่แล้ว)"
+                            : giftBefore.count > 0
+                              ? `· เดิมได้ ${giftBefore.count} ${gift.unit}`
+                              : "· เดิมไม่ได้เลย"}
+                        </span>
+                      )}
+                    </p>
+                  )}
+
                   {view.changes && !kept && (
                     <ul className="mt-1.5 space-y-0.5 vmi-t-xs text-slate-600 dark:text-slate-400">
                       {view.changes.map((c) => (
@@ -364,24 +424,36 @@ export function PromoStepReviewDialog({
               ลงขั้นโปรอยู่แล้ว {settled.length} รายการ
             </p>
             <ul className="mt-1 space-y-0.5 vmi-t-xs text-slate-600 dark:text-slate-400">
-              {settled.map((item) => (
-                <li key={item.key} className="break-words">
-                  {item.kind === "line" ? (
-                    <>
-                      <span className="font-mono font-semibold">
-                        {item.row.skuCode}
-                      </span>{" "}
-                      {item.row.skuName} ·{" "}
-                      <span className="tabular-nums">{item.qty} หีบ</span>
-                    </>
-                  ) : (
-                    <>
-                      โปรกลุ่ม {item.group} ·{" "}
-                      <span className="tabular-nums">รวม {item.pool} หีบ</span>
-                    </>
-                  )}
-                </li>
-              ))}
+              {settled.map((item) => {
+                const gift =
+                  item.kind === "line"
+                    ? earnedFreeGoods(item.row.promoTiers, item.qty)
+                    : earnedFreeGoods(item.rows[0]!.promoTiers, item.pool);
+                return (
+                  <li key={item.key} className="break-words">
+                    {item.kind === "line" ? (
+                      <>
+                        <span className="font-mono font-semibold">
+                          {item.row.skuCode}
+                        </span>{" "}
+                        {item.row.skuName} ·{" "}
+                        <span className="tabular-nums">{item.qty} หีบ</span>
+                      </>
+                    ) : (
+                      <>
+                        โปรกลุ่ม {item.group} ·{" "}
+                        <span className="tabular-nums">รวม {item.pool} หีบ</span>
+                      </>
+                    )}
+                    {gift && gift.count > 0 && (
+                      <span className="font-semibold text-emerald-700 dark:text-emerald-400">
+                        {" "}
+                        · ได้ของแถม {gift.count} {gift.unit}
+                      </span>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           </div>
         )}
