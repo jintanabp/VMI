@@ -50,7 +50,9 @@
 ## 3. เซลล์ / Admin — Microsoft Entra ID
 
 ใช้ **authorization code + PKCE ฝั่งเบราว์เซอร์** (SPA flow) — `lib/auth/microsoft-oauth-client.ts`
-เบราว์เซอร์เป็นคนแลก code เป็น token เอง แล้วส่งแค่อีเมล/ชื่อมาให้เซิร์ฟเวอร์ออก session
+เบราว์เซอร์เป็นคนแลก code เป็น token เอง แล้วส่ง **id_token ดิบ** มาให้เซิร์ฟเวอร์ตรวจลายเซ็นเอง
+ก่อนออก session (เซิร์ฟเวอร์จึงต้องออกอินเทอร์เน็ตไป `login.microsoftonline.com` ได้ —
+เส้นทางเดียวกับที่ใช้ sync Fabric)
 
 ```mermaid
 sequenceDiagram
@@ -63,16 +65,22 @@ sequenceDiagram
     M->>U: หน้า login ขององค์กร
     M->>B: redirect กลับ /vmi/auth/callback?code=...
     B->>M: แลก code เป็น token (ในเบราว์เซอร์)
-    B->>S: POST /api/auth/msal/session { email, name }
+    B->>S: POST /api/auth/msal/session { idToken }
+    S->>M: ดึงกุญแจสาธารณะ (JWKS) มาตรวจลายเซ็น + iss/aud/tid/exp
     S->>S: buildSalesSessionWithAccess() → หา role/scope จาก master
     S->>U: ตั้ง cookie ที่เซ็นแล้ว → เข้าหน้า /sales
 ```
 
-> ⚠️ **ข้อควรทราบสำหรับนักพัฒนา:** `POST /api/auth/msal/session` รับค่า `{ email, name }`
-> และเชื่อถือค่าดังกล่าวโดยยังไม่ได้ตรวจสอบ `id_token` จาก Microsoft ที่ฝั่งเซิร์ฟเวอร์
-> ส่วน `lib/auth/microsoft-oauth.ts` (โค้ด server-side flow เดิม) และ route
-> `/api/auth/microsoft/*` ปัจจุบันไม่มีการเรียกใช้งานแล้ว
-> หากต้องการเพิ่มความปลอดภัยในอนาคต จุดนี้คือตำแหน่งที่ต้องปรับปรุง
+> **ตัวตนพิสูจน์ที่เซิร์ฟเวอร์:** `POST /api/auth/msal/session` รับ `{ idToken }` แล้วตรวจ
+> ลายเซ็น RS256 กับกุญแจสาธารณะของ tenant (JWKS · cache 24 ชม. · โหลดใหม่เมื่อเจอ kid
+> ที่ไม่รู้จัก) พร้อมเช็ค `iss` / `aud` / `tid` / `exp` ก่อนเชื่อว่าอีเมลในนั้นเป็นของจริง —
+> `lib/auth/microsoft-id-token.ts` เทสต์ที่ `tests/microsoft-id-token.test.ts`
+>
+> เดิมรับ `{ email }` มาตรง ๆ แล้วเซ็น cookie ให้เลย ใครยิง API ถึงและรู้อีเมลที่อยู่ใน
+> `ADMIN_EMAILS` ก็เป็นแอดมินได้โดยไม่ต้องผ่าน Microsoft (middleware กันแต่หน้าเว็บ)
+>
+> `lib/auth/microsoft-oauth.ts` (server-side flow เดิม) และ route `/api/auth/microsoft/*`
+> ยังไม่มีใครเรียก แต่ปลอดภัยอยู่แล้วเพราะแลก code ฝั่งเซิร์ฟเวอร์เอง
 
 ### session token
 `lib/auth/sales-session.ts` เซ็น payload ด้วย HMAC-SHA256 โดยใช้ `NEXTAUTH_SECRET`

@@ -113,27 +113,6 @@ export async function exchangeCodeInBrowser(code: string, codeVerifier: string) 
   return data.id_token;
 }
 
-export function parseIdToken(idToken: string): { email: string; name?: string } {
-  const [, payloadPart] = idToken.split(".");
-  if (!payloadPart) throw new Error("id_token ไม่ถูกต้อง");
-
-  const payload = JSON.parse(
-    atob(payloadPart.replace(/-/g, "+").replace(/_/g, "/"))
-  ) as {
-    preferred_username?: string;
-    email?: string;
-    upn?: string;
-    name?: string;
-  };
-
-  const email =
-    payload.preferred_username ?? payload.email ?? payload.upn ?? null;
-
-  if (!email) throw new Error("ไม่พบอีเมลจาก Microsoft");
-
-  return { email, name: payload.name };
-}
-
 export async function startMicrosoftLogin() {
   const verifier = createCodeVerifier();
   const challenge = await createCodeChallenge(verifier);
@@ -150,13 +129,19 @@ export async function completeMicrosoftLogin(code: string, returnedState: string
   }
 
   const idToken = await exchangeCodeInBrowser(code, verifier);
-  const { email, name } = parseIdToken(idToken);
 
+  /**
+   * ส่ง id_token ดิบไปให้เซิร์ฟเวอร์ตรวจเอง — ห้ามแกะอีเมลที่นี่แล้วส่งไปแทน
+   *
+   * อะไรก็ตามที่เบราว์เซอร์ "บอก" เซิร์ฟเวอร์เกี่ยวกับตัวตนของตัวเอง ปลอมได้หมด
+   * ตัว token มีลายเซ็นของ Microsoft ติดมา เซิร์ฟเวอร์จึงตรวจได้ว่าใครเป็นใครจริง
+   * (lib/auth/microsoft-id-token.ts) แล้วคืนข้อมูลผู้ใช้ที่ตรวจแล้วกลับมาให้
+   */
   const res = await fetch(appPath("/api/auth/msal/session"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
-    body: JSON.stringify({ email, name }),
+    body: JSON.stringify({ idToken }),
   });
 
   const data = await res.json().catch(() => ({}));
