@@ -14,8 +14,11 @@ import { maxDataAgeHours } from "./data-age";
 import { resolvePromoContext } from "./promotion-context";
 import {
   filterCandidateRows,
+  normalizeRegion,
   promoRowsToTiers,
+  tierKind,
 } from "./promotion-lookup";
+import { promoActiveOn, promoServesRegion } from "./promotion-credit";
 import { calcSuggestOrder } from "@/lib/calculations";
 import {
   countPromoGroupMembers,
@@ -351,6 +354,35 @@ export async function buildFabricStockPayload(
     block: (typeof blocks)[number] | undefined;
   }[] = [];
 
+  /**
+   * กลุ่มโปรนี้ให้อะไรกับคลังนี้จริงไหม — จำคำตอบไว้ต่อกลุ่ม (ไฟล์มี ~88 กลุ่ม)
+   *
+   * ไฟล์ C4 มีกลุ่มที่ทุกแถวเป็น "from 1 ถึง 9999 ไม่มีส่วนลด ไม่มีของแถม" อยู่จำนวนหนึ่ง
+   * (ก.ย. 2569 มี 13 กลุ่ม เช่น FRM, MSS, ESC) เดิมแถวพวกนี้ยังถูกติดป้ายว่าเป็นกลุ่มโปร
+   * ฝั่งร้าน — ขึ้นแถบสีกลุ่มและถูกนับยอดรวมกลุ่ม ทั้งที่สั่งเท่าไรก็ไม่ได้อะไร
+   * ส่วนหน้าแอดมินขึ้นเป็น "ไม่มีสิทธิประโยชน์" สองหน้าจึงเล่าคนละเรื่องกัน
+   *
+   * เช็คจากแถวของกลุ่มที่ยัง active และตรงภาคของคลังนี้ — กลุ่มที่หมดช่วงไปแล้วหรือ
+   * เป็นของภาคอื่นก็ไม่ควรติดป้ายเหมือนกัน
+   */
+  const groupBenefitCache = new Map<string, boolean>();
+  function groupGrantsBenefit(group: string): boolean {
+    const cached = groupBenefitCache.get(group);
+    if (cached != null) return cached;
+    const region = normalizeRegion(promoCtx.region);
+    const today = new Date();
+    const grants = promoDir!
+      .rowsForGroup(promoCtx.division, promoCtx.cusgroup, group)
+      .some(
+        (r) =>
+          promoActiveOn(r, today) &&
+          promoServesRegion(r, region) &&
+          tierKind(r) !== "none"
+      );
+    groupBenefitCache.set(group, grants);
+    return grants;
+  }
+
   for (const cover of allRows) {
     const sku = skuByCode.get(cover.productCode);
     if (!sku) continue;
@@ -385,7 +417,7 @@ export async function buildFabricStockPayload(
           promoCtx.cusgroup,
           cover.productCode
         );
-        if (group) {
+        if (group && groupGrantsBenefit(group)) {
           promoGroupMembers = countPromoGroupMembers(
             promoDir.rowsForGroup(
               promoCtx.division,

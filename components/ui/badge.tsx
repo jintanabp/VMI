@@ -33,17 +33,31 @@ export function FlagBadge({
       yellow: "bg-amber-500",
       red: "bg-red-500",
     };
+    /**
+     * มีสัญลักษณ์ในจุดด้วย ไม่ใช่สีล้วน
+     *
+     * ป้ายเต็มที่มีข้อความโผล่เฉพาะจอ ≥1280px ต่ำกว่านั้นเหลือจุดสีอย่างเดียว —
+     * คนตาบอดสี (ชาย ~8%) แยกเขียว/แดงไม่ออก และคอลัมน์นี้คือตัวชี้ว่าจำนวนที่สั่ง
+     * เหมาะสมหรือไม่ · ใส่รูปทรงเข้าไปด้วยกินที่เพิ่มไม่กี่พิกเซล
+     */
+    const dotGlyphs: Record<CvdFlag, string> = {
+      green: "✓",
+      yellow: "!",
+      red: "✕",
+    };
     return (
       <span
         className={cn(
-          "inline-block shrink-0 rounded-full",
-          compact ? "h-2 w-2" : "h-2.5 w-2.5",
+          "inline-flex shrink-0 items-center justify-center rounded-full font-bold leading-none text-white",
+          compact ? "h-3 w-3 text-[7px]" : "h-3.5 w-3.5 text-[8px]",
           dotColors[flag],
           className
         )}
         title={flagLabels[flag]}
         aria-label={flagLabels[flag]}
-      />
+      >
+        {dotGlyphs[flag]}
+      </span>
     );
   }
 
