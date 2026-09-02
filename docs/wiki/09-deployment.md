@@ -21,18 +21,21 @@ ALERT_EMAIL=                # ผู้รับแจ้งเมื่อ sync
 SENDER_EMAIL=               # mailbox ผู้ส่ง (Graph Mail.Send) — ขาดตัวนี้ = ไม่มีอีเมลออก
 DATA_SOURCE=fabric
 
-NEXT_PUBLIC_AZURE_AD_CLIENT_ID=
-NEXT_PUBLIC_AZURE_AD_TENANT_ID=
-NEXT_PUBLIC_AZURE_REDIRECT_URI=https://spc-ai.sahapat.com/vmi/auth/callback
-
 ONELAKE_*                   # service principal + workspace/lakehouse
 STOCK_ONELAKE_*
 CFT_*  VDA_CUSTOMER_MAP  VDA_CODES
 ```
 
-> ⚠️ **ต้องมี `.env` ครบก่อน `docker compose build`**
-> ค่า `NEXT_PUBLIC_*` ถูก bake ลง bundle ตอน build ไม่ได้อ่านตอน runtime
-> ถ้าแก้ค่าพวกนี้ต้อง build ใหม่
+> ⚠️ **`NEXT_PUBLIC_*` ตั้งใน `.env` บน server ไม่ได้ — ตั้งไปก็ไม่มีผล**
+> ค่าพวกนี้ถูกฝังลง JS ตอน `next build` ไม่ได้อ่านตอนรัน และ `.dockerignore`
+> กัน `.env` ออกจาก build context อยู่แล้ว → builder stage ไม่เคยเห็นไฟล์นั้น
+> ส่วน `env_file:` ใน docker-compose มีผลกับ process ตอนรันเท่านั้น
+>
+> client id / tenant id ของ Azure จึงย้ายไปอยู่ในโค้ดที่ `lib/auth/azure-app.ts`
+> (เป็นตัวระบุสาธารณะ ไม่ใช่ความลับ) ไม่ต้องตั้งอะไรเพิ่ม · `NEXT_PUBLIC_AZURE_REDIRECT_URI`
+> ก็ไม่ต้องตั้ง ระบบใช้ `window.location.origin + /vmi/auth/callback` เอง
+>
+> ถ้าจำเป็นต้องเปลี่ยนจริง ๆ ให้แก้ในโค้ดแล้ว build ใหม่ — ห้ามหวังพึ่ง env บน server
 
 ## 2. Build และรัน
 

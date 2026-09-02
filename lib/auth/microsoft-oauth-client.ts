@@ -1,19 +1,21 @@
+import { AZURE_AD_CLIENT_ID, AZURE_AD_TENANT_ID } from "@/lib/auth/azure-app";
 import { appPath } from "@/lib/paths";
 
 const SCOPES = "openid profile email User.Read";
 const PKCE_KEY = "vmi_ms_oauth_pkce";
 const STATE_KEY = "vmi_ms_oauth_state";
 
+/**
+ * เดิมอ่าน process.env ตรงนี้แล้ว throw ถ้าว่าง — ซึ่งว่างเสมอใน image ที่ build
+ * ด้วย Docker เพราะ .env ไม่อยู่ใน build context (ดู lib/auth/azure-app.ts)
+ * ค่าที่ถูกต้องอยู่ในโค้ดแล้ว ไม่ต้องตั้ง env และไม่มีทางพังเพราะลืมตั้ง
+ */
 function getClientId() {
-  const id = process.env.NEXT_PUBLIC_AZURE_AD_CLIENT_ID ?? "";
-  if (!id) throw new Error("ยังไม่ได้ตั้ง NEXT_PUBLIC_AZURE_AD_CLIENT_ID");
-  return id;
+  return AZURE_AD_CLIENT_ID;
 }
 
 function getTenantId() {
-  const id = process.env.NEXT_PUBLIC_AZURE_AD_TENANT_ID ?? "";
-  if (!id) throw new Error("ยังไม่ได้ตั้ง NEXT_PUBLIC_AZURE_AD_TENANT_ID");
-  return id;
+  return AZURE_AD_TENANT_ID;
 }
 
 /** Redirect URI ที่ต้องลงทะเบียนใน Azure SPA — ตรงกับ path นี้ทุกตัวอักษร */

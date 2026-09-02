@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "crypto";
+import { AZURE_AD_CLIENT_ID, AZURE_AD_TENANT_ID } from "@/lib/auth/azure-app";
 import { appPath } from "@/lib/paths";
 
 const SCOPES = "openid profile email User.Read offline_access";
@@ -6,15 +7,9 @@ const SCOPES = "openid profile email User.Read offline_access";
 export const PKCE_COOKIE = "ms_oauth_pkce";
 export const STATE_COOKIE = "ms_oauth_state";
 
+/** ค่าอยู่ในโค้ดแล้ว (lib/auth/azure-app.ts) — ฝั่ง server กับเบราว์เซอร์ต้องตรงกันเสมอ */
 export function getAzureIds() {
-  const clientId = process.env.NEXT_PUBLIC_AZURE_AD_CLIENT_ID;
-  const tenantId = process.env.NEXT_PUBLIC_AZURE_AD_TENANT_ID;
-
-  if (!clientId || !tenantId) {
-    throw new Error("ยังไม่ได้ตั้ง NEXT_PUBLIC_AZURE_AD_CLIENT_ID / TENANT_ID");
-  }
-
-  return { clientId, tenantId };
+  return { clientId: AZURE_AD_CLIENT_ID, tenantId: AZURE_AD_TENANT_ID };
 }
 
 export function requireAzureConfig() {

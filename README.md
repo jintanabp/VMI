@@ -95,8 +95,6 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 #### 1. ตั้งค่า `.env`
 
 ```env
-NEXT_PUBLIC_AZURE_AD_CLIENT_ID=<จาก Azure Portal>
-NEXT_PUBLIC_AZURE_AD_TENANT_ID=<จาก Azure Portal>
 NEXTAUTH_SECRET=<random hex>
 ADMIN_EMAILS=<อีเมลของคุณ>
 ```
@@ -221,11 +219,12 @@ SENDER_EMAIL=noreply@company.com   # ต้องตั้งคู่กัน 
 ```bash
 cp .env.example .env
 # ใส่ค่าจริง: ONELAKE_*, STOCK_ONELAKE_*, NEXTAUTH_SECRET,
-# ADMIN_EMAILS, ALERT_EMAIL, NEXT_PUBLIC_AZURE_AD_*,
-# NEXT_PUBLIC_AZURE_REDIRECT_URI=https://spc-ai.sahapat.com/vmi/auth/callback
+# ADMIN_EMAILS, ALERT_EMAIL
 ```
 
-> **สำคัญ:** ต้องมี `.env` ครบ **ก่อน** `docker compose build` — ค่า `NEXT_PUBLIC_*` ถูก bake ตอน build
+> **สำคัญ:** `NEXT_PUBLIC_*` ตั้งใน `.env` บน server ไม่ได้ — มันถูกฝังลง JS ตอน build
+> และ `.dockerignore` กัน `.env` ออกจาก build context · client id / tenant id ของ Azure
+> อยู่ในโค้ดที่ `lib/auth/azure-app.ts` แล้ว ไม่ต้องตั้ง
 
 ### 2. Build และรัน
 
