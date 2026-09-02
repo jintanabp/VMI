@@ -63,6 +63,9 @@ model PromoTier {
 model Order {
   id           String      @id @default(cuid())
   storeId      String
+  /// รหัสที่ client สร้างต่อหนึ่งดราฟต์ — กันส่งซ้ำเมื่อกดสองที/เน็ตกระตุกแล้ว retry
+  /// (null = ออเดอร์เก่าก่อนมีฟิลด์นี้ · unique จึงกันได้จริงแม้สอง request ชนกันพอดี)
+  clientRequestId String?  @unique
   status       String      @default("pending_approval")
   rejectReason String?
   createdAt    DateTime    @default(now())

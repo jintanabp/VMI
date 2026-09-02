@@ -49,6 +49,11 @@ const orderItemSchema = z.object({
 
 const createOrderSchema = z.object({
   items: z.array(orderItemSchema).min(1),
+  /**
+   * รหัสประจำดราฟต์จาก client — กดส่งซ้ำ/เน็ต retry ด้วยรหัสเดิมจะได้ใบเดิม
+   * ไม่บังคับ เพื่อให้ client เวอร์ชันเก่าที่ยังเปิดค้างอยู่ส่งออเดอร์ได้ตามปกติ
+   */
+  clientRequestId: z.string().trim().min(8).max(64).optional(),
 });
 
 // PATCH เดิมเป็น destructure ดิบ ๆ จาก request.json() — ไม่ validate อะไรเลย
@@ -252,7 +257,18 @@ export async function POST(request: Request) {
   });
 
   const { orders } = getRepositories();
-  const order = await orders.createOrder(storeId, enrichedItems);
+  const order = await orders.createOrder(
+    storeId,
+    enrichedItems,
+    parsed.data.clientRequestId
+  );
+
+  // ส่งซ้ำใบเดิม — คืนใบเดิมเงียบ ๆ ห้ามเด้งแจ้งเตือนเซลล์ซ้ำ
+  if (order.reused) {
+    return NextResponse.json(await orders.getOrderById(order.id), {
+      status: 200,
+    });
+  }
 
   const totalQty = items.reduce((s, i) => s + i.finalQty, 0);
   const flaggedCount = enrichedItems.filter((i) => i.priceFlagged).length;

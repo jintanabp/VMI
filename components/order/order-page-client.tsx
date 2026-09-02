@@ -3,7 +3,7 @@
 import { appPath } from "@/lib/paths";
 import { apiFetch } from "@/lib/api-fetch";
 import { suggestRemainingQty } from "@/lib/stock/suggest-remaining";
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
@@ -936,12 +936,31 @@ export function OrderPageClient({
     [enriched]
   );
 
+  /**
+   * รหัสประจำ "ครั้งที่กดส่ง" — กันออเดอร์ซ้ำ
+   *
+   * สร้างครั้งเดียวตอนหน้าโหลด แล้วส่งไปกับทุกครั้งที่ยิง /api/orders · กดสองที
+   * เน็ตกระตุกแล้ว retry หรือกดส่งซ้ำหลังเห็น error ที่จริงแล้วสำเร็จไปแล้ว
+   * เซิร์ฟเวอร์จะคืนใบเดิมแทนการเปิดใบใหม่ (unique index กันไว้อีกชั้น)
+   *
+   * ส่งสำเร็จแล้วหน้านี้เปลี่ยนเป็นจอ "ส่งแล้ว" และดราฟต์ถูกล้าง — ออเดอร์ถัดไป
+   * เริ่มจากหน้าใหม่ซึ่งได้รหัสใหม่เอง
+   */
+  const requestIdRef = useRef<string>("");
+  if (!requestIdRef.current) {
+    requestIdRef.current =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+  }
+
   const submitMutation = useMutation({
     mutationFn: async () => {
       const res = await apiFetch(appPath("/api/orders"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          clientRequestId: requestIdRef.current,
           items: submittableLines.map((l) => ({
             skuId: l.row.skuId,
             suggestedQty: l.row.suggestOrder,

@@ -13,6 +13,15 @@ import type {
   StockRepository,
 } from "./types";
 
+/** Prisma ใช้โค้ด P2002 เมื่อชน unique index — เช็คจากรูปร่าง ไม่ต้องดึง namespace เข้ามา */
+function isUniqueViolation(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as { code?: unknown }).code === "P2002"
+  );
+}
+
 export const prismaStockRepository: StockRepository = {
   async getStores() {
     if (fabricMastersReady()) {
@@ -63,41 +72,72 @@ export const prismaStockRepository: StockRepository = {
 };
 
 export const prismaOrderRepository: OrderRepository = {
-  async createOrder(storeId, items) {
-    const order = await prisma.order.create({
-      data: {
-        storeId,
-        status: "pending_approval",
-        items: {
-          create: items.map((item) => ({
-            skuId: item.skuId,
-            suggestedQty: item.suggestedQty,
-            finalQty: item.finalQty,
-            cvdEstimate: item.cvdEstimate,
-            minDays: item.minDays ?? null,
-            maxDays: item.maxDays ?? null,
-            unitPriceOverride: item.unitPriceOverride ?? null,
-            c4UnitPrice: item.c4UnitPrice ?? null,
-            c4DiscountBaht: item.c4DiscountBaht ?? null,
-            c4DiscountPct: item.c4DiscountPct ?? null,
-            c4NetUnitPrice: item.c4NetUnitPrice ?? null,
-            c4PriceExpired: item.c4PriceExpired ?? null,
-            priceFlagged: item.priceFlagged ?? false,
-            priceFlagReason: item.priceFlagReason ?? null,
-            c4PromoLabel: item.c4PromoLabel ?? null,
-            c4PromoKind: item.c4PromoKind ?? null,
-            c4PromoGroup: item.c4PromoGroup ?? null,
-            c4PromoGroupMembers: item.c4PromoGroupMembers ?? null,
-            c4PooledQty: item.c4PooledQty ?? null,
-            c4FreeGoodCode: item.c4FreeGoodCode ?? null,
-            c4FreeGoodName: item.c4FreeGoodName ?? null,
-            c4FreeGoodQty: item.c4FreeGoodQty ?? null,
-            c4FreeGoodUnit: item.c4FreeGoodUnit ?? null,
-          })),
-        },
+  /**
+   * สร้างคำสั่งซื้อ — ส่งซ้ำด้วย clientRequestId เดิมจะได้ใบเดิม ไม่ใช่ใบใหม่
+   *
+   * เคสจริงที่กันไว้: ร้านกดปุ่มส่งสองที · เน็ตกระตุกแล้วเบราว์เซอร์ retry · กด
+   * ย้อนกลับแล้วกดส่งอีกรอบ — ทั้งหมดนี้เคยได้ออเดอร์ซ้ำที่เซลล์ต้องมานั่งไล่ปฏิเสธ
+   * ทีหลัง และของค้างในระบบก็ถูกนับซ้ำจนคำแนะนำครั้งถัดไปเพี้ยน
+   *
+   * เช็คก่อนสร้างยังชนกันได้ถ้าสอง request มาพร้อมกันจริง ๆ จึงต้องมี unique index
+   * เป็นด่านสุดท้าย แล้วดักโค้ด P2002 คืนใบที่อีก request สร้างสำเร็จไปแล้ว
+   */
+  async createOrder(storeId, items, clientRequestId) {
+    if (clientRequestId) {
+      const existing = await prisma.order.findUnique({
+        where: { clientRequestId },
+        select: { id: true },
+      });
+      if (existing) return { id: existing.id, reused: true };
+    }
+
+    const data = {
+      storeId,
+      clientRequestId: clientRequestId ?? null,
+      status: "pending_approval",
+      items: {
+        create: items.map((item) => ({
+          skuId: item.skuId,
+          suggestedQty: item.suggestedQty,
+          finalQty: item.finalQty,
+          cvdEstimate: item.cvdEstimate,
+          minDays: item.minDays ?? null,
+          maxDays: item.maxDays ?? null,
+          unitPriceOverride: item.unitPriceOverride ?? null,
+          c4UnitPrice: item.c4UnitPrice ?? null,
+          c4DiscountBaht: item.c4DiscountBaht ?? null,
+          c4DiscountPct: item.c4DiscountPct ?? null,
+          c4NetUnitPrice: item.c4NetUnitPrice ?? null,
+          c4PriceExpired: item.c4PriceExpired ?? null,
+          priceFlagged: item.priceFlagged ?? false,
+          priceFlagReason: item.priceFlagReason ?? null,
+          c4PromoLabel: item.c4PromoLabel ?? null,
+          c4PromoKind: item.c4PromoKind ?? null,
+          c4PromoGroup: item.c4PromoGroup ?? null,
+          c4PromoGroupMembers: item.c4PromoGroupMembers ?? null,
+          c4PooledQty: item.c4PooledQty ?? null,
+          c4FreeGoodCode: item.c4FreeGoodCode ?? null,
+          c4FreeGoodName: item.c4FreeGoodName ?? null,
+          c4FreeGoodQty: item.c4FreeGoodQty ?? null,
+          c4FreeGoodUnit: item.c4FreeGoodUnit ?? null,
+        })),
       },
-    });
-    return { id: order.id };
+    };
+
+    try {
+      const order = await prisma.order.create({ data });
+      return { id: order.id, reused: false };
+    } catch (err) {
+      // สอง request ชนกันพอดี — อีกฝั่งสร้างสำเร็จไปแล้ว คืนใบนั้นแทนการโยน error
+      if (clientRequestId && isUniqueViolation(err)) {
+        const winner = await prisma.order.findUnique({
+          where: { clientRequestId },
+          select: { id: true },
+        });
+        if (winner) return { id: winner.id, reused: true };
+      }
+      throw err;
+    }
   },
 
   async listOrders(filters = {}) {

@@ -156,7 +156,15 @@ export interface PurchaseOrderInput {
 }
 
 export interface OrderRepository {
-  createOrder(storeId: string, items: OrderItemInput[]): Promise<{ id: string }>;
+  /**
+   * `clientRequestId` = รหัสของ "ดราฟต์นี้" ที่ client สร้าง — ส่งซ้ำด้วยรหัสเดิมได้ใบเดิม
+   * `reused: true` แปลว่าเป็นการส่งซ้ำ ผู้เรียกต้องไม่แจ้งเตือนเซลล์อีกรอบ
+   */
+  createOrder(
+    storeId: string,
+    items: OrderItemInput[],
+    clientRequestId?: string
+  ): Promise<{ id: string; reused: boolean }>;
   listOrders(filters?: {
     salesRepEmail?: string;
     salesRepEmails?: string[];
