@@ -40,6 +40,8 @@ import {
 } from "@/lib/promo/promo-step";
 import type { StockRowComputed } from "@/lib/repositories/types";
 import { cn } from "@/lib/utils";
+import { getPendingTierDiscount } from "@/lib/calculations";
+import { stockValueOf } from "@/lib/stock/sort";
 
 /** เกินจำนวนนี้ในถังเดียวถึงจะตัดแสดง — กันหน้าหนักตอนกาง "ไม่มีโปรโมชั่น" ทั้งคลัง */
 const ROWS_PER_BUCKET = 120;
@@ -550,6 +552,7 @@ const PromoSkuRow = memo(function PromoSkuRow({
             remainder={row.stockRemainder}
             pieces={row.stockPieces}
             packSize={row.packSize}
+            stockValue={stockValueOf(row)}
             compact
           />
         </td>
@@ -564,6 +567,7 @@ const PromoSkuRow = memo(function PromoSkuRow({
           <StockDiscountPerCaseCell
             discountBaht={row.discountBahtPerCase}
             discountPct={row.discountPctPerCase}
+            pending={getPendingTierDiscount(qty, row.promoTiers)}
             compact
           />
         </td>
@@ -680,6 +684,7 @@ const PromoSkuMobileRow = memo(function PromoSkuMobileRow({
             remainder={row.stockRemainder}
             pieces={row.stockPieces}
             packSize={row.packSize}
+            stockValue={stockValueOf(row)}
             compact
           />
         </MobileStat>
@@ -694,6 +699,7 @@ const PromoSkuMobileRow = memo(function PromoSkuMobileRow({
           <StockDiscountPerCaseCell
             discountBaht={row.discountBahtPerCase}
             discountPct={row.discountPctPerCase}
+            pending={getPendingTierDiscount(qty, row.promoTiers)}
             compact
           />
         </MobileStat>

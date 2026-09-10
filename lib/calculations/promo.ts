@@ -168,6 +168,32 @@ export function getPromoForQty(
 }
 
 /** ราคาสุทธิต่อหีบหลังส่วนลด C4 */
+/**
+ * ส่วนลดของ "ขั้นถัดไปที่ยังไม่ถึง" — เอาไว้บอกว่ากำลังรออะไรอยู่ ไม่ใช่ส่วนลดที่ได้แล้ว
+ *
+ * โหมดโปรโมชั่นเคยขึ้นขีด "—" ในช่องส่วนลดของครึ่งตาราง เพราะตัวเลขที่เป็นเงินผูกกับ
+ * จำนวนที่สั่งจริง (ยังไม่สั่ง = ยังไม่มีส่วนลด ซึ่งถูกแล้ว) แต่หัวการ์ดกลุ่มข้างบน
+ * กลับเขียนว่า "ซื้อ 1+ หีบ ลด 57.75 บาท/หีบ" — คนอ่านแล้วสรุปว่าของพวกนี้ไม่เข้าโปร
+ */
+export function getPendingTierDiscount(
+  qty: number,
+  tiers: PromoTierInput[] | null | undefined
+): { minQty: number; discBaht: number | null; discPct: number | null } | null {
+  if (!tiers || tiers.length === 0) return null;
+  const next = [...tiers]
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .find(
+      (t) =>
+        t.minQty > qty && ((t.discBaht ?? 0) > 0 || (t.discPct ?? 0) > 0)
+    );
+  if (!next) return null;
+  return {
+    minQty: next.minQty,
+    discBaht: next.discBaht ?? null,
+    discPct: next.discPct ?? null,
+  };
+}
+
 export function calcNetUnitPrice(
   unitPrice: number | null | undefined,
   discountBaht: number | null | undefined,

@@ -98,6 +98,7 @@ import {
   DEFAULT_STOCK_SORT,
   isStockSortKey,
   sortStockRows,
+  stockValueOf,
   type StockSortKey,
   type StockSortState,
 } from "@/lib/stock/sort";
@@ -1931,6 +1932,7 @@ export function StockPageClient({
                           remainder={row.stockRemainder}
                           pieces={row.stockPieces}
                           packSize={row.packSize}
+                          stockValue={stockValueOf(row)}
                         />
                       </td>
                       <td className="px-1 py-1.5 text-right text-xs">
@@ -2521,6 +2523,7 @@ const StockMobileRow = memo(function StockMobileRow({
             remainder={row.stockRemainder}
             pieces={row.stockPieces}
             packSize={row.packSize}
+            stockValue={stockValueOf(row)}
           />
         </MobileStat>
         <MobileStat

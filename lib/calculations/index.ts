@@ -191,6 +191,7 @@ export {
   formatPromoTierLabel,
   formatPromoTierLabelVerbose,
   getPromoForQty,
+  getPendingTierDiscount,
   calcNetUnitPrice,
   calcLineAmount,
   calcStepPremiumQty,

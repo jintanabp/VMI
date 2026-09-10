@@ -4,6 +4,7 @@ export type StockSortKey =
   | "code"
   | "name"
   | "stock"
+  | "stockValue"
   | "avgSales"
   | "cvd"
   | "suggest"
@@ -34,6 +35,7 @@ export const STOCK_SORT_OPTIONS: {
   { key: "code", label: "รหัสสินค้า", group: "สินค้า", asc: "น้อย → มาก", desc: "มาก → น้อย" },
   { key: "name", label: "ชื่อสินค้า", group: "สินค้า", asc: "ก → ฮ", desc: "ฮ → ก" },
   { key: "stock", label: "คงเหลือ", group: "ตัวเลข", asc: "น้อย → มาก", desc: "มาก → น้อย" },
+  { key: "stockValue", label: "มูลค่าคงเหลือ", group: "ตัวเลข", asc: "น้อย → มาก", desc: "เงินจมมากก่อน" },
   { key: "avgSales", label: "ขายเฉลี่ย/วัน", group: "ตัวเลข", asc: "น้อย → มาก", desc: "มาก → น้อย" },
   { key: "cvd", label: "CVD (วันที่พอขาย)", group: "ตัวเลข", asc: "ใกล้หมดก่อน", desc: "เหลือเยอะก่อน" },
   { key: "suggest", label: "จำนวนแนะนำสั่ง", group: "ตัวเลข", asc: "น้อย → มาก", desc: "มาก → น้อย" },
@@ -56,6 +58,8 @@ interface SortableStockRow {
   brand?: string;
   section?: string;
   stock?: number;
+  stockValue?: number | null;
+  unitPrice?: number | null;
   avgSales?: number;
   avgQtyOutL7?: number;
   stockCvd?: number | null;
@@ -88,7 +92,9 @@ function numericValue(
   const raw =
     key === "stock"
       ? row.stock
-      : key === "avgSales"
+      : key === "stockValue"
+        ? stockValueOf(row)
+        : key === "avgSales"
         ? (row.avgQtyOutL7 ?? row.avgSales)
         : key === "cvd"
           ? row.stockCvd
@@ -97,7 +103,33 @@ function numericValue(
   return raw;
 }
 
-const NUMERIC_KEYS: StockSortKey[] = ["stock", "avgSales", "cvd", "suggest"];
+/** มูลค่าของที่ค้างอยู่ — ต้นทุนจริงถ้ามี ไม่มีค่อยประมาณจากราคาขาย
+ *  (กติกาเดียวกับ "มูลค่ารวม" บนหัวหน้าสต็อกและคอลัมน์ในไฟล์ Excel) */
+export function stockValueOf(row: {
+  stockValue?: number | null;
+  stock?: number;
+  unitPrice?: number | null;
+}): number | null {
+  if (row.stockValue != null) return row.stockValue;
+  if (row.unitPrice == null || row.stock == null) return null;
+  return row.stock * row.unitPrice;
+}
+
+const NUMERIC_KEYS: StockSortKey[] = [
+  "stock",
+  "stockValue",
+  "avgSales",
+  "cvd",
+  "suggest",
+];
+
+/**
+ * คีย์ที่ควรเริ่มด้วย "มาก → น้อย" เพราะคำถามของผู้ใช้คือ "ตัวไหนหนักสุด"
+ * (เรียงตามมูลค่าแล้วได้ของ 59 บาทขึ้นก่อนคือคำตอบที่ไม่มีใครถาม)
+ */
+export function prefersDescendingFirst(key: StockSortKey): boolean {
+  return key === "stockValue" || key === "avgSales" || key === "suggest";
+}
 
 /** คีย์ที่ลำดับตายตัว — ปุ่มสลับขึ้น/ลงไม่มีผล */
 export function isFixedOrderSort(key: StockSortKey): boolean {

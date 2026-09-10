@@ -44,6 +44,7 @@ import {
 } from "@/lib/stock/filters";
 import {
   isFixedOrderSort,
+  prefersDescendingFirst,
   STOCK_SORT_OPTIONS,
   type StockSortState,
 } from "@/lib/stock/sort";
@@ -653,7 +654,10 @@ function SortMenu({
                       }
                       onChange({
                         key: o.key,
-                        dir: o.key === "code" ? "desc" : "asc",
+                        dir:
+                          o.key === "code" || prefersDescendingFirst(o.key)
+                            ? "desc"
+                            : "asc",
                       });
                       setOpen(false);
                     }}

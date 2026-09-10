@@ -11,19 +11,33 @@ export function StockCaseCell({
   remainder,
   pieces,
   packSize,
+  stockValue,
   compact = false,
 }: {
   cases: number;
   remainder: number;
   pieces: number;
   packSize: number;
+  /** มูลค่าของที่ค้างอยู่ (บาท) — null = ไม่รู้ต้นทุนและไม่รู้ราคาขาย */
+  stockValue?: number | null;
   compact?: boolean;
 }) {
-  const title =
+  const base =
     packSize > 1
       ? `${formatNumber(cases, 0)} หีบ ${formatNumber(remainder, 0)} ชิ้น · รวม ${formatNumber(pieces, 0)} ชิ้น (${formatNumber(packSize, 0)} ชิ้น/หีบ)`
       : `${formatNumber(cases, 0)} หีบ (ไม่มีข้อมูลชิ้น/หีบ)`;
-  return (
+  /**
+   * มูลค่าเงินที่จมอยู่กับของกองนี้ — ตัวเลขนี้มีอยู่แล้วทั้งใน "มูลค่ารวม" บนหัวจอ
+   * และคอลัมน์ "มูลค่าคงเหลือ" ในไฟล์ Excel ขาดแค่บนตารางที่ใช้ตัดสินใจ
+   *
+   * ในแท็บ "ค้างสต็อก" ของ vda1 ตัวหนักสุด 2,970 บาท ตัวเบาสุดหลักสิบ — ต่างกัน 100 เท่า
+   * โดยที่บนจอเดิมดูเหมือนกันหมด จึงเรียงลำดับความสำคัญไม่ได้เลย
+   */
+  const showValue = stockValue != null && stockValue > 0;
+  const title = showValue
+    ? `${base} · มูลค่า ${formatNumber(stockValue, 0)} บาท`
+    : base;
+  const line = (
     <span
       className={cn(
         "inline-flex items-baseline justify-end font-medium tabular-nums whitespace-nowrap text-slate-800 dark:text-slate-200",
@@ -38,6 +52,16 @@ export function StockCaseCell({
         /
       </span>
       <span className="min-w-[3ch] text-left">{formatNumber(remainder, 0)}</span>
+    </span>
+  );
+
+  if (!showValue) return line;
+  return (
+    <span className="inline-flex flex-col items-end leading-tight">
+      {line}
+      <span className="font-normal text-slate-400 vmi-t-xs dark:text-slate-500">
+        {formatNumber(stockValue, 0)} ฿
+      </span>
     </span>
   );
 }
@@ -153,10 +177,13 @@ export function StockListPriceCell({
 export function StockDiscountPerCaseCell({
   discountBaht,
   discountPct,
+  pending,
   compact = false,
 }: {
   discountBaht?: number | null;
   discountPct?: number | null;
+  /** ส่วนลดของขั้นที่ยังไม่ถึง — โชว์จาง ๆ ว่ารออะไรอยู่ ไม่ใช่ส่วนลดที่ได้แล้ว */
+  pending?: { minQty: number; discBaht: number | null; discPct: number | null } | null;
   compact?: boolean;
 }) {
   if (discountBaht != null && discountBaht > 0) {
@@ -170,6 +197,21 @@ export function StockDiscountPerCaseCell({
     return (
       <span className={cn("text-slate-600 dark:text-slate-400", compact && "text-xs")}>
         {formatNumber(discountPct, 1)}%
+      </span>
+    );
+  }
+  if (pending && (pending.discBaht ?? pending.discPct)) {
+    const amount =
+      pending.discBaht != null && pending.discBaht > 0
+        ? formatNumber(pending.discBaht, 2)
+        : `${formatNumber(pending.discPct ?? 0, 1)}%`;
+    return (
+      <span
+        className="inline-flex flex-col items-end leading-tight text-slate-400 dark:text-slate-500"
+        title={`ยังไม่ได้ส่วนลด — สั่งอย่างน้อย ${formatNumber(pending.minQty, 0)} หีบ จึงจะได้ ${amount} ต่อหีบ`}
+      >
+        <span className={cn(compact && "text-xs")}>{amount}</span>
+        <span className="vmi-t-xs">ซื้อ {formatNumber(pending.minQty, 0)} หีบ</span>
       </span>
     );
   }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_STOCK_SORT, sortStockRows } from "@/lib/stock/sort";
+import { DEFAULT_STOCK_SORT, sortStockRows, stockValueOf } from "@/lib/stock/sort";
 import { resolveOrderLinePrice } from "@/lib/calculations";
 
 /** รูปแถวขั้นต่ำที่ sortStockRows ต้องใช้ (ตัวจริงเป็น generic ไม่ได้ export type ออกมา) */
@@ -107,5 +107,36 @@ describe("resolveOrderLinePrice — ลำดับความสำคัญ�
     expect(resolveOrderLinePrice({ salesPriceOverride: 0, c4UnitPrice: 100 })).toEqual(
       { unitPrice: 0, source: "sales" }
     );
+  });
+});
+
+/**
+ * เรียงตามมูลค่าเงินที่จมอยู่ — เพิ่มมาเพื่อให้แท็บ "ค้างสต็อก"/"หมุนช้า" บอกได้ว่า
+ * ตัวไหนควรเร่งระบายก่อน (vda1: ตัวหนักสุด 2,970 บาท เบาสุดหลักสิบ)
+ */
+describe("มูลค่าคงเหลือ", () => {
+  it("ใช้ต้นทุนจริงถ้ามี", () => {
+    expect(stockValueOf({ stockValue: 1500, stock: 3, unitPrice: 100 })).toBe(1500);
+  });
+
+  it("ไม่มีต้นทุน → ประมาณจากราคาขาย (กติกาเดียวกับไฟล์ Excel)", () => {
+    expect(stockValueOf({ stockValue: null, stock: 3, unitPrice: 100 })).toBe(300);
+  });
+
+  it("ไม่รู้ทั้งต้นทุนและราคาขาย → null (ไปท้ายตารางเสมอ)", () => {
+    expect(stockValueOf({ stockValue: null, stock: 3, unitPrice: null })).toBeNull();
+  });
+
+  it("เรียงมาก → น้อย เอาเงินจมก้อนใหญ่ขึ้นก่อน", () => {
+    const rows = [
+      { skuCode: "A", stockValue: 100, stock: 1, unitPrice: 100 },
+      { skuCode: "B", stockValue: 2970, stock: 28, unitPrice: 105 },
+      { skuCode: "C", stockValue: null, stock: 2, unitPrice: 50 },
+    ];
+    expect(sortStockRows(rows, "stockValue", "desc").map((r) => r.skuCode)).toEqual([
+      "B",
+      "A",
+      "C",
+    ]);
   });
 });
