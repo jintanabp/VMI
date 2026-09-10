@@ -4,6 +4,7 @@ import {
   hideNoSalesApplies,
   isCriticalStock,
   isDeadStock,
+  selectStockRows,
   type StockView,
 } from "@/lib/stock/filters";
 import { calcSuggestOrder, LEAD_TIME_DAYS } from "@/lib/calculations";
@@ -115,5 +116,42 @@ describe("hideNoSales", () => {
   it("แท็บที่ไม่มีของไม่ขายอยู่แล้ว: กดแล้วผลลัพธ์เท่าเดิม (ปุ่มต้องบอกว่าไม่มีอะไรให้ซ่อน)", () => {
     expect(hideNoSalesApplies("needs")).toBe(true);
     expect(shown("needs", true)).toEqual(shown("needs", false));
+  });
+});
+
+/**
+ * ค้นหา + ปุ่มซ่อน — ผู้ใช้ค้นชื่อแบรนด์กว้าง ๆ แล้วได้ของตายปนมาเต็ม
+ * แต่กดซ่อนไม่ได้ (ตอนนั้นปุ่มถูกปิดเพราะ "ค้นหาข้ามตัวกรองทุกตัว")
+ *
+ * ปุ่มนี้จึงเป็นข้อยกเว้นเดียวที่ยังทำงานตอนค้นหา ส่วนแท็บ/แบรนด์/กลุ่มยังถูกข้ามเหมือนเดิม
+ */
+describe("selectStockRows: ค้นหาแล้วกดซ่อน", () => {
+  const rows = [
+    { skuCode: "111", skuName: "เปาซิลเวอร์", brand: "เปา", noSales30: false, avgSales: 2 },
+    { skuCode: "222", skuName: "เปาเอ็มวอช", brand: "เปา", noSales30: true, avgSales: 0 },
+    { skuCode: "333", skuName: "เปาลิควิด", brand: "เปา", noSales30: true, fromTarget: true },
+    { skuCode: "444", skuName: "บรีสเอกเซล", brand: "บรีส", noSales30: true, avgSales: 0 },
+  ];
+  const codes = (search: string, hideNoSales: boolean, view: StockView = "all") =>
+    selectStockRows(rows, {
+      search,
+      filters: { view, brand: null, section: null, hideNoSales },
+    }).map((r) => r.skuCode);
+
+  it("ปิดปุ่ม: เจอทุกตัวที่ตรงคำค้น", () => {
+    expect(codes("เปา", false)).toEqual(["111", "222", "333"]);
+  });
+
+  it("เปิดปุ่ม: ของไม่ขายในผลค้นหาต้องหายไปด้วย", () => {
+    expect(codes("เปา", true)).toEqual(["111", "333"]);
+  });
+
+  it("สินค้าเป้าขายไม่ถูกซ่อน — ไม่งั้นค้นชื่อของที่ควรมีขายแล้วไม่เจอ", () => {
+    expect(codes("เปาลิควิด", true)).toEqual(["333"]);
+  });
+
+  it("แท็บยังถูกข้ามตอนค้นหาเหมือนเดิม", () => {
+    // อยู่แท็บ "ควรสั่ง" แต่ค้นชื่อของที่ไม่ได้อยู่ในแท็บนั้น ต้องยังเจอ
+    expect(codes("บรีส", false, "needs")).toEqual(["444"]);
   });
 });

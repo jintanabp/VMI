@@ -103,7 +103,6 @@ import {
 } from "@/lib/stock/sort";
 import {
   DEFAULT_STOCK_FILTERS,
-  filterStockRows,
   isCriticalStock,
   isDeadStock,
   isStockView,
@@ -734,23 +733,23 @@ export function StockPageClient({
   }, [enrichedRows]);
 
   /**
-   * ของไม่ขาย 1 เดือนที่อยู่ในมุมมอง + แบรนด์/กลุ่มที่เปิดอยู่จริง ๆ
+   * ของไม่ขาย 1 เดือนที่อยู่ในสิ่งที่ผู้ใช้กำลังดูอยู่จริง ๆ (รวมคำค้นด้วย)
    *
    * ปุ่มซ่อนต้องบอก "จำนวนที่กดแล้วจะหายไป" ไม่ใช่ยอดรวมทั้งคลัง — เดิมแท็บ "ควรสั่ง"
    * ขึ้นเลขของทั้งคลังทั้งที่ในแท็บนั้นไม่มีของไม่ขายสักแถว กดแล้วหน้าจอเลยไม่เปลี่ยน
    *
    * ต้องคิดโดย**บังคับปิด hideNoSales** ไม่งั้นพอเปิดปุ่มไว้ ของถูกซ่อนไปแล้ว เลขจะกลาย
-   * เป็น 0 แล้วปุ่มปิดตัวเอง กดกลับไม่ได้
+   * เป็น 0 แล้วปุ่มปิดตัวเอง กดกลับไม่ได้ · สินค้าเป้าขายไม่นับ เพราะปุ่มไม่ซ่อนมันอยู่แล้ว
    */
   const noSalesInView = useMemo(() => {
-    const base = filterStockRows(enrichedRows, {
-      ...filters,
-      hideNoSales: false,
+    const base = selectStockRows(enrichedRows, {
+      search: deferredSearch,
+      filters: { ...filters, hideNoSales: false },
     });
     let n = 0;
-    for (const r of base) if (r.noSales30) n++;
+    for (const r of base) if (r.noSales30 && !r.fromTarget) n++;
     return n;
-  }, [enrichedRows, filters]);
+  }, [enrichedRows, deferredSearch, filters]);
 
   /**
    * ยืนยันก่อนยกเลิกหยุดสั่ง
