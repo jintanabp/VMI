@@ -24,6 +24,7 @@ import {
   MoreHorizontal,
   RotateCcw,
   Search,
+  Snail,
   Sparkles,
   ShoppingCart,
   SlidersHorizontal,
@@ -55,10 +56,11 @@ export interface StockViewCounts {
   new: number;
   noSales: number;
   deadStock: number;
+  slow: number;
   target: number;
 }
 
-type Tone = "slate" | "amber" | "red" | "sky" | "violet" | "emerald";
+type Tone = "slate" | "amber" | "red" | "sky" | "violet" | "emerald" | "orange";
 
 /** ตัวเลขบนป้ายแท็บ — ย่อหลักพันเพื่อไม่ให้แท็บยืดจนแถวล้น */
 function compactCount(n: number): string {
@@ -140,6 +142,15 @@ const VIEW_TABS: {
     hint: "ไม่มียอดขายใน 30 วัน แต่ของยังค้างอยู่ในคลัง — เงินจมจริง ต้องเร่งระบาย ไม่ใช่แค่หยุดสั่ง",
     hideWhenEmpty: true,
   },
+  {
+    view: "slow",
+    label: "หมุนช้า",
+    shortLabel: "ช้า",
+    icon: <Snail className="h-3.5 w-3.5" />,
+    tone: "orange",
+    hint: "ยังขายอยู่แต่ช้ามาก — ของที่มีพอขายเกิน 6 เท่าของ MAX (ค่าเริ่มต้น = เกิน 90 วัน) เงินจมโดยไม่เข้าแท็บ “ค้างสต็อก” เพราะยังมียอดขายอยู่",
+    hideWhenEmpty: true,
+  },
 ];
 
 const TAB_ACTIVE: Record<Tone, string> = {
@@ -150,6 +161,7 @@ const TAB_ACTIVE: Record<Tone, string> = {
   sky: "bg-sky-600 text-white shadow-sm dark:bg-sky-600",
   violet: "bg-violet-600 text-white shadow-sm dark:bg-violet-600",
   emerald: "bg-emerald-600 text-white shadow-sm dark:bg-emerald-600",
+  orange: "bg-orange-500 text-white shadow-sm dark:bg-orange-500",
 };
 
 const TAB_BADGE_IDLE: Record<Tone, string> = {
@@ -161,6 +173,8 @@ const TAB_BADGE_IDLE: Record<Tone, string> = {
     "bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300",
   emerald:
     "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300",
+  orange:
+    "bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300",
 };
 
 /* ------------------------------------------------------------------ */

@@ -105,6 +105,7 @@ import {
   DEFAULT_STOCK_FILTERS,
   isCriticalStock,
   isDeadStock,
+  isSlowMoving,
   isStockView,
   selectStockRows,
   type StockFilterState,
@@ -733,6 +734,7 @@ export function StockPageClient({
     let fresh = 0;
     let noSales = 0;
     let deadStock = 0;
+    let slow = 0;
     let target = 0;
     let all = 0;
     for (const r of enrichedRows) {
@@ -747,8 +749,9 @@ export function StockPageClient({
       if (r.isNew) fresh++;
       if (r.noSales30) noSales++;
       if (isDeadStock(r)) deadStock++;
+      if (isSlowMoving(r)) slow++;
     }
-    return { all, needs, critical, new: fresh, noSales, deadStock, target };
+    return { all, needs, critical, new: fresh, noSales, deadStock, slow, target };
   }, [enrichedRows]);
 
   /**
@@ -2038,7 +2041,7 @@ export function StockPageClient({
                             </span>
                             {cvdReason === "minPack" ? (
                               <span className="inline-flex items-center gap-0.5 rounded bg-slate-100 px-1 py-px vmi-t-xs font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
-                                ขั้นต่ำ 1 หีบ
+                                ขั้นต่ำแล้ว
                               </span>
                             ) : (
                               <FlagBadge flag={flag} compact />
@@ -2540,7 +2543,7 @@ const StockMobileRow = memo(function StockMobileRow({
             >
               {orderCvdReason === "minPack" ? (
                 <span className="inline-flex items-center rounded bg-slate-100 px-1 py-px vmi-t-xs font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
-                  ขั้นต่ำ 1 หีบ
+                  ขั้นต่ำแล้ว
                 </span>
               ) : (
                 <FlagBadge flag={orderFlag} compact />

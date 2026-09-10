@@ -17,6 +17,7 @@ export type StockView =
   | "new"
   | "noSales"
   | "deadStock"
+  | "slow"
   | "target";
 
 export interface StockFilterState {
@@ -42,6 +43,7 @@ interface FilterableStockRow {
   noSales30?: boolean;
   stockCvd?: number | null;
   minDays?: number;
+  maxDays?: number;
   avgSales?: number;
   /** คงเหลือหน่วยหีบ (ทศนิยมได้) */
   stock?: number;
@@ -81,6 +83,27 @@ export function isDeadStock(r: FilterableStockRow): boolean {
   return Boolean(r.noSales30) && (r.stock ?? 0) > 0;
 }
 
+/**
+ * ของหมุนช้า: ยังขายอยู่ แต่ของที่มีพอขายไปอีกนานมาก
+ *
+ * ช่องโหว่ที่เจอตอนให้คนลองใช้: "ไม่ขาย 1 เดือน" กับ "ค้างสต็อก" จับเฉพาะของที่ยอดขาย
+ * เป็น 0 สนิท ของที่ขายเดือนละชิ้นจึงหลุดทุกแท็บ ทั้งที่เงินจมมากกว่า — วัดจาก vda1
+ * จริง: แท็บค้างสต็อก 23 รายการ 16,875 บาท ส่วนของหมุนช้า 35 รายการ 121,786 บาท
+ *
+ * เกณฑ์อิง MAX ของกลุ่มนั้นเอง ไม่ใช่เลขวันตายตัว เพราะร้านตั้ง MIN/MAX ต่างกันต่อแบรนด์
+ * — ที่ค่าเริ่มต้น MAX 15 วัน จะได้ 90 วัน (3 เดือน) พอดี
+ */
+export const SLOW_MOVER_MAX_FACTOR = 6;
+
+export function isSlowMoving(
+  r: FilterableStockRow,
+  factor = SLOW_MOVER_MAX_FACTOR
+): boolean {
+  if ((r.stock ?? 0) <= 0 || (r.avgSales ?? 0) <= 0) return false;
+  if (r.stockCvd == null) return false;
+  return r.stockCvd > (r.maxDays ?? 15) * factor;
+}
+
 /** ผ่านมุมมองหลักหรือไม่ */
 function matchesView(row: FilterableStockRow, view: StockView): boolean {
   switch (view) {
@@ -94,6 +117,8 @@ function matchesView(row: FilterableStockRow, view: StockView): boolean {
       return Boolean(row.noSales30);
     case "deadStock":
       return isDeadStock(row);
+    case "slow":
+      return isSlowMoving(row);
     case "target":
       return true;
     default:
@@ -193,6 +218,7 @@ export function isStockView(value: unknown): value is StockView {
     value === "new" ||
     value === "noSales" ||
     value === "deadStock" ||
+    value === "slow" ||
     value === "target"
   );
 }

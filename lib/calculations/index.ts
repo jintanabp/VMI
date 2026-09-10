@@ -69,14 +69,28 @@ export function calcCvdEstimate(
   return (stock + orderQty) / avgSales;
 }
 
+/** เพดานบนของ "เขียว" — MAX + เวลารอของ + เผื่อปัดเป็นหีบเต็ม */
+export function getGreenCeiling(maxDays: number): number {
+  return maxDays + LEAD_TIME_DAYS + CVD_OVER_MAX_GREEN_DAYS;
+}
+
 export function getCvdFlag(
   cvdEst: number | null,
   minDays: number = FLAG_THRESHOLDS.greenMin,
   maxDays: number = FLAG_THRESHOLDS.greenMax
 ): CvdFlag {
   if (cvdEst === null) return "red";
-  // เขียว = ไม่ต่ำกว่า MIN และเกิน MAX ได้ไม่เกิน ~3–4 วัน (เผื่อ lead time)
-  const greenCeil = maxDays + CVD_OVER_MAX_GREEN_DAYS;
+  /**
+   * เขียว = ไม่ต่ำกว่า MIN และไม่เกิน "เป้าที่สูตรแนะนำเล็งไว้" มากเกินไป
+   *
+   * สูตร calcSuggestOrder เล็งไปที่ **MAX + lead time** (เติมให้ถึง MAX แล้วบวกของที่จะขาย
+   * ระหว่างรอของมาอีก 3 วัน) แล้วปัดขึ้นเป็นหีบเต็มเพราะสั่งครึ่งหีบไม่ได้
+   *
+   * เพดานเดิมคือ MAX + 4 ซึ่ง**ต่ำกว่าเป้าของสูตรแนะนำเองเกือบตลอด** ผลคือ 87 จาก 154 แถว
+   * ที่ระบบแนะนำให้สั่ง ติดธง "ตรวจสอบ" ด้วยจำนวนที่ระบบแนะนำเอง — พอเตือนเกินครึ่ง
+   * ผู้ใช้ก็เลิกอ่านคำเตือน แล้วแถวที่ควรเตือนจริงก็หายไปในกอง
+   */
+  const greenCeil = getGreenCeiling(maxDays);
   if (cvdEst >= minDays && cvdEst <= greenCeil) return "green";
   if (cvdEst < minDays) return "red";
   const yellowCeil = greenCeil + Math.max(15, maxDays - minDays);
@@ -110,6 +124,18 @@ export interface OrderCvdResult {
  * → CVD ทะลุเพดาน → เดิมติดธงแดงแล้วกั้นไม่ให้สั่ง ทั้งที่ "ไม่สั่งเลย" คือทางเลือกที่แย่กว่า
  * (ของหมดจริง) และสั่งน้อยกว่า 1 หีบก็ทำไม่ได้ จึงถือเป็น `minPack` — เตือนเหลือง สั่งได้
  */
+/** สั่งน้อยกว่านี้ไม่ได้แล้วหรือยัง — ลดอีก 1 หีบแล้วของจะขาดก่อนถึง MIN */
+function isSmallestFeasibleOrder(
+  stock: number,
+  orderQty: number,
+  avgSales: number,
+  minDays: number
+): boolean {
+  if (orderQty <= 1) return true;
+  const oneLess = calcCvdEstimate(stock, orderQty - 1, avgSales);
+  return oneLess !== null && oneLess < minDays;
+}
+
 export function getOrderCvdFlag(
   stock: number,
   orderQty: number,
@@ -128,6 +154,19 @@ export function getOrderCvdFlag(
   const cvdEst = calcCvdEstimate(stock, orderQty, avgSales);
   const flag = getCvdFlag(cvdEst, minDays, maxDays);
 
+  if (flag === "green") {
+    return { cvdEst, flag, reason: null, blocking: false };
+  }
+
+  // เกินเพดานแต่ "สั่งน้อยกว่านี้ไม่ได้แล้ว" → บอกว่าเป็นขั้นต่ำ ไม่ใช่ค้างคำเตือนไว้
+  // (ต้องเช็คก่อนแยกเหลือง/แดง — เตือนเหลืองในเคสนี้ก็ไร้ประโยชน์เท่ากัน
+  //  เพราะผู้ใช้ลดจำนวนลงไม่ได้อยู่ดี)
+  if (cvdEst !== null && cvdEst > getGreenCeiling(maxDays)) {
+    if (isSmallestFeasibleOrder(stock, orderQty, avgSales, minDays)) {
+      return { cvdEst, flag: "yellow", reason: "minPack", blocking: false };
+    }
+  }
+
   if (flag !== "red") {
     return { cvdEst, flag, reason: null, blocking: false };
   }
@@ -141,11 +180,6 @@ export function getOrderCvdFlag(
       return { cvdEst, flag, reason: "outOfStock", blocking: false };
     }
     return { cvdEst, flag, reason: "under", blocking: true };
-  }
-
-  // แดงเพราะเกินเพดาน แต่สั่งแค่ 1 หีบ = ขั้นต่ำที่เป็นไปได้ → ลดจากแดงเป็นเหลือง
-  if (orderQty <= 1) {
-    return { cvdEst, flag: "yellow", reason: "minPack", blocking: false };
   }
 
   return { cvdEst, flag, reason: "over", blocking: true };

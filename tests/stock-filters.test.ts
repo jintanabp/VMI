@@ -4,7 +4,9 @@ import {
   hideNoSalesApplies,
   isCriticalStock,
   isDeadStock,
+  isSlowMoving,
   selectStockRows,
+  SLOW_MOVER_MAX_FACTOR,
   type StockView,
 } from "@/lib/stock/filters";
 import { calcSuggestOrder, LEAD_TIME_DAYS } from "@/lib/calculations";
@@ -153,5 +155,51 @@ describe("selectStockRows: ค้นหาแล้วกดซ่อน", () =>
   it("แท็บยังถูกข้ามตอนค้นหาเหมือนเดิม", () => {
     // อยู่แท็บ "ควรสั่ง" แต่ค้นชื่อของที่ไม่ได้อยู่ในแท็บนั้น ต้องยังเจอ
     expect(codes("บรีส", false, "needs")).toEqual(["444"]);
+  });
+});
+
+/**
+ * "หมุนช้า" — ช่องโหว่ที่คนใช้จริงเจอ: ของที่ขายเดือนละชิ้นหลุดทั้ง "ไม่ขาย 1 เดือน"
+ * และ "ค้างสต็อก" เพราะยังมียอดขายอยู่นิดเดียว วัดจาก vda1 จริง: แท็บค้างสต็อก
+ * 23 รายการ 16,875 บาท ส่วนของหมุนช้า 35 รายการ 121,786 บาท (มากกว่า 7 เท่า)
+ */
+describe("isSlowMoving", () => {
+  const row = (stockCvd: number | null, over: Partial<Record<string, unknown>> = {}) => ({
+    stock: 5,
+    avgSales: 0.05,
+    maxDays: 15,
+    stockCvd,
+    ...over,
+  });
+
+  it("ของพอขายเกิน 6 เท่าของ MAX = หมุนช้า (ค่าเริ่มต้น = เกิน 90 วัน)", () => {
+    expect(isSlowMoving(row(91))).toBe(true);
+    expect(isSlowMoving(row(90))).toBe(false);
+  });
+
+  it("เกณฑ์ขยับตาม MAX ของกลุ่มนั้น ไม่ใช่เลขวันตายตัว", () => {
+    expect(isSlowMoving(row(91, { maxDays: 30 }))).toBe(false); // 30 × 6 = 180
+    expect(isSlowMoving(row(181, { maxDays: 30 }))).toBe(true);
+    expect(SLOW_MOVER_MAX_FACTOR).toBe(6);
+  });
+
+  it("ไม่มียอดขายเลย = เป็นงานของแท็บ 'ค้างสต็อก' ไม่ใช่แท็บนี้ (ไม่นับซ้ำ)", () => {
+    expect(isSlowMoving(row(999, { avgSales: 0 }))).toBe(false);
+  });
+
+  it("ของหมดแล้ว = ไม่มีเงินจม", () => {
+    expect(isSlowMoving(row(999, { stock: 0 }))).toBe(false);
+  });
+
+  it("แท็บ 'หมุนช้า' กับ 'ค้างสต็อก' ต้องไม่ทับกันเลย", () => {
+    const rows = [
+      { stock: 5, avgSales: 0.01, maxDays: 15, stockCvd: 500, noSales30: false },
+      { stock: 5, avgSales: 0, maxDays: 15, stockCvd: null, noSales30: true },
+    ];
+    const slow = filterStockRows(rows, { view: "slow", brand: null, section: null, hideNoSales: false });
+    const dead = filterStockRows(rows, { view: "deadStock", brand: null, section: null, hideNoSales: false });
+    expect(slow).toHaveLength(1);
+    expect(dead).toHaveLength(1);
+    expect(slow[0]).not.toBe(dead[0]);
   });
 });

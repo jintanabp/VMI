@@ -998,6 +998,10 @@ function SectionCard({
   const [savedFlag, setSavedFlag] = useState(false);
   const [error, setError] = useState("");
   const [confirmReset, setConfirmReset] = useState(false);
+  // ปุ่ม "ใช้ค่านี้" เขียนทับ MIN/MAX ของทั้งกลุ่มทันทีและไม่มี undo — บางแบรนด์ 41 ตัว
+  // ในขณะที่ปุ่ม ↺ ที่อยู่ห่างกันสองนิ้วในแถวเดียวกันยังถามก่อน ความไม่สม่ำเสมอแบบนี้
+  // คือที่มาของอุบัติเหตุ
+  const [confirmSuggestion, setConfirmSuggestion] = useState(false);
 
   const brandLabel = useMemo(() => {
     const brands = [
@@ -1231,9 +1235,9 @@ function SectionCard({
             size="sm"
             variant="outline"
             className="h-7 shrink-0 border-teal-300 bg-white px-2 text-xs text-teal-700 hover:bg-teal-100 dark:border-teal-800 dark:bg-transparent dark:text-teal-300"
-            onClick={applySuggestion}
+            onClick={() => setConfirmSuggestion(true)}
             disabled={saving || resetting}
-            title={`ตั้ง MIN/MAX เป็น ${suggestion.minDays}/${suggestion.maxDays} วัน`}
+            title={`ตั้ง MIN/MAX ของทั้งกลุ่มเป็น ${suggestion.minDays}/${suggestion.maxDays} วัน`}
           >
             ใช้ค่านี้
           </Button>
@@ -1273,6 +1277,27 @@ function SectionCard({
         onConfirm={resetToDefault}
         onClose={() => setConfirmReset(false)}
       />
+
+      {suggestion && (
+        <ConfirmDialog
+          open={confirmSuggestion}
+          title="ใช้ค่าที่ระบบแนะนำกับทั้งกลุ่ม?"
+          body={
+            <>
+              &ldquo;{section}&rdquo; ({allItems.length} รายการ) จะใช้ MIN{" "}
+              {suggestion.minDays} / MAX {suggestion.maxDays} วัน แทนค่าปัจจุบัน{" "}
+              {minDays}/{maxDays} — ค่าที่ตั้งไว้รายสินค้ายังอยู่เหมือนเดิม
+            </>
+          }
+          confirmLabel="ใช้ค่านี้"
+          cancelLabel="ไม่ใช่ตอนนี้"
+          onConfirm={() => {
+            setConfirmSuggestion(false);
+            void applySuggestion();
+          }}
+          onClose={() => setConfirmSuggestion(false)}
+        />
+      )}
     </div>
   );
 }
