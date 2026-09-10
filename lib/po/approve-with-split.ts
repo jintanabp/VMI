@@ -17,6 +17,7 @@ import {
   type SplittableItem,
 } from "./split-plan";
 import type { PurchaseOrderInput } from "@/lib/repositories/types";
+import { skuVatStatus } from "./sku-vat-status";
 
 /**
  * อนุมัติออเดอร์แล้วออก PO ตามกลุ่มที่จัดไว้
@@ -173,6 +174,7 @@ export async function approveWithPoSplit(
             unit: "case" as const,
             unitPrice,
             priceSource: source,
+            vatStatus: skuVatStatus(item.sku.code),
             discountBaht: item.c4DiscountBaht,
             discountPct: item.c4DiscountPct,
             // ส่วนลด C4 คิดทับบนราคาที่ตั้งเอง — ร้าน/พนักงานโต้แย้งราคาแคตตาล็อกได้

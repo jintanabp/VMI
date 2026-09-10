@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { calcNetUnitPrice, resolveOrderLinePrice } from "@/lib/calculations";
 import { resolveVdaStoreName } from "@/lib/fabric/vda-store-name";
 import { buildPoDocument, type PoDocument } from "./po-document";
+import { skuVatStatus } from "./sku-vat-status";
 import type { PoPriceKind } from "./split-plan";
 
 /**
@@ -49,6 +50,7 @@ export async function rebuildPoDocumentFromDb(
         unit: "case" as const,
         unitPrice,
         priceSource: source,
+        vatStatus: skuVatStatus(item.sku.code),
         discountBaht: item.c4DiscountBaht,
         discountPct: item.c4DiscountPct,
         netUnitPrice:

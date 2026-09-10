@@ -293,7 +293,11 @@ export function StockPageClient({
         }
       }
       const rawMode = sessionStorage.getItem(BROWSE_MODE_STORAGE_KEY);
-      const restoredMode = isStockBrowseMode(rawMode) ? rawMode : mode;
+      // เอฟเฟกต์นี้รันครั้งเดียวตอน mount — อ่าน state `mode` ตรง ๆ จะกลายเป็น dependency
+      // ที่ทำให้กู้สถานะซ้ำทุกครั้งที่สลับโหมด ใช้ค่าตั้งต้นซึ่งเป็นค่าเดียวกันตอน mount
+      const restoredMode = isStockBrowseMode(rawMode)
+        ? rawMode
+        : DEFAULT_STOCK_BROWSE_MODE;
       if (isStockBrowseMode(rawMode)) setMode(rawMode);
       const rawFilters = sessionStorage.getItem(FILTER_STORAGE_KEY);
       if (rawFilters) {

@@ -10,6 +10,8 @@ import { rebuildPoDocumentFromDb } from "@/lib/po/po-from-db";
 import { isPoStatus } from "@/lib/po/po-status";
 import { notifyStore } from "@/lib/orders/store-notify";
 import { collectOwedFreeGoods } from "@/lib/promo/order-free-goods";
+import { buildErpPayload, checkErpReadiness } from "@/lib/po/erp-payload";
+import { buildErpContext } from "@/lib/po/erp-context";
 
 /**
  * เปลี่ยนสถานะ PO (ออกแล้ว → ส่งซัพ → รับของ / ยกเลิก)
@@ -166,6 +168,25 @@ export async function GET(
   // json = ดาวน์โหลดไฟล์ · view = อ่านบนหน้าเว็บ (ไม่ต้องโหลดไฟล์)
   if (format === "json" || format === "view") {
     return NextResponse.json(doc);
+  }
+
+  /**
+   * erp = ดู payload ที่จะส่งเข้า ERP **อ่านอย่างเดียว ไม่ได้ส่งอะไรออกไป**
+   *
+   * เจตนา: ให้เห็นตัวเลขจริงที่จะไปถึงปลายทางก่อนต่อ API จริง และให้ทีม ERP
+   * ตรวจรูปแบบได้ · การส่งจริงเป็นงานเฟส 2 ที่ต้องรอ deliveryDate + UAT
+   * (ยิง production ผิดใบเดียว = คู่ orderNo+customerCode ถูกล็อก 6 เดือน)
+   */
+  if (format === "erp") {
+    const erpCtx = buildErpContext({
+      storeCode: doc.storeCode,
+      approvedAt: doc.approvedAt,
+    });
+    return NextResponse.json({
+      payload: buildErpPayload(doc, erpCtx),
+      readiness: checkErpReadiness(doc, erpCtx),
+      context: erpCtx,
+    });
   }
 
   const wb = new ExcelJS.Workbook();

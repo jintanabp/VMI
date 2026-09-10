@@ -14,6 +14,7 @@ import { usePromoGroupNames } from "@/hooks/use-promo-group-names";
 import { cn } from "@/lib/utils";
 import type { PoDocument } from "@/lib/po/po-document";
 import { apiFetch } from "@/lib/api-fetch";
+import { PoErpPayloadSection } from "./po-erp-payload-section";
 
 const KIND_LABEL: Record<string, string> = {
   c4: "ราคาตรง C4",
@@ -332,6 +333,8 @@ export function PoDetailPanel({
                   </ul>
                 </section>
               )}
+
+              <PoErpPayloadSection poNumber={poNumber} />
             </>
           )}
         </div>

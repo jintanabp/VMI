@@ -38,6 +38,16 @@ export interface SkuMeta {
   brand: string;
   /** ชิ้นต่อหีบ จาก PackingSize — 1 เมื่อ master ไม่มีค่า (ถือว่านับเป็นหีบอยู่แล้ว) */
   packSize: number;
+  /**
+   * สินค้าตัวนี้มี VAT ไหม จากคอลัมน์ VatStatus — `null` = master ไม่บอก
+   *
+   * ต้องแยก "ไม่มี VAT" (N) ออกจาก "ไม่รู้" (null) ให้ได้ เพราะสองอันนี้ต่างกันตอนออก PO:
+   * N คือคิด VAT 0 ได้เลย ส่วน null คือ**ห้ามเดา** — ใบนั้นต้องถูกกันไว้ทั้งใบ
+   * (กติกาเดียวกับ ocr-po-matching/backend/erp_export.py ที่ hold ทั้ง PO เมื่อ VAT ไม่รู้)
+   *
+   * ในไฟล์ปัจจุบัน: Y = 110,457 แถว · N = 125 แถว · ว่าง = 3 แถว
+   */
+  vatStatus: "Y" | "N" | null;
 }
 
 function splitCodeName(value: string): string {
@@ -51,6 +61,14 @@ function parseDate(raw: string | undefined): Date | null {
   if (!s) return null;
   const t = Date.parse(s);
   return Number.isNaN(t) ? null : new Date(t);
+}
+
+/** "Y"/"N" ตามที่ master เขียนมา — ค่าอื่นและค่าว่างคือ "ไม่รู้" ห้ามเดาเป็น Y */
+function parseVatStatus(raw: string | undefined): "Y" | "N" | null {
+  const s = (raw ?? "").trim().toUpperCase();
+  if (s === "Y") return "Y";
+  if (s === "N") return "N";
+  return null;
 }
 
 function parseNum(raw: string | undefined): number {
@@ -93,6 +111,16 @@ export class SkuMasterDirectory {
   /** ชิ้นต่อหีบ — คืน 1 เมื่อไม่มีข้อมูล เพื่อให้การหารปลอดภัยเสมอ */
   packSizeForSku(code: string): number {
     return this.metaByCode.get(code.trim())?.packSize ?? 1;
+  }
+
+  /**
+   * มี VAT ไหม — `null` เมื่อ master ไม่บอกหรือไม่รู้จักรหัสนี้
+   *
+   * ผู้เรียก**ต้องจัดการ null เอง** ห้ามใช้ `?? "Y"` — การเดาว่ามี VAT ทำให้บิลผิด
+   * และเป็นเหตุผลที่แยก null ออกจาก "N" ตั้งแต่ชั้นอ่านไฟล์
+   */
+  vatStatusForSku(code: string): "Y" | "N" | null {
+    return this.metaByCode.get(code.trim())?.vatStatus ?? null;
   }
 
   /**
@@ -183,13 +211,20 @@ export class SkuMasterDirectory {
       // ชิ้นต่อหีบ — stock_cover_day นับเป็นชิ้น แต่ราคา/โปร C4 นับเป็นหีบ
       const packSize =
         Math.max(1, Math.round(parseNum(n.packingsize || n.pack_size))) || 1;
+      const vatStatus = parseVatStatus(n.vatstatus || n.vat_status);
 
       count++;
       if (!nameByCode.has(productCode)) {
         nameByCode.set(productCode, name);
       }
       if (!metaByCode.has(productCode)) {
-        metaByCode.set(productCode, { barcode, section, brand, packSize });
+        metaByCode.set(productCode, {
+          barcode,
+          section,
+          brand,
+          packSize,
+          vatStatus,
+        });
       }
 
       // คอลัมน์สรุประดับหีบ ซ้ำเท่ากันทุกแถวของรหัสนี้

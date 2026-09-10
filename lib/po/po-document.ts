@@ -39,6 +39,13 @@ export interface PoDocumentLine {
     qty: number;
     unit: string;
   } | null;
+  /**
+   * สินค้าตัวนี้มี VAT ไหม ณ เวลาออก PO (`null` = master ไม่บอก)
+   *
+   * แช่ไว้กับเอกสารเหมือนราคา เพราะ `vatAmount` ข้างล่างคิดจากค่านี้ — ถ้า master
+   * เปลี่ยนทีหลัง เอกสารที่ออกไปแล้วต้องอธิบายตัวเองได้ว่าคิดบนอะไร
+   */
+  vatStatus: "Y" | "N" | null;
   /** ราคาไม่ตรง C4 ณ เวลาออก PO */
   priceFlagged: boolean;
   priceFlagReason: string | null;
@@ -78,10 +85,22 @@ export function buildPoDocument(args: {
   approvedBy: string;
   lines: Omit<PoDocumentLine, "amount" | "vatAmount">[];
 }): PoDocument {
+  /**
+   * VAT คิดตาม VatStatus ของสินค้า ไม่ใช่ 7% ทุกบรรทัด
+   *
+   * เดิมคูณ 7% ทุกบรรทัดไม่มีเงื่อนไข ทั้งที่ master มีคอลัมน์ VatStatus อยู่แล้ว
+   * (นับจากไฟล์จริง: Y 110,457 · N 125 · ว่าง 3) ⇒ สินค้า 125 รหัสที่ไม่มี VAT
+   * ถูกคิด VAT บนใบ PO มาตลอด
+   *
+   * `null` (master ไม่บอก) คิดเป็น 0 บนเอกสาร **แต่ต้องไม่ถูกส่งเข้า ERP** —
+   * ตัวตรวจความพร้อมใน lib/po/erp-payload.ts กันไว้ด้วยเหตุผล `vat_unknown`
+   * (กติกาเดียวกับ ocr-po-matching ที่ hold ทั้งใบเมื่อ VAT ไม่รู้ ห้ามส่งบางส่วน)
+   */
   const lines: PoDocumentLine[] = args.lines.map((l) => {
     const net = l.netUnitPrice ?? l.unitPrice ?? 0;
     const amount = round2(net * l.qty);
-    return { ...l, amount, vatAmount: round2(amount * VAT_RATE) };
+    const vatAmount = l.vatStatus === "Y" ? round2(amount * VAT_RATE) : 0;
+    return { ...l, amount, vatAmount };
   });
 
   const totalAmount = round2(lines.reduce((s, l) => s + l.amount, 0));

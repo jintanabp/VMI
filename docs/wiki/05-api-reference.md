@@ -54,7 +54,7 @@ Server จะ lookup โปร/ราคา C4 แล้ว**แช่ค่า�
 | Method | Path | หน้าที่ |
 |---|---|---|
 | GET | `/api/sales/purchase-orders` | รายการ PO — `search` `priceKind` `status` `vdaCode` `allPersonVdas` `dateFrom` `dateTo` `sort` `dir` `page` `pageSize` |
-| GET | `/api/sales/purchase-orders/[poNumber]` | Excel (default) · `?format=json` โหลดไฟล์ · `?format=view` อ่านบนเว็บ |
+| GET | `/api/sales/purchase-orders/[poNumber]` | Excel (default) · `?format=json` โหลดไฟล์ · `?format=view` อ่านบนเว็บ · `?format=erp` ดู payload ที่จะส่งเข้า ERP + ผลตรวจความพร้อม (อ่านอย่างเดียว ไม่ส่งอะไรออกไป) |
 | PATCH | `/api/sales/purchase-orders/[poNumber]` | เปลี่ยนสถานะ PO |
 | POST | `/api/sales/purchase-orders/export` | Excel หลายใบรวมไฟล์เดียว (สูงสุด 50) |
 | GET·POST | `/api/sales/notifications` | ออเดอร์ใหม่จากร้าน + รายการหยุดสั่ง · POST เพื่อรับทราบ |
@@ -69,6 +69,11 @@ Server จะ lookup โปร/ราคา C4 แล้ว**แช่ค่า�
 > เป็นชื่อเดิมที่คงไว้ แต่ผู้เรียกใช้งานจริงคือหน้าจอของร้านค้า
 
 > `?format=view` ประกอบเอกสารจาก DB ถ้าไฟล์บนดิสก์หาย — จึงดู PO ได้เสมอแม้ volume พัง
+>
+> `?format=erp` คืน `{ payload, readiness, context }` ตามสัญญา `insertOCROrderToBill`
+> ของ ERP (ดู `lib/po/erp-payload.ts`) — **ยังไม่มีขาส่งจริงในระบบ** ต้องรอทีม ERP ยืนยัน
+> `deliveryDate` และรอ UAT ก่อน เพราะยิง production ผิดใบเดียว คู่ orderNo+customerCode
+> จะถูกล็อก 6 เดือน · ดูพรีวิวเป็นไฟล์ได้ด้วย `npm run erp:preview -- <poNumber|--all>`
 
 ## โปรโมชัน
 

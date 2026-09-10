@@ -24,6 +24,7 @@
     "verify:promo-parity": "tsx --env-file=.env scripts/verify-promo-parity.ts",
     "probe:region-promos": "tsx --env-file=.env scripts/probe-region-promos.ts",
     "verify:sales-cover": "tsx --env-file=.env scripts/verify-sales-cover.ts",
+    "erp:preview": "tsx --env-file=.env scripts/erp-payload-preview.ts",
     "postinstall": "prisma generate",
     "test": "vitest run",
     "test:watch": "vitest"
