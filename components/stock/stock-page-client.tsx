@@ -103,6 +103,7 @@ import {
 } from "@/lib/stock/sort";
 import {
   DEFAULT_STOCK_FILTERS,
+  filterStockRows,
   isCriticalStock,
   isDeadStock,
   isStockView,
@@ -731,6 +732,25 @@ export function StockPageClient({
     }
     return { all, needs, critical, new: fresh, noSales, deadStock, target };
   }, [enrichedRows]);
+
+  /**
+   * ของไม่ขาย 1 เดือนที่อยู่ในมุมมอง + แบรนด์/กลุ่มที่เปิดอยู่จริง ๆ
+   *
+   * ปุ่มซ่อนต้องบอก "จำนวนที่กดแล้วจะหายไป" ไม่ใช่ยอดรวมทั้งคลัง — เดิมแท็บ "ควรสั่ง"
+   * ขึ้นเลขของทั้งคลังทั้งที่ในแท็บนั้นไม่มีของไม่ขายสักแถว กดแล้วหน้าจอเลยไม่เปลี่ยน
+   *
+   * ต้องคิดโดย**บังคับปิด hideNoSales** ไม่งั้นพอเปิดปุ่มไว้ ของถูกซ่อนไปแล้ว เลขจะกลาย
+   * เป็น 0 แล้วปุ่มปิดตัวเอง กดกลับไม่ได้
+   */
+  const noSalesInView = useMemo(() => {
+    const base = filterStockRows(enrichedRows, {
+      ...filters,
+      hideNoSales: false,
+    });
+    let n = 0;
+    for (const r of base) if (r.noSales30) n++;
+    return n;
+  }, [enrichedRows, filters]);
 
   /**
    * ยืนยันก่อนยกเลิกหยุดสั่ง
@@ -1381,6 +1401,7 @@ export function StockPageClient({
           filters={filters}
           onFiltersChange={applyFilters}
           counts={viewCounts}
+          noSalesInView={noSalesInView}
           shownCount={displayRows.length}
           brands={filterBrands}
           sections={filterSections}
@@ -1870,6 +1891,7 @@ export function StockPageClient({
                       <td className="px-1 py-1.5 text-right text-xs">
                         <StockAvgSalesCell
                           avgCases={row.avgQtyOutL7 ?? row.avgSales}
+                          avg30Cases={row.avgSales}
                           packSize={row.packSize}
                           compact
                         />
@@ -2428,6 +2450,7 @@ const StockMobileRow = memo(function StockMobileRow({
         >
           <StockAvgSalesCell
             avgCases={row.avgQtyOutL7 ?? row.avgSales}
+            avg30Cases={row.avgSales}
             packSize={row.packSize}
             inline
           />

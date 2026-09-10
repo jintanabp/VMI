@@ -48,11 +48,14 @@ export function StockCaseCell({
  */
 export function StockAvgSalesCell({
   avgCases,
+  avg30Cases,
   packSize,
   compact = false,
   inline = false,
 }: {
   avgCases: number;
+  /** ขายเฉลี่ยฐาน 30 วัน — ใช้เฉพาะตอน 7 วันเป็น 0 (ดู fallback30 ข้างล่าง) */
+  avg30Cases?: number;
   packSize: number;
   compact?: boolean;
   /** true = วางชิ้นต่อท้ายในบรรทัดเดียว (การ์ดมือถือ), false = ซ้อนใต้ตัวเลข (ตาราง) */
@@ -60,6 +63,15 @@ export function StockAvgSalesCell({
 }) {
   const hasPack = packSize > 1;
   const avgPieces = avgCases * packSize;
+  /**
+   * 7 วันล่าสุดไม่ขาย แต่ 30 วันยังมี — บรรทัดล่างเดิมจะเป็น "0.0 ชิ้น" ซึ่งไม่บอกอะไร
+   * และทำให้เข้าใจว่าสินค้าตัวนี้ตายแล้ว แล้วสงสัยว่าทำไมปุ่ม "ซ่อนของไม่ขาย 1 เดือน"
+   * ไม่เอามันออก (ปุ่มนั้นตัดสินด้วยยอด 30 วัน ไม่ใช่ 7 วันที่คอลัมน์นี้แสดง)
+   *
+   * จึงเอาค่า 30 วันมาแทนที่บรรทัดชิ้นเฉพาะเคสนี้ — เป็นค่าเดียวกับที่ CVD/MIN-MAX
+   * ใช้คิดอยู่แล้ว และกินความกว้างไม่เกินข้อความ "0.03 ชิ้น" ที่เคยอยู่ตรงนั้น
+   */
+  const fallback30 = avgCases <= 0 && (avg30Cases ?? 0) > 0 ? avg30Cases! : null;
   // ขายช้ามากจนปัดเป็น 0.0 — โชว์ทศนิยมเพิ่มแทนที่จะแสดง 0 เฉย ๆ
   const piecesDecimals = avgPieces > 0 && avgPieces < 0.1 ? 2 : 1;
   const casesText = formatNumber(
@@ -78,9 +90,11 @@ export function StockAvgSalesCell({
         compact && "text-xs"
       )}
       title={
-        hasPack
-          ? `ขายเฉลี่ย ${formatNumber(avgCases, 2)} หีบ/วัน = ${piecesText} ชิ้น/วัน (${formatNumber(packSize, 0)} ชิ้น/หีบ)`
-          : `ขายเฉลี่ย ${formatNumber(avgCases, 2)} หีบ/วัน (ไม่มีข้อมูลชิ้น/หีบ)`
+        fallback30 != null
+          ? `7 วันล่าสุดไม่มีขาย · 30 วันเฉลี่ย ${formatNumber(fallback30, 2)} หีบ/วัน — ยังไม่นับว่า “ไม่ขาย 1 เดือน” ปุ่มซ่อนจึงไม่เอาออก`
+          : hasPack
+            ? `ขายเฉลี่ย ${formatNumber(avgCases, 2)} หีบ/วัน = ${piecesText} ชิ้น/วัน (${formatNumber(packSize, 0)} ชิ้น/หีบ)`
+            : `ขายเฉลี่ย ${formatNumber(avgCases, 2)} หีบ/วัน (ไม่มีข้อมูลชิ้น/หีบ)`
       }
     >
       <span
@@ -91,14 +105,21 @@ export function StockAvgSalesCell({
       >
         {casesText}
       </span>
-      {hasPack && (
+      {(fallback30 != null || hasPack) && (
         <span
           className={cn(
             "font-normal text-slate-400 dark:text-slate-500",
             "vmi-t-xs"
           )}
         >
-          {inline ? `(${piecesText} ชิ้น)` : `${piecesText} ชิ้น`}
+          {fallback30 != null
+            ? // การ์ดมือถือวางต่อท้ายบรรทัดเดียวกัน จึงต้องมีวงเล็บเหมือนหน่วยชิ้นที่มันมาแทน
+              inline
+              ? `(30ว. ${formatNumber(fallback30, 2)})`
+              : `30ว. ${formatNumber(fallback30, 2)}`
+            : inline
+              ? `(${piecesText} ชิ้น)`
+              : `${piecesText} ชิ้น`}
         </span>
       )}
     </span>

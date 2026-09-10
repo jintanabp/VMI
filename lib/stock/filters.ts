@@ -101,14 +101,27 @@ function matchesView(row: FilterableStockRow, view: StockView): boolean {
   }
 }
 
+/**
+ * ปุ่ม "ซ่อนของไม่ขาย 1 เดือน" มีผลกับมุมมองไหน — **แหล่งความจริงเดียว** ที่ทั้ง
+ * ตัวกรองและทูลบาร์ต้องใช้ร่วมกัน
+ *
+ * เดิมตัวกรองกัน "ค้างสต็อก" ไว้เงียบ ๆ แต่ทูลบาร์ปิดปุ่มเฉพาะ "ไม่ขาย 1 เดือน"
+ * ผลคือกดปุ่มบนแท็บค้างสต็อกแล้วไฟติดเขียวแต่ไม่มีอะไรหายสักแถว = ดูเหมือนปุ่มพัง
+ *
+ * - noSales / deadStock — "ไม่ขาย" เป็นเงื่อนไขของแท็บอยู่แล้ว ซ่อนคือล้างตารางตัวเอง
+ * - target — สินค้าเป้าขายยังไม่มีในคลัง จึงไม่มียอดขายทุกแถวโดยธรรมชาติ เดิมเปิดปุ่ม
+ *   ค้างไว้แล้วสลับมาแท็บ "ควรมีขาย" ตารางจะว่างเกลี้ยงโดยไม่มีอะไรบอกสาเหตุ
+ */
+export function hideNoSalesApplies(view: StockView): boolean {
+  return view !== "noSales" && view !== "deadStock" && view !== "target";
+}
+
 export function filterStockRows<T extends FilterableStockRow>(
   rows: T[],
   filters: StockFilterState
 ): T[] {
   const { view, brand, section, hideNoSales } = filters;
-  // มุมมองที่ "ไม่ขาย" เป็นเงื่อนไขของตัวเองอยู่แล้ว การซ่อนย่อมขัดกันเอง
-  // (ไม่กันไว้ = เปิดแท็บค้างสต็อกทั้งที่เปิดปุ่มซ่อนไว้ แล้วได้ตารางว่างโดยไม่รู้สาเหตุ)
-  const hide = hideNoSales && view !== "noSales" && view !== "deadStock";
+  const hide = hideNoSales && hideNoSalesApplies(view);
 
   return rows.filter((r) => {
     // สินค้าจากเป้าขายไม่ได้อยู่ในคลังจริง (คงเหลือ/ยอดขาย 0 ทั้งแถว) ถ้าปล่อยปนกับ

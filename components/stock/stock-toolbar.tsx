@@ -37,6 +37,7 @@ import { cn } from "@/lib/utils";
 import {
   countActiveFilters,
   DEFAULT_STOCK_FILTERS,
+  hideNoSalesApplies,
   type StockFilterState,
   type StockView,
 } from "@/lib/stock/filters";
@@ -395,19 +396,31 @@ function OptionPicker({
 }
 
 /** ปุ่มซ่อนสินค้าไม่ขาย 1 เดือน — งานหลักคือ "เอาของตายออกให้เหลือแต่ของที่ยังขาย"
- *  จึงอยู่บนทูลบาร์กดครั้งเดียวจบ ไม่ต้องเปิดเมนูกรอง */
+ *  จึงอยู่บนทูลบาร์กดครั้งเดียวจบ ไม่ต้องเปิดเมนูกรอง
+ *
+ *  `count` = จำนวนที่ปุ่มนี้จะเอาออกได้จริง**ในมุมมองที่เปิดอยู่** ไม่ใช่ยอดรวมทั้งคลัง
+ *  (เดิมโชว์ยอดรวม ทำให้แท็บ "ควรสั่ง" ขึ้นเลข 443 ทั้งที่กดแล้วไม่มีอะไรหาย)
+ *  `disabledReason` ไม่ว่าง = กดไปก็ไม่เกิดผล ต้องปิดปุ่มพร้อมบอกเหตุผล */
 function HideNoSalesToggle({
   active,
   count,
-  disabled,
+  total,
+  disabledReason,
   onToggle,
 }: {
   active: boolean;
   count: number;
-  disabled: boolean;
+  total: number;
+  disabledReason: string | null;
   onToggle: () => void;
 }) {
-  if (count === 0) return null;
+  // คลังนี้ไม่มีของไม่ขายเลยสักแถว — ปุ่มไม่มีงานให้ทำ ไม่ต้องมีอยู่
+  // (ต่างจาก "แท็บนี้ไม่มี" ซึ่งยังต้องเห็นปุ่ม ไม่งั้นปุ่มหาย ๆ โผล่ ๆ ตอนสลับแท็บ)
+  if (total === 0) return null;
+  /** กดแล้วไม่เกิดผลกับตารางในสถานะนี้ — ต้องดูจาง ๆ ไม่ใช่ไฟติดเต็มเหมือนกำลังกรองอยู่ */
+  const inert = disabledReason !== null;
+  /** เปิดค้างไว้ต้องกดปิดได้เสมอ ไม่งั้นสลับมาแท็บที่ปุ่มไม่มีผล = ปุ่มค้างสว่างแล้วปิดไม่ได้ */
+  const disabled = inert && !active;
   return (
     <button
       type="button"
@@ -415,15 +428,17 @@ function HideNoSalesToggle({
       onClick={onToggle}
       aria-pressed={active}
       title={
-        disabled
-          ? "ปิดอยู่ เพราะกำลังดูมุมมอง “ไม่ขาย 1 เดือน”"
+        disabledReason
+          ? active
+            ? `${disabledReason} — กดเพื่อเลิกซ่อน`
+            : disabledReason
           : active
             ? `กำลังซ่อนสินค้าที่ไม่มียอดขายใน 30 วัน ${count} รายการ — กดเพื่อแสดงกลับ`
             : `เอาสินค้าที่ไม่มียอดขายใน 30 วัน ${count} รายการออก ให้เหลือแต่สินค้าที่ยังขายอยู่`
       }
       className={cn(
         "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-xl border px-2 py-1 text-[11px] font-semibold transition-colors lg:px-2.5 lg:text-xs",
-        disabled && "cursor-not-allowed opacity-40",
+        inert && (active ? "opacity-60" : "cursor-not-allowed opacity-40"),
         active
           ? "border-teal-600 bg-teal-600 text-white shadow-sm dark:border-teal-500 dark:bg-teal-600"
           : "border-slate-200 text-slate-500 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-700 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800/60 dark:hover:text-slate-100"
@@ -833,6 +848,7 @@ export function StockToolbar({
   filters,
   onFiltersChange,
   counts,
+  noSalesInView,
   shownCount,
   brands,
   sections,
@@ -852,6 +868,8 @@ export function StockToolbar({
   filters: StockFilterState;
   onFiltersChange: (next: StockFilterState) => void;
   counts: StockViewCounts;
+  /** ของไม่ขาย 1 เดือนที่อยู่ในมุมมอง/ตัวกรองปัจจุบันจริง ๆ — จำนวนที่ปุ่มซ่อนจะเอาออกได้ */
+  noSalesInView: number;
   shownCount: number;
   brands: string[];
   sections: string[];
@@ -875,6 +893,19 @@ export function StockToolbar({
   /** กำลังค้นหาทั้งที่มีตัวกรองเปิดอยู่ — ผลลัพธ์จะข้ามตัวกรอง ต้องบอกให้รู้
    *  ไม่งั้นผู้ใช้เห็นของนอกแท็บโผล่มาแล้วงงว่าแท็บเสียหรือเปล่า */
   const searchIgnoresFilters = Boolean(search.trim()) && anyFilterOn;
+
+  /** เหตุผลที่ปุ่มซ่อนกดแล้วไม่เกิดผลในสถานะนี้ — null = กดได้ตามปกติ
+   *  ทุกเคสในนี้คืออาการ "กดแล้วของยังขึ้นอยู่" ที่เคยเกิดจริง จึงต้องปิดปุ่มพร้อมบอกเหตุผล
+   *  แทนที่จะปล่อยให้ไฟติดเขียวเฉย ๆ */
+  const hideNoSalesDisabledReason = search.trim()
+    ? "ไม่มีผลตอนกำลังค้นหา — ผลการค้นหาแสดงทั้งคลัง ไม่ตัดตามตัวกรอง"
+    : !hideNoSalesApplies(filters.view)
+      ? filters.view === "target"
+        ? "ไม่มีผลในแท็บ “ควรมีขาย” — เป็นสินค้าที่ร้านยังไม่มีในคลัง จึงไม่มียอดขายทุกแถวอยู่แล้ว"
+        : "ไม่มีผลในแท็บนี้ — ทุกแถวคือของที่ไม่ขายอยู่แล้ว ซ่อนแล้วจะไม่เหลืออะไรเลย"
+      : noSalesInView === 0
+        ? "แท็บนี้ไม่มีสินค้าที่ไม่ขาย 1 เดือน — ไม่มีอะไรให้ซ่อน"
+        : null;
 
   return (
     <div className="vmi-stock-toolbar shrink-0">
@@ -937,8 +968,9 @@ export function StockToolbar({
           />
           <HideNoSalesToggle
             active={filters.hideNoSales}
-            count={counts.noSales}
-            disabled={filters.view === "noSales"}
+            count={noSalesInView}
+            total={counts.noSales}
+            disabledReason={hideNoSalesDisabledReason}
             onToggle={() =>
               onFiltersChange({ ...filters, hideNoSales: !filters.hideNoSales })
             }

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { isCriticalStock, isDeadStock } from "@/lib/stock/filters";
+import {
+  filterStockRows,
+  hideNoSalesApplies,
+  isCriticalStock,
+  isDeadStock,
+  type StockView,
+} from "@/lib/stock/filters";
 import { calcSuggestOrder, LEAD_TIME_DAYS } from "@/lib/calculations";
 
 /**
@@ -70,5 +76,44 @@ describe("isDeadStock", () => {
 
   it("ยังขายอยู่ = ไม่ใช่ของค้าง", () => {
     expect(isDeadStock({ noSales30: false, stock: 100 })).toBe(false);
+  });
+});
+
+/**
+ * ปุ่ม "ซ่อนของไม่ขาย 1 เดือน" — เคสจริงที่ผู้ใช้แจ้งว่า "กดซ่อนแล้วของยังขึ้นอยู่"
+ *
+ * ตัวกรองกันบางมุมมองไว้ไม่ให้ซ่อน (ไม่งั้นตารางว่างเปล่า) แต่ทูลบาร์เคยปิดปุ่มไม่ครบ
+ * ปุ่มจึงไฟติดเขียวโดยไม่มีอะไรหาย — ตอนนี้ทั้งสองฝั่งอ่านจาก hideNoSalesApplies ตัวเดียวกัน
+ */
+describe("hideNoSales", () => {
+  const dead = { noSales30: true, stock: 5, avgSales: 0 };
+  const selling = { noSales30: false, stock: 5, avgSales: 2, needsOrder: true };
+  const targetRow = { noSales30: true, stock: 0, avgSales: 0, fromTarget: true };
+  const rows = [dead, selling, targetRow];
+
+  const shown = (view: StockView, hideNoSales: boolean) =>
+    filterStockRows(rows, { view, brand: null, section: null, hideNoSales });
+
+  it("แท็บทั่วไป: เปิดปุ่มแล้วของไม่ขายต้องหายไปจริง", () => {
+    expect(shown("all", false)).toHaveLength(2);
+    expect(shown("all", true)).toEqual([selling]);
+  });
+
+  it("แท็บ “ไม่ขาย 1 เดือน” / “ค้างสต็อก”: ปุ่มต้องไม่มีผล และต้องบอกทูลบาร์ให้ปิดปุ่ม", () => {
+    for (const view of ["noSales", "deadStock"] as const) {
+      expect(hideNoSalesApplies(view)).toBe(false);
+      expect(shown(view, true)).toEqual(shown(view, false));
+      expect(shown(view, true)).toEqual([dead]);
+    }
+  });
+
+  it("แท็บ “ควรมีขาย”: เปิดปุ่มค้างไว้แล้วสลับมา ต้องไม่ถูกล้างจนว่างเปล่า", () => {
+    expect(hideNoSalesApplies("target")).toBe(false);
+    expect(shown("target", true)).toEqual([targetRow]);
+  });
+
+  it("แท็บที่ไม่มีของไม่ขายอยู่แล้ว: กดแล้วผลลัพธ์เท่าเดิม (ปุ่มต้องบอกว่าไม่มีอะไรให้ซ่อน)", () => {
+    expect(hideNoSalesApplies("needs")).toBe(true);
+    expect(shown("needs", true)).toEqual(shown("needs", false));
   });
 });
