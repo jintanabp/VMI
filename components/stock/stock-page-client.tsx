@@ -1314,8 +1314,11 @@ export function StockPageClient({
     filters.hideNoSales ||
     search.trim() !== "";
 
+  /** ปุ่ม "ล้างตัวกรอง" ในหน้าจอว่าง — ต้องผ่าน applyFilters ไม่ใช่ setFilters ตรง ๆ
+   *  ไม่งั้นล้างแล้วจอกลับมามีของ แต่ sessionStorage ยังจำตัวกรองเดิมไว้ พอรีเฟรช
+   *  ตารางว่างเหมือนเดิม ผู้ใช้จะอ่านว่า "กดล้างแล้วไม่หาย" */
   function clearFilters() {
-    setFilters(DEFAULT_STOCK_FILTERS);
+    applyFilters(DEFAULT_STOCK_FILTERS);
     setSearch("");
   }
 
@@ -2149,12 +2152,16 @@ export function StockPageClient({
               }
               setConfirmRiskyOpen(true);
             }}
+            // ข้อความซ้ายมือบอกอยู่แล้วว่าให้เลือกสินค้าก่อน แต่มัน truncate บนจอแคบ
+            // ปุ่มที่กดไม่ได้ต้องบอกเหตุผลได้ด้วยตัวเองเสมอ
             title={
-              selectedZeroQtyCount > 0
-                ? "มีรายการจำนวน 0 ปรับก่อนตรวจสอบ"
-                : hasPromoStepItems
-                  ? "ตรวจสินค้าที่มีโปรของแถมก่อน แล้วค่อยตรวจจำนวนรวม"
-                  : undefined
+              selected.size === 0
+                ? "ยังไม่ได้เลือกสินค้า — ติ๊กรายการที่จะสั่งก่อน"
+                : selectedZeroQtyCount > 0
+                  ? "มีรายการจำนวน 0 ปรับก่อนตรวจสอบ"
+                  : hasPromoStepItems
+                    ? "ตรวจสินค้าที่มีโปรของแถมก่อน แล้วค่อยตรวจจำนวนรวม"
+                    : undefined
             }
           >
             <ShoppingCart className="h-4 w-4" />
