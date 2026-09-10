@@ -880,7 +880,19 @@ function BulkBrandThresholds({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" onClick={apply} disabled={!canApply}>
+            <Button
+              size="sm"
+              onClick={apply}
+              disabled={!canApply}
+              // ปุ่มเทาได้จาก 2 สาเหตุที่ต่างกันมาก — ต้องบอกว่าอันไหน
+              title={
+                selected.size === 0
+                  ? "ยังไม่ได้เลือกแบรนด์ — ติ๊กแบรนด์ที่จะตั้งค่าก่อน"
+                  : invalid
+                    ? "ค่า MIN / MAX ไม่ถูกต้อง — ต้องเป็นตัวเลข และ MAX ต้องไม่น้อยกว่า MIN"
+                    : undefined
+              }
+            >
               {saving ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
@@ -1168,7 +1180,12 @@ function SectionCard({
                 variant="ghost"
                 onClick={() => setConfirmReset(true)}
                 disabled={resetting || saving || !canResetGroup}
-                title="รีเซ็ตเป็นค่าเริ่มต้น"
+                // ปุ่มไอคอนล้วน — ตอนกดไม่ได้ต้องบอกเหตุผล ไม่ใช่บอกแค่ว่ามันทำอะไร
+                title={
+                  canResetGroup
+                    ? "รีเซ็ตเป็นค่าเริ่มต้น"
+                    : `กลุ่มนี้ใช้ค่าเริ่มต้นอยู่แล้ว (MIN ${DEFAULT_MIN_DAYS} / MAX ${DEFAULT_MAX_DAYS}) — ไม่มีอะไรให้รีเซ็ต`
+                }
               >
                 {resetting ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1376,7 +1393,11 @@ function SkuOverrideRow({
               variant="ghost"
               onClick={resetSku}
               disabled={resetting || saving || !canResetSku}
-              title="ล้างค่าแก้รายตัว กลับไปใช้ตามแบรนด์"
+              title={
+                canResetSku
+                  ? "ล้างค่าแก้รายตัว กลับไปใช้ตามแบรนด์"
+                  : "สินค้านี้ใช้ค่าตามแบรนด์อยู่แล้ว — ไม่มีค่าเฉพาะตัวให้ล้าง"
+              }
             >
               {resetting ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
