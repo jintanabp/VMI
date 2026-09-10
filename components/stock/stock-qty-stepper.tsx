@@ -90,6 +90,12 @@ export function StockQtyStepper({
               ? `กลับเป็นจำนวนแนะนำ ${suggestOrder}`
               : "ล้างจำนวนที่ปรับ"
           }
+          // ปุ่มไอคอนล้วน — title อ่านได้เฉพาะเมาส์ที่ hover ได้ สกรีนรีดเดอร์ต้องมี aria-label
+          aria-label={
+            suggestOrder > 0
+              ? `กลับเป็นจำนวนแนะนำ ${suggestOrder}`
+              : "ล้างจำนวนที่ปรับ"
+          }
           className="rounded p-0.5 text-teal-700 hover:bg-teal-50 dark:text-teal-400 dark:hover:bg-teal-950/50"
         >
           <RotateCcw className={compact ? "h-3 w-3" : "h-3.5 w-3.5"} />

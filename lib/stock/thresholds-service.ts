@@ -13,6 +13,7 @@ export {
   DEFAULT_MIN_DAYS,
 } from "./threshold-defaults";
 import { DEFAULT_MAX_DAYS, DEFAULT_MIN_DAYS } from "./threshold-defaults";
+import { isInvalidDaysValue } from "@/lib/stock/threshold-rules";
 
 export interface GroupThresholdRow {
   section: string;
@@ -31,6 +32,7 @@ export function parseDays(v: unknown, fallback: number): number {
   if (!Number.isFinite(n) || n < 0) return fallback;
   return Math.round(n);
 }
+
 
 export async function listGroupThresholds(
   storeId: string
@@ -95,6 +97,12 @@ export async function applyThresholdPatch(
     };
   }
 
+  if (isInvalidDaysValue(body.minDays) || isInvalidDaysValue(body.maxDays)) {
+    return {
+      status: 400,
+      body: { error: "MIN / MAX ต้องเป็นจำนวนเต็มวัน และไม่ติดลบ" },
+    };
+  }
   const minDays = parseDays(body.minDays, DEFAULT_MIN_DAYS);
   const maxDays = parseDays(body.maxDays, DEFAULT_MAX_DAYS);
   if (maxDays < minDays) {

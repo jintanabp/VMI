@@ -41,6 +41,15 @@ interface C4PromoModalProps {
   stockMemberSkus?: string[];
 }
 
+/** ป้ายช่วงจำนวนของขั้นโปร — ไฟล์ C4 ใช้ 9999 เป็น "ไม่จำกัดเพดาน"
+ *  ปล่อยเลขนี้ออกจอ ผู้ใช้จะอ่านว่า "1–9999 หีบ" ซึ่งไม่ใช่จำนวนที่ใครสั่งจริง */
+const OPEN_ENDED_QTY = 9999;
+function stepRangeLabel(fromQty: number, toQty: number): string {
+  if (toQty === fromQty) return `${fromQty}+`;
+  if (toQty >= OPEN_ENDED_QTY) return `${fromQty}+`;
+  return `${fromQty}–${toQty}`;
+}
+
 export function C4PromoModal({
   skuCode,
   storeCode,
@@ -293,11 +302,9 @@ export function C4PromoModal({
                 </p>
                 {activeStep ? (
                   <p className="mt-1 text-xs text-violet-800 dark:text-violet-200">
-                    ขั้นปัจจุบัน: ซื้อ {activeStep.fromQty}
-                    {activeStep.toQty !== activeStep.fromQty
-                      ? `–${activeStep.toQty}`
-                      : ""}{" "}
-                    หีบ → {activeStep.discountLabel || "ของแถม"}
+                    ขั้นปัจจุบัน: ซื้อ{" "}
+                    {stepRangeLabel(activeStep.fromQty, activeStep.toQty)} หีบ →{" "}
+                    {activeStep.discountLabel || "ของแถม"}
                     {mix.avgNet != null && (
                       <> · net เฉลี่ย ฿{fmt(mix.avgNet)}/หีบ</>
                     )}
@@ -483,10 +490,7 @@ export function C4PromoModal({
                           >
                             <td className="px-2 py-2 font-medium">
                               {active && "▶ "}
-                              {step.fromQty}
-                              {step.toQty !== step.fromQty
-                                ? `–${step.toQty}`
-                                : "+"}{" "}
+                              {stepRangeLabel(step.fromQty, step.toQty)}{" "}
                               {step.unitLabel}
                               {/* ไฟล์ C4 ประกาศ MINIMUMPURCHASE แยกจาก from/to และบางกลุ่ม
                                   ไม่ตรงกัน (BSWN: from/to = 1/1 แต่ขั้นต่ำ 24) — ตัวเลขนี้

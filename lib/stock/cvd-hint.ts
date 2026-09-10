@@ -1,4 +1,5 @@
 import type { CvdFlag, CvdFlagReason } from "@/lib/calculations";
+import { CVD_OVER_MAX_GREEN_DAYS } from "@/lib/calculations";
 
 /** คำอธิบายธง CVD หลังสั่ง — บอกให้ชัดว่าทำไมเป็นสีนี้ และต้องทำอะไรต่อ */
 export function cvdFlagHint(
@@ -21,5 +22,8 @@ export function cvdFlagHint(
   if (flag === "yellow") {
     return `เกินเป้าหมาย ${row.maxDays} วันเล็กน้อย — ยังสั่งได้`;
   }
-  return `อยู่ในเป้าหมาย ${row.minDays}–${row.maxDays} วัน`;
+  // เขียวไม่ได้แปลว่า "อยู่ในช่วง MIN–MAX" เป๊ะ ๆ — เกิน MAX ได้อีก CVD_OVER_MAX_GREEN_DAYS วัน
+  // (หัวคอลัมน์บอกกติกานี้ไว้แล้ว แต่ข้อความในเซลล์เคยพูดคนละอย่างกับเลขที่อยู่ข้าง ๆ:
+  //  18.4 วัน กับเป้าหมาย 7–15 วัน ขึ้นป้ายเขียวว่า "อยู่ในเป้าหมาย 7–15 วัน")
+  return `อยู่ในเกณฑ์เขียว — เป้าหมาย ${row.minDays}–${row.maxDays} วัน เกิน MAX ได้อีกไม่เกิน ${CVD_OVER_MAX_GREEN_DAYS} วัน`;
 }

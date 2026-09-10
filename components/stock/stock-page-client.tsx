@@ -108,6 +108,7 @@ import {
   isStockView,
   selectStockRows,
   type StockFilterState,
+  type StockView,
 } from "@/lib/stock/filters";
 import { suggestRemainingQty } from "@/lib/stock/suggest-remaining";
 import {
@@ -166,6 +167,9 @@ const DEFAULT_ROW_PX = 48;
 
 // v2 = เปลี่ยนค่าเริ่มต้นเป็นรหัสสินค้าน้อยไปมาก — ต้องเปลี่ยนคีย์
 // ไม่งั้นเครื่องที่เคยเปิดหน้านี้จะยังโดน sort เดิม (desc) ที่ค้างใน sessionStorage ทับ
+/** แท็บที่โหมด "โปรโมชั่น" ไม่มี — ที่เดียวที่ทั้งปุ่มสลับโหมด, การกู้สถานะ และทูลบาร์ใช้ร่วมกัน */
+const HIDDEN_VIEWS_IN_PROMO: StockView[] = ["critical"];
+
 const SORT_STORAGE_KEY = "vmi_stock_sort_v2";
 const FILTER_STORAGE_KEY = "vmi_stock_filters";
 
@@ -286,18 +290,24 @@ export function StockPageClient({
           setSort(saved);
         }
       }
+      const rawMode = sessionStorage.getItem(BROWSE_MODE_STORAGE_KEY);
+      const restoredMode = isStockBrowseMode(rawMode) ? rawMode : mode;
+      if (isStockBrowseMode(rawMode)) setMode(rawMode);
       const rawFilters = sessionStorage.getItem(FILTER_STORAGE_KEY);
       if (rawFilters) {
         const saved = JSON.parse(rawFilters) as Partial<StockFilterState>;
+        const savedView = isStockView(saved?.view) ? saved.view : "all";
         setFilters({
-          view: isStockView(saved?.view) ? saved.view : "all",
+          // แท็บที่โหมดนี้ไม่มี = กรองอยู่โดยไม่มีแท็บไหนสว่างให้กดออก — ถอยเป็น "ทั้งหมด"
+          view:
+            restoredMode === "promo" && HIDDEN_VIEWS_IN_PROMO.includes(savedView)
+              ? "all"
+              : savedView,
           brand: typeof saved?.brand === "string" ? saved.brand : null,
           section: typeof saved?.section === "string" ? saved.section : null,
           hideNoSales: saved?.hideNoSales === true,
         });
       }
-      const rawMode = sessionStorage.getItem(BROWSE_MODE_STORAGE_KEY);
-      if (isStockBrowseMode(rawMode)) setMode(rawMode);
     } catch {
       // ignore corrupt session
     }
@@ -369,6 +379,9 @@ export function StockPageClient({
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+    // บนเดสก์ท็อปยังเห็นแถบดาวน์โหลดของเบราว์เซอร์ แต่ใน webview บนมือถือไม่มีอะไรขึ้นเลย
+    // — เงียบแบบนั้นแยกไม่ออกจาก "กดแล้วไม่ทำงาน"
+    setRefreshMsg(`ดาวน์โหลดไฟล์แล้ว · ${filename}`);
   }, { onError: (msg) => setRefreshMsg(msg) });
 
   const exportExcel = exportAction.run;
@@ -397,22 +410,6 @@ export function StockPageClient({
     }
   }, []);
 
-  const applyMode = useCallback((next: StockBrowseMode) => {
-    setMode(next);
-    // "สต็อกวิกฤต" นิยามด้วย CVD ล้วน — ในโหมดโปรที่ไม่แสดง CVD มันจะซ่อนสินค้า
-    // ไปเงียบ ๆ โดยผู้ใช้ไม่มีทางรู้ว่าทำไม จึงรีเซ็ตกลับเป็น "ทั้งหมด"
-    if (next === "promo") {
-      setFilters((prev) =>
-        prev.view === "critical" ? { ...prev, view: "all" } : prev
-      );
-    }
-    try {
-      sessionStorage.setItem(BROWSE_MODE_STORAGE_KEY, next);
-    } catch {
-      // ไม่จำโหมด — ใช้งานได้ปกติ
-    }
-  }, []);
-
   const applyFilters = useCallback((next: StockFilterState) => {
     setFilters(next);
     try {
@@ -421,6 +418,28 @@ export function StockPageClient({
       // sessionStorage เต็ม/ถูกปิด — กรองได้ต่อ แค่ไม่จำ
     }
   }, []);
+
+  const applyMode = useCallback(
+    (next: StockBrowseMode) => {
+      setMode(next);
+      // "สต็อกวิกฤต" นิยามด้วย CVD ล้วน — ในโหมดโปรที่ไม่แสดง CVD มันจะซ่อนสินค้า
+      // ไปเงียบ ๆ โดยผู้ใช้ไม่มีทางรู้ว่าทำไม จึงรีเซ็ตกลับเป็น "ทั้งหมด"
+      //
+      // ต้องผ่าน applyFilters ที่เขียน sessionStorage ด้วย — เดิม setFilters ตรง ๆ
+      // ทำให้จอโชว์ "ทั้งหมด" แต่ของที่จำไว้ยังเป็น critical พอรีเฟรชจึงกลับมาเป็น
+      // แท็บที่โหมดนี้ซ่อนอยู่: ไม่มีแท็บไหนสว่าง ของหายไป 748 รายการ ไม่มีอะไรบอกสาเหตุ
+      if (next === "promo" && HIDDEN_VIEWS_IN_PROMO.includes(filters.view)) {
+        applyFilters({ ...filters, view: "all" });
+      }
+      try {
+        sessionStorage.setItem(BROWSE_MODE_STORAGE_KEY, next);
+      } catch {
+        // ไม่จำโหมด — ใช้งานได้ปกติ
+      }
+    },
+    [filters, applyFilters]
+  );
+
 
   /** คลิกหัวคอลัมน์เพื่อเรียง — กดซ้ำคีย์เดิม = สลับทิศทาง */
   const toggleColumnSort = useCallback(
@@ -1112,9 +1131,17 @@ export function StockPageClient({
   }
 
   /** เลือกทุกแถวที่เห็นบนจอ — ใช้กับแท็บ "ไม่ขาย 1 เดือน" เพื่อกดหยุดสั่งรวดเดียว
-   *  (ต่างจาก selectByFilter ที่เลือกเฉพาะรายการที่ควรสั่ง ซึ่งของไม่ขายแทบไม่เข้าเงื่อนไข) */
+   *  (ต่างจาก selectByFilter ที่เลือกเฉพาะรายการที่ควรสั่ง ซึ่งของไม่ขายแทบไม่เข้าเงื่อนไข)
+   *
+   *  ของที่ "หยุดสั่ง" ไปแล้วไม่ต้องกวาดมาอีก — เลขบนปุ่มจะได้เท่ากับจำนวนที่หยุดได้จริง
+   *  (เดิมแท็บไม่ขายขึ้น 435 ทั้งที่ 1 ตัวถูกหยุดไปแล้ว และช่องว่างนี้จะโตทุกครั้งที่หยุดเพิ่ม) */
+  const blockableRows = useMemo(
+    () => displayRows.filter((r) => !r.blocked),
+    [displayRows]
+  );
+
   function selectAllDisplayed() {
-    setSelected(new Set(displayRows.map((r) => r.skuId)));
+    setSelected(new Set(blockableRows.map((r) => r.skuId)));
   }
 
   /** ล้างจำนวนที่กรอกไว้ทั้งหมด — ทุกช่องกลับเป็น 0 และการเลือกหลุดตามกัน
@@ -1267,6 +1294,12 @@ export function StockPageClient({
     [selectedItems, orderQty]
   );
 
+  /** อยู่ในแท็บของตายและทุกตัวที่เลือกไว้จำนวน 0 = กำลังเลือกไปหยุดสั่ง ไม่ใช่จะสั่งซื้อ */
+  const selectedForBlocking =
+    (filters.view === "noSales" || filters.view === "deadStock") &&
+    selected.size > 0 &&
+    selectedZeroQtyCount === selected.size;
+
   /** มีของที่ติดโปรของแถมอยู่ในคำสั่งไหม — ไม่มีก็ข้ามหน้าตรวจโปรไปขั้นที่สองเลย */
   const hasPromoStepItems = useMemo(
     () =>
@@ -1416,7 +1449,7 @@ export function StockPageClient({
           adjustedCount={adjustedCount}
           mode={mode}
           onModeChange={applyMode}
-          hiddenViews={mode === "promo" ? ["critical"] : undefined}
+          hiddenViews={mode === "promo" ? HIDDEN_VIEWS_IN_PROMO : undefined}
         />
 
         {isError && (
@@ -1600,8 +1633,15 @@ export function StockPageClient({
                           : false
                     }
                     onCheckedChange={toggleSelectAllNeeds}
+                    // แท็บของตาย (ไม่ขาย/ค้างสต็อก) ไม่มีแถวไหนมีจำนวนสั่ง กดแล้วจึงไม่มีอะไรเกิดขึ้น
+                    // เดิมปล่อยให้กดได้แล้วเงียบสนิท — ต้องปิดพร้อมชี้ทางไปปุ่มที่ใช่แทน
+                    disabled={selectableRows.length === 0}
                     aria-label="เลือกทุกรายการที่มีจำนวนสั่งในตาราง"
-                    title="เลือกทุกรายการที่มีจำนวนสั่ง — ทั้งที่ระบบแนะนำ และที่คุณปรับจำนวนเอง (ตามตัวกรอง)"
+                    title={
+                      selectableRows.length === 0
+                        ? "ไม่มีรายการที่มีจำนวนสั่งในตารางนี้ — ถ้าจะเลือกไปหยุดสั่ง ใช้ปุ่ม “เลือกทั้งหมด” ที่แถบล่าง"
+                        : "เลือกทุกรายการที่มีจำนวนสั่ง — ทั้งที่ระบบแนะนำ และที่คุณปรับจำนวนเอง (ตามตัวกรอง)"
+                    }
                   />
                 </th>
                 <SortableTh
@@ -2064,7 +2104,14 @@ export function StockPageClient({
         <div className="mx-auto flex w-full max-w-none flex-col gap-1 px-0 sm:flex-row sm:items-center sm:gap-3">
           <p className="min-w-0 flex-1 truncate text-center text-xs text-slate-600 sm:text-sm dark:text-slate-400">
             {selected.size > 0 ? (
-              selectedRedCount > 0 ? (
+              // เลือกของตายไว้ทั้งชุดในแท็บของตาย = ตั้งใจมาหยุดสั่ง ไม่ได้กรอกจำนวนผิด
+              // เดิมขึ้นเตือนสีเหลืองว่า "จำนวน 0 — ปรับก่อนตรวจสอบ" ทั้งที่ปุ่มที่ระบบเสนอเอง
+              // ("เลือกทั้งหมด") เป็นคนพามาถึงตรงนี้
+              selectedForBlocking ? (
+                <span className="font-semibold text-red-700 dark:text-red-400">
+                  เลือกไว้ {selected.size} รายการเพื่อหยุดสั่ง — กดปุ่ม “หยุดสั่ง” ได้เลย
+                </span>
+              ) : selectedRedCount > 0 ? (
                 <span className="font-semibold text-amber-700 dark:text-amber-400">
                   มี {selectedRedCount} รายการจำนวนไม่เหมาะสม — ปรับได้ หรือกดตรวจสอบเพื่อยืนยัน
                 </span>
@@ -2093,10 +2140,10 @@ export function StockPageClient({
                 variant="outline"
                 className="mx-auto shrink-0 border-red-200 text-red-600 hover:bg-red-50 sm:mx-0 dark:border-red-900/50 dark:text-red-400 dark:hover:bg-red-950/30"
                 onClick={selectAllDisplayed}
-                title="เลือกสินค้าที่ไม่ขายทั้งหมดในตาราง เพื่อกดหยุดสั่งรวดเดียว"
+                title="เลือกสินค้าที่ไม่ขายทั้งหมดในตาราง (ข้ามตัวที่หยุดสั่งไปแล้ว) เพื่อกดหยุดสั่งรวดเดียว"
               >
                 <Ban className="h-4 w-4" />
-                เลือกทั้งหมด ({displayRows.length})
+                เลือกทั้งหมด ({blockableRows.length})
               </Button>
             )}
           {selected.size === 0 &&
@@ -2134,7 +2181,8 @@ export function StockPageClient({
               title="หยุดสั่ง / เอาออกจากคลัง สำหรับรายการที่เลือก"
             >
               <Ban className="h-4 w-4" />
-              <span className="hidden sm:inline">หยุดสั่ง</span>
+              {/* จอแคบเคยเหลือแค่ "(18)" — ปุ่มที่เลิกสั่งสินค้าถาวรต้องมีคำกำกับเสมอ */}
+              <span>หยุดสั่ง</span>
               {` (${selected.size})`}
             </Button>
           )}
@@ -2425,6 +2473,28 @@ const StockMobileRow = memo(function StockMobileRow({
           {recentOrder && (
             <span className="mt-1 inline-flex">
               <OrderedBadge info={recentOrder} />
+            </span>
+          )}
+          {/* "หยุดสั่ง" คือสถานะที่ร้านตั้งเอง แต่เดิมเห็นได้แค่บนตารางเดสก์ท็อป —
+              บนเครื่องที่ร้านใช้จริงมันหายไปเฉย ๆ แล้วยังติ๊กสั่งซ้ำได้ตามปกติ
+              (การ์ดกดยกเลิกไม่ได้เหมือนตาราง เพราะทั้งการ์ดเป็นปุ่มกางยอดขายอยู่แล้ว
+               ปุ่มซ้อนปุ่มจะกดพลาดง่ายบนจอสัมผัส — ที่นี่บอกสถานะอย่างเดียว) */}
+          {row.blocked && (
+            <span
+              className="mt-1 inline-flex items-center gap-0.5 rounded bg-red-100 px-1 py-0.5 vmi-t-xs font-bold text-red-700 dark:bg-red-950/50 dark:text-red-300"
+              title={formatBlockTitle(row)}
+            >
+              <Ban className="h-2.5 w-2.5" />
+              หยุดสั่ง
+            </span>
+          )}
+          {row.noSales30 && !row.blocked && !row.fromTarget && (
+            <span
+              className="mt-1 inline-flex items-center gap-0.5 rounded bg-slate-200 px-1 py-0.5 vmi-t-xs font-semibold text-slate-500 dark:bg-slate-700 dark:text-slate-400"
+              title="ไม่มียอดขายใน 1 เดือนที่ผ่านมา"
+            >
+              <CalendarOff className="h-2.5 w-2.5" />
+              ไม่ขาย 1 ด.
             </span>
           )}
         </button>

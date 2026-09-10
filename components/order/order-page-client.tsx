@@ -1229,10 +1229,20 @@ export function OrderPageClient({
             className="shrink-0"
             onClick={resetAllToSuggested}
             disabled={submitMutation.isPending}
-            title="รีเซ็ตจำนวนทุกรายการกลับเป็นที่แนะนำ"
+            // ปุ่มนี้ล้างราคาที่แก้เองด้วย (ดู resetAllToSuggested) — ป้ายเดิมพูดถึงแค่จำนวน
+            // คนที่แก้ราคาไว้เพราะราคาระบบเก่า จะเสียของโดยไม่รู้ตัวและกดคืนไม่ได้
+            title={
+              Object.keys(priceOverrides).length > 0
+                ? `รีเซ็ตจำนวนทุกรายการกลับเป็นที่แนะนำ — และล้างราคาที่แก้เองไว้ ${Object.keys(priceOverrides).length} รายการด้วย`
+                : "รีเซ็ตจำนวนทุกรายการกลับเป็นที่แนะนำ"
+            }
           >
             <RotateCcw className="h-4 w-4" />
-            <span className="hidden md:inline">รีเซ็ตเป็นจำนวนแนะนำ</span>
+            <span className="hidden md:inline">
+              {Object.keys(priceOverrides).length > 0
+                ? "รีเซ็ตจำนวน + ราคา"
+                : "รีเซ็ตเป็นจำนวนแนะนำ"}
+            </span>
           </Button>
           {selected.size > 0 && (
             <Button

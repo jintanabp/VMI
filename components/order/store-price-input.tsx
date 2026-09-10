@@ -49,7 +49,9 @@ export function StorePriceInput({
       return;
     }
     const n = Number(text);
-    if (!Number.isFinite(n) || n < 0 || n > 1_000_000) {
+    // ราคา 0 ไม่ใช่ราคา — เดิมผ่านได้ แถวจึงโชว์ "รวม" เป็นขีดแต่มูลค่ารวมทั้งใบลดลงจริง
+    // (ค่าติดลบกับตัวอักษรถูกกันไว้อยู่แล้ว 0 หลุดมาเพราะเช็คแค่ n < 0)
+    if (!Number.isFinite(n) || n <= 0 || n > 1_000_000) {
       setDraft(displayed == null ? "" : String(displayed));
       return;
     }

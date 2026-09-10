@@ -53,22 +53,33 @@ export function OrderReviewDialog({
   onConfirm: () => void;
   onClose: () => void;
 }) {
-  const flagged = useMemo(
-    () =>
-      rows.flatMap((row) => {
-        const qty = qtyOf(row);
-        const { flag, reason, blocking, cvdEst } = getOrderCvdFlag(
-          row.stock,
-          qty,
-          row.avgSales,
-          row.minDays,
-          row.maxDays
-        );
-        if (!blocking || flag == null) return [];
-        return [{ row, qty, cvdEst, hint: cvdFlagHint(flag, reason, row) }];
-      }),
-    [rows, qtyOf]
-  );
+  const { flagged, warnCount } = useMemo(() => {
+    const list: {
+      row: StockRowComputed;
+      qty: number;
+      cvdEst: number | null;
+      hint: string;
+    }[] = [];
+    let warn = 0;
+    for (const row of rows) {
+      const qty = qtyOf(row);
+      const { flag, reason, blocking, cvdEst } = getOrderCvdFlag(
+        row.stock,
+        qty,
+        row.avgSales,
+        row.minDays,
+        row.maxDays
+      );
+      if (blocking && flag != null) {
+        list.push({ row, qty, cvdEst, hint: cvdFlagHint(flag, reason, row) });
+      } else if (flag === "yellow") {
+        // ไม่ต้องแก้ก่อนส่ง แต่หน้าถัดไปนับเป็น "เตือน" — กล่องนี้เคยบอกว่า
+        // "จำนวนเข้าเป้าหมายทุกรายการแล้ว" แล้วคลิกเดียวถัดไปขึ้น "เตือน 4 รายการ"
+        warn++;
+      }
+    }
+    return { flagged: list, warnCount: warn };
+  }, [rows, qtyOf]);
 
   const empty = rows.length === 0;
 
@@ -150,7 +161,9 @@ export function OrderReviewDialog({
           <p className="mt-1.5 text-sm text-slate-600 dark:text-slate-400">
             {empty
               ? "ไม่มีรายการที่เลือกแล้ว — ปิดกล่องนี้แล้วเลือกสินค้าที่ต้องการสั่ง"
-              : "จำนวนเข้าเป้าหมายทุกรายการแล้ว — กดตรวจสอบคำสั่งเพื่อไปหน้าถัดไป"}
+              : warnCount > 0
+                ? `ไม่มีรายการที่ต้องแก้ก่อนส่ง — มี ${warnCount} รายการที่เกินเป้าหมายเล็กน้อย ดูรายละเอียดได้ในหน้าถัดไป`
+                : "จำนวนเข้าเป้าหมายทุกรายการแล้ว — กดตรวจสอบคำสั่งเพื่อไปหน้าถัดไป"}
           </p>
         )}
       </ModalBody>

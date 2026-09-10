@@ -29,6 +29,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useDataVersion } from "@/hooks/use-data-version";
 import { cn, matchesProductSearch } from "@/lib/utils";
+import { daysError } from "@/lib/stock/threshold-rules";
 import type { StockRowComputed } from "@/lib/repositories/types";
 import { friendlyError } from "@/lib/error-message";
 
@@ -54,6 +55,7 @@ interface GroupThreshold {
 const NO_SECTION = "(ไม่มี Section)";
 const DEFAULT_MIN_DAYS = 7;
 const DEFAULT_MAX_DAYS = 15;
+
 
 /** ประกาศนอกคอมโพเนนต์ให้ reference คงที่ (useDataVersion ไม่ใส่ไว้ใน deps) */
 const MANAGE_INVALIDATE_KEYS = [["stock"], ["thresholds"], ["store-blocklist"]];
@@ -154,17 +156,21 @@ export function ManageClient({
       sections
         .map(({ section, items, newCount }) => {
           const q = brandSearch.trim();
-          if (!q) return { section, items, newCount };
+          // allItems = สินค้าทั้งกลุ่มเสมอ ไม่ว่าคำค้นจะตัดอะไรออก — ปุ่มรีเซ็ตต้องใช้ตัวนี้
+          // (รีเซ็ตลบค่าของ**ทั้งกลุ่ม** ถ้าส่งเฉพาะที่เห็น ค่าเฉพาะตัวของสินค้าที่ถูกกรอง
+          //  ออกไปจะรอดมาแบบไม่มีใครรู้ ทั้งที่กล่องยืนยันบอกว่าจะล้างทั้งกลุ่ม)
+          if (!q) return { section, items, allItems: items, newCount };
           const matchedItems = items.filter((item) =>
             matchesProductSearch(q, item)
           );
           const sectionHit = section.toLowerCase().includes(q.toLowerCase());
           // ชื่อแบรนด์ตรง → โชว์ทั้งกลุ่ม; ไม่ตรง → โชว์เฉพาะสินค้าที่ match
-          if (sectionHit) return { section, items, newCount };
+          if (sectionHit) return { section, items, allItems: items, newCount };
           if (matchedItems.length === 0) return null;
           return {
             section,
             items: matchedItems,
+            allItems: items,
             newCount: matchedItems.filter((i) => i.isNew).length,
           };
         })
@@ -382,11 +388,12 @@ export function ManageClient({
                 {filteredSections.length} แบรนด์ — เลื่อนดูในกรอบนี้
               </p>
               <div className="mt-1 max-h-[55vh] space-y-2 overflow-y-auto rounded-lg border border-slate-100 p-2 dark:border-slate-800">
-                {filteredSections.map(({ section, items, newCount }) => (
+                {filteredSections.map(({ section, items, allItems, newCount }) => (
                   <SectionCard
                     key={section}
                     section={section}
                     items={items}
+                    allItems={allItems}
                     newCount={newCount}
                     canManage={canManage}
                     saved={savedGroups.get(section)}
@@ -577,7 +584,8 @@ function BlockRow({
               variant="ghost"
               onClick={() => setEditing(true)}
               disabled={busy}
-              title="แก้ไข"
+              title="แก้ไขเหตุผล / ช่วงเวลาที่หยุดสั่ง"
+              aria-label="แก้ไขรายการหยุดสั่ง"
             >
               <Pencil className="h-4 w-4" />
             </Button>
@@ -588,6 +596,7 @@ function BlockRow({
               onClick={() => setConfirmRemove(true)}
               disabled={busy}
               title="ยกเลิกหยุดสั่ง"
+              aria-label="ยกเลิกหยุดสั่ง"
             >
               {busy ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -664,7 +673,12 @@ function BlockRow({
               <X className="h-4 w-4" />
               ยกเลิก
             </Button>
-            <Button size="sm" onClick={save} disabled={busy || !reason.trim()}>
+            <Button
+              size="sm"
+              onClick={save}
+              disabled={busy || !reason.trim()}
+              title={!reason.trim() ? "กรอกเหตุผลก่อนจึงจะบันทึกได้" : undefined}
+            >
               {busy ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
@@ -735,10 +749,10 @@ function BulkBrandThresholds({
     });
   }
 
+  const daysProblem = daysError(minDays, maxDays);
+  const invalid = daysProblem !== null;
   const min = Number(minDays);
   const max = Number(maxDays);
-  const invalid =
-    !Number.isFinite(min) || !Number.isFinite(max) || min < 0 || max < min;
   const canApply = selected.size > 0 && !invalid && !saving;
 
   async function apply() {
@@ -802,10 +816,8 @@ function BulkBrandThresholds({
             </span>
             <LabeledDays label="MIN" value={minDays} onChange={setMinDays} />
             <LabeledDays label="MAX" value={maxDays} onChange={setMaxDays} />
-            {invalid && (
-              <span className="text-[11px] text-red-500">
-                ค่าไม่ถูกต้อง (MAX ต้อง ≥ MIN)
-              </span>
+            {daysProblem && (
+              <span className="text-[11px] text-red-500">{daysProblem}</span>
             )}
           </div>
 
@@ -888,9 +900,7 @@ function BulkBrandThresholds({
               title={
                 selected.size === 0
                   ? "ยังไม่ได้เลือกแบรนด์ — ติ๊กแบรนด์ที่จะตั้งค่าก่อน"
-                  : invalid
-                    ? "ค่า MIN / MAX ไม่ถูกต้อง — ต้องเป็นตัวเลข และ MAX ต้องไม่น้อยกว่า MIN"
-                    : undefined
+                  : (daysProblem ?? undefined)
               }
             >
               {saving ? (
@@ -962,6 +972,7 @@ function suggestThreshold(
 function SectionCard({
   section,
   items,
+  allItems,
   newCount,
   canManage,
   saved,
@@ -971,6 +982,8 @@ function SectionCard({
 }: {
   section: string;
   items: StockRowComputed[];
+  /** สินค้าทั้งกลุ่ม (ไม่ถูกคำค้นตัด) — ใช้ตอนรีเซ็ต ซึ่งมีผลกับทั้งกลุ่มเสมอ */
+  allItems: StockRowComputed[];
   newCount: number;
   canManage: boolean;
   saved?: GroupThreshold;
@@ -1084,7 +1097,7 @@ function SectionCard({
         body: JSON.stringify({
           section,
           reset: true,
-          skuIds: items.map((i) => i.skuId),
+          skuIds: allItems.map((i) => i.skuId),
         }),
       });
       const data = await res.json();
@@ -1100,6 +1113,7 @@ function SectionCard({
     }
   }
 
+  const groupDaysProblem = daysError(minDays, maxDays);
   const canSaveGroup = canManage && section !== NO_SECTION;
   const canResetGroup =
     canSaveGroup &&
@@ -1114,7 +1128,11 @@ function SectionCard({
         <button
           type="button"
           onClick={onToggle}
-          className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+          /* basis-full ใต้ 640px = ดันช่อง MIN/MAX ลงบรรทัดใหม่แทนที่จะบีบชื่อแบรนด์
+             (มี flex-1 + min-w-0 อย่างเดียว flexbox จะเลือกยุบฝั่งซ้ายจนเหลือ 0px แล้วชิป
+             ที่เป็น shrink-0 จะล้นไปทับช่อง MIN/MAX — พังพอดีที่ 390-480px คือมือถือส่วนใหญ่)
+             overflow-hidden กันตัวอักษรวาดออกนอกกรอบซ้ำอีก */
+          className="flex min-w-0 flex-1 basis-full items-center gap-1.5 overflow-hidden text-left sm:basis-auto"
         >
           {expanded ? (
             <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
@@ -1145,7 +1163,7 @@ function SectionCard({
           )}
         </button>
 
-        <div className="flex items-center gap-1.5">
+        <div className="ml-auto flex shrink-0 items-center gap-1.5">
           <LabeledDays
             label="MIN"
             value={minDays}
@@ -1164,8 +1182,8 @@ function SectionCard({
                 size="sm"
                 variant="outline"
                 onClick={save}
-                disabled={saving || resetting}
-                title="บันทึก MIN / MAX"
+                disabled={saving || resetting || groupDaysProblem !== null}
+                title={groupDaysProblem ?? "บันทึก MIN / MAX"}
               >
                 {saving ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1222,9 +1240,9 @@ function SectionCard({
         </div>
       )}
 
-      {error && (
+      {(error || groupDaysProblem) && (
         <p className="bg-red-50 px-3 py-1 text-xs text-red-600 dark:bg-red-950/30">
-          {error}
+          {error || groupDaysProblem}
         </p>
       )}
 
@@ -1325,11 +1343,13 @@ function SkuOverrideRow({
     }
   }
 
+  const skuDaysProblem = daysError(minDays, maxDays);
   const canResetSku = canManage && row.thresholdSource === "sku";
 
   return (
     <div className="flex flex-wrap items-center gap-2 px-3 py-2">
-      <div className="min-w-0 flex-1">
+      {/* เหตุผลเดียวกับหัวแบรนด์ — ใต้ 640px ให้ชื่อสินค้ากินเต็มบรรทัด แล้ว MIN/MAX ลงบรรทัดล่าง */}
+      <div className="min-w-0 flex-1 basis-full overflow-hidden sm:basis-auto">
         <p className="truncate text-xs font-medium text-slate-800 dark:text-slate-200">
           {row.isNew && (
             <span className="mr-1 inline-flex items-center gap-0.5 rounded bg-sky-100 px-1 py-0.5 text-[9px] font-bold text-sky-700 dark:bg-sky-950/50 dark:text-sky-300">
@@ -1358,7 +1378,7 @@ function SkuOverrideRow({
           )}
         </div>
       </div>
-      <div className="flex items-center gap-1.5">
+      <div className="ml-auto flex shrink-0 items-center gap-1.5">
         <LabeledDays
           label="MIN"
           value={minDays}
@@ -1377,8 +1397,8 @@ function SkuOverrideRow({
               size="sm"
               variant="ghost"
               onClick={save}
-              disabled={saving || resetting}
-              title="บันทึก MIN / MAX รายตัว"
+              disabled={saving || resetting || skuDaysProblem !== null}
+              title={skuDaysProblem ?? "บันทึก MIN / MAX รายตัว"}
             >
               {saving ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />

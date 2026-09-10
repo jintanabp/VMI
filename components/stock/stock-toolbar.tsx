@@ -971,12 +971,22 @@ export function StockToolbar({
       {/* แถวล่าง: แท็บมุมมอง + ป้ายตัวกรองที่เปิดอยู่ + จำนวนที่แสดง */}
       <div className="mt-2 flex items-center gap-2">
         <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <ViewTabs
-            view={filters.view}
-            counts={counts}
-            hiddenViews={hiddenViews}
-            onChange={(view) => onFiltersChange({ ...filters, view })}
-          />
+          {/* กำลังค้นหา = แท็บไม่ได้ตัดผลลัพธ์ ชิปที่ติดไฟเต็มจึงเป็นคำสัญญาที่ไม่จริง */}
+          <div
+            className={cn("shrink-0", search.trim() && "opacity-50")}
+            title={
+              search.trim()
+                ? "กำลังค้นหา — ผลการค้นหาไม่ถูกตัดตามแท็บ ล้างคำค้นก่อนถ้าจะกรองตามแท็บ"
+                : undefined
+            }
+          >
+            <ViewTabs
+              view={filters.view}
+              counts={counts}
+              hiddenViews={hiddenViews}
+              onChange={(view) => onFiltersChange({ ...filters, view })}
+            />
+          </div>
           <HideNoSalesToggle
             active={filters.hideNoSales}
             count={noSalesInView}
@@ -1002,7 +1012,9 @@ export function StockToolbar({
 
         {searchIgnoresFilters && (
           <span
-            className="hidden shrink-0 items-center rounded-md bg-sky-50 px-1.5 py-0.5 text-[11px] font-semibold text-sky-700 ring-1 ring-sky-200 sm:inline-flex dark:bg-sky-500/10 dark:text-sky-300 dark:ring-sky-500/25"
+            /* เดิม hidden sm:inline-flex — บนมือถือจึงไม่มีอะไรบอกเลยว่าแท็บที่ติดไฟอยู่
+               ไม่ได้กรองผลการค้นหา (บรรทัด "แสดง N จาก M" ก็ซ่อนที่ความกว้างเดียวกัน) */
+            className="inline-flex shrink-0 items-center rounded-md bg-sky-50 px-1.5 py-0.5 text-[11px] font-semibold text-sky-700 ring-1 ring-sky-200 dark:bg-sky-500/10 dark:text-sky-300 dark:ring-sky-500/25"
             title="กำลังค้นหา — ระบบค้นทั้งคลัง ไม่จำกัดตามแท็บ/แบรนด์/กลุ่มที่เปิดไว้ จะได้ไม่พลาดสินค้าที่อยู่นอกแท็บ เช่น สินค้าที่ควรมีขายแต่ยังไม่มีในคลัง (ปุ่ม “ซ่อนของไม่ขาย 1 เดือน” ยังทำงานกับผลค้นหาตามปกติ)"
           >
             ค้นทั้งคลัง
