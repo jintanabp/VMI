@@ -23,6 +23,18 @@ export const PO_STATUSES = [
     tone: "sky",
   },
   {
+    value: "sending_erp",
+    label: "กำลังส่ง ERP",
+    hint: "กำลังยิงเข้า ERP อยู่ — อย่ากดซ้ำ ถ้าค้างนานผิดปกติให้ตรวจกับ ERP ก่อนลองใหม่",
+    tone: "amber",
+  },
+  {
+    value: "sent_erp",
+    label: "เข้า ERP แล้ว",
+    hint: "ปลายทางรับเข้าระบบแล้ว (ยังไม่ได้แปลว่าออกบิลแล้ว)",
+    tone: "teal",
+  },
+  {
     value: "received",
     label: "รับของแล้ว",
     hint: "ของเข้าคลังครบแล้ว",
@@ -39,6 +51,16 @@ export const PO_STATUSES = [
 export type PoStatus = (typeof PO_STATUSES)[number]["value"];
 
 export const DEFAULT_PO_STATUS: PoStatus = "issued";
+
+/**
+ * สถานะระหว่าง/หลังส่งเข้า ERP — ประกาศเป็นค่าคงที่ให้ route อ้างถึงได้โดยไม่พิมพ์สตริงเอง
+ *
+ * `sent_erp` ต่างจาก `sent` ("ส่งซัพแล้ว") ที่เป็นป้ายที่คนกดเองหลังเอาไฟล์ไปส่ง —
+ * ตัวนี้เครื่องเป็นคนปัก และหมายถึง "ปลายทางรับ insert แล้ว" เท่านั้น
+ * **ไม่ได้แปลว่าออกบิลแล้ว** (ฝั่ง ocr ยืนยันว่า RECORDSTATUS=C ก็แค่รับเข้าระบบ บิลอยู่คนละตาราง)
+ */
+export const SENDING_TO_ERP = "sending_erp";
+export const SENT_TO_ERP = "sent_erp";
 
 export function isPoStatus(v: unknown): v is PoStatus {
   return (
@@ -66,4 +88,8 @@ export const PO_STATUS_CLASS: Record<string, string> = {
   emerald:
     "bg-emerald-100 text-emerald-800 ring-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:ring-emerald-900",
   red: "bg-red-100 text-red-800 ring-red-200 dark:bg-red-950/50 dark:text-red-300 dark:ring-red-900",
+  // เพิ่มพร้อมสถานะ ERP — ตกหล่นเมื่อไหร่ป้ายจะกลายเป็นเทาเงียบ ๆ ไม่พัง แต่ก็ไม่สื่อ
+  amber:
+    "bg-amber-100 text-amber-800 ring-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:ring-amber-900",
+  teal: "bg-teal-100 text-teal-800 ring-teal-200 dark:bg-teal-950/50 dark:text-teal-300 dark:ring-teal-900",
 };

@@ -12,6 +12,10 @@ import { notifyStore } from "@/lib/orders/store-notify";
 import { collectOwedFreeGoods } from "@/lib/promo/order-free-goods";
 import { buildErpPayload, checkErpReadiness } from "@/lib/po/erp-payload";
 import { buildErpContext } from "@/lib/po/erp-context";
+import {
+  erpEndpoint,
+  ERP_SEND_DISABLED_REASON,
+} from "@/lib/po/erp-endpoint";
 
 /**
  * เปลี่ยนสถานะ PO (ออกแล้ว → ส่งซัพ → รับของ / ยกเลิก)
@@ -130,7 +134,12 @@ export async function GET(
 
   const po = await prisma.purchaseOrder.findUnique({
     where: { poNumber },
-    select: { orderId: true, exportPath: true, groupKey: true },
+    select: {
+      orderId: true,
+      exportPath: true,
+      groupKey: true,
+      erpSentAt: true,
+    },
   });
   if (!po) {
     return NextResponse.json({ error: "ไม่พบเอกสาร PO" }, { status: 404 });
@@ -184,6 +193,13 @@ export async function GET(
       deliveryDate: doc.deliveryDate,
     });
     return NextResponse.json({
+      // แผงเดียวกันนี้มีปุ่มส่งแล้ว จึงต้องรู้ว่าใบนี้เคยส่งไปหรือยัง — ส่งมากับ payload
+      // ที่มันโหลดอยู่แล้ว ดีกว่าให้แผงยิงอีกรอบเพื่อถามอย่างเดียว
+      erpSentAt: po.erpSentAt?.toISOString() ?? null,
+      // ขาส่งเปิดหรือยัง — ต้องบอกหน้าจอด้วย ไม่งั้นปุ่มจะกดได้แล้วค่อยพังที่ 503
+      // ซึ่งเป็นอาการเดียวกับ "ปุ่มบอกอย่าง ทำอีกอย่าง" ที่ไล่แก้มาทั้งโปรเจกต์
+      sendEnabled: erpEndpoint() != null,
+      sendDisabledReason: ERP_SEND_DISABLED_REASON,
       payload: buildErpPayload(doc, erpCtx),
       readiness: checkErpReadiness(doc, erpCtx),
       context: erpCtx,
