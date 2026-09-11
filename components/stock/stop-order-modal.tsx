@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { Ban } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { ThaiDateEcho } from "@/components/ui/thai-date-echo";
 import { Modal, ModalBody, ModalFooter } from "@/components/ui/modal";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
@@ -120,7 +121,9 @@ export function StopOrderModal({
               onChange={(e) => setEffectiveFrom(e.target.value)}
               className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none ring-teal-500/30 focus:ring-2 dark:border-slate-700 dark:bg-slate-900"
             />
-            <p className="mt-1 text-[11px] text-slate-400">เว้นว่าง = เริ่มทันที</p>
+            <p className="mt-1 text-[11px] text-slate-400">
+              {effectiveFrom ? <ThaiDateEcho iso={effectiveFrom} /> : "เว้นว่าง = เริ่มทันที"}
+            </p>
           </div>
           <div>
             <label
@@ -140,7 +143,13 @@ export function StopOrderModal({
               className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none ring-teal-500/30 focus:ring-2 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:disabled:bg-slate-800"
             />
             <p className="mt-1 text-[11px] text-slate-400">
-              {permanent ? "หยุดถาวร" : "กลับมาแนะนำสั่งหลังวันนี้"}
+              {permanent ? (
+                "หยุดถาวร"
+              ) : effectiveTo ? (
+                <ThaiDateEcho iso={effectiveTo} />
+              ) : (
+                "กลับมาแนะนำสั่งหลังวันนี้"
+              )}
             </p>
           </div>
         </div>

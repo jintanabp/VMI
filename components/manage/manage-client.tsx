@@ -22,10 +22,15 @@ import {
   X,
   Lock,
 } from "lucide-react";
+import Link from "next/link";
 import { AppHeader } from "@/components/layout/app-header";
 import { PageShell } from "@/components/layout/page-shell";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  formatThaiDateTime,
+  ThaiDateEcho,
+} from "@/components/ui/thai-date-echo";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useDataVersion } from "@/hooks/use-data-version";
 import { cn, matchesProductSearch } from "@/lib/utils";
@@ -269,8 +274,16 @@ export function ManageClient({
           })}
         </div>
 
-        {tab === "account" && (
-        <section className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+        {/* แท็บที่ไม่ได้เปิดถูกซ่อนด้วย CSS ไม่ใช่ถอดออกจากต้นไม้ — ถอดออกเมื่อไหร่
+            ค่าที่พิมพ์ค้างไว้ (MIN/MAX ในการ์ดแบรนด์, เหตุผลที่กำลังแก้ในรายการหยุดสั่ง)
+            หายเงียบ ๆ ทั้งที่คำค้นกับแบรนด์ที่กางไว้ยังอยู่ เพราะสองอย่างนั้นเก็บไว้ที่ตัวหน้า */}
+        <section
+          hidden={tab !== "account"}
+          className={cn(
+            "rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900",
+            tab !== "account" && "hidden"
+          )}
+        >
           <h2 className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-slate-100">
             <KeyRound className="h-4 w-4 text-teal-600" />
             รหัสผ่าน
@@ -299,10 +312,14 @@ export function ManageClient({
             )}
           </div>
         </section>
-        )}
 
-        {tab === "minmax" && (
-        <section className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+        <section
+          hidden={tab !== "minmax"}
+          className={cn(
+            "rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900",
+            tab !== "minmax" && "hidden"
+          )}
+        >
           <div className="flex items-center justify-between gap-2">
             <h2 className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-slate-100">
               <Settings2 className="h-4 w-4 text-teal-600" />
@@ -409,9 +426,10 @@ export function ManageClient({
             </>
           )}
         </section>
-        )}
 
-        {tab === "blocklist" && <StoreBlocklistSection />}
+        <div hidden={tab !== "blocklist"} className={cn(tab !== "blocklist" && "hidden")}>
+          <StoreBlocklistSection />
+        </div>
       </main>
     </PageShell>
   );
@@ -426,7 +444,20 @@ interface BlockItem {
   /** null = หยุดถาวร */
   effectiveTo: string | null;
   createdAt: string;
+  /** อีเมลคนที่สั่งหยุด — "" เมื่อสั่งจากทางที่ไม่มีเซสชันร้าน (API คืนค่านี้อยู่แล้ว) */
+  createdBy: string;
 }
+
+/** ต่ำกว่านี้กวาดตาหาเองได้ ช่องค้นหากับตัวเรียงเป็นแค่สิ่งกีดขวาง */
+const BLOCKLIST_TOOLS_MIN = 6;
+
+type BlockSort = "recent" | "sku" | "ending";
+
+const BLOCK_SORTS: { id: BlockSort; label: string }[] = [
+  { id: "recent", label: "สั่งหยุดล่าสุด" },
+  { id: "sku", label: "รหัสสินค้า" },
+  { id: "ending", label: "ใกล้ครบกำหนด" },
+];
 
 /** ช่วงวันที่หยุดสั่งแบบอ่านง่าย */
 function formatBlockPeriod(from: string, to: string | null): string {
@@ -453,7 +484,45 @@ function StoreBlocklistSection() {
     queryKey: ["store-blocklist"],
     queryFn: () => apiFetch(appPath("/api/store/blocklist")).then((r) => r.json()),
   });
-  const blocks = data?.blocks ?? [];
+  const blocks = useMemo(() => data?.blocks ?? [], [data]);
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<BlockSort>("recent");
+
+  // เครื่องมือโผล่เมื่อรายการเยอะพอจะหาไม่เจอเท่านั้น — ร้านที่หยุดสั่งอยู่ใบเดียว
+  // ไม่ควรต้องเจอช่องค้นหาลอยอยู่เหนือรายการเดียว
+  const showTools = blocks.length >= BLOCKLIST_TOOLS_MIN;
+
+  const shown = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const filtered =
+      showTools && q
+        ? blocks.filter(
+            (b) =>
+              // ใช้ตัวจับคู่ตัวเดียวกับช่องค้นหาหน้าสต็อก (พิมพ์เลขล้วน = ค้นเฉพาะรหัส)
+              // แล้วเติมเหตุผลเข้าไป เพราะร้านจำได้ว่า "ที่หยุดเพราะไม่มีที่เก็บ" มีอะไรบ้าง
+              matchesProductSearch(search, {
+                skuCode: b.skuCode,
+                skuName: b.skuName,
+              }) || b.reason.toLowerCase().includes(q)
+          )
+        : blocks;
+    const out = [...filtered];
+    if (!showTools) return out;
+    if (sort === "sku") {
+      out.sort((a, b) => a.skuCode.localeCompare(b.skuCode));
+    } else if (sort === "ending") {
+      // หยุดถาวรไม่มีวันครบกำหนด — ไปท้ายสุดเสมอ ไม่ใช่ปนอยู่กลางรายการ
+      out.sort((a, b) => {
+        if (!a.effectiveTo && !b.effectiveTo) return 0;
+        if (!a.effectiveTo) return 1;
+        if (!b.effectiveTo) return -1;
+        return a.effectiveTo.localeCompare(b.effectiveTo);
+      });
+    } else {
+      out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    }
+    return out;
+  }, [blocks, search, sort, showTools]);
 
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: ["store-blocklist"] });
@@ -475,18 +544,66 @@ function StoreBlocklistSection() {
         สินค้าที่ร้านหยุดสั่ง — แก้เหตุผล/วันเริ่ม หรือยกเลิกได้ (แจ้งเซลล์อัตโนมัติ)
       </p>
 
+      {showTools && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {/* บนจอโทรศัพท์ช่องค้นหากินเต็มแถว ไม่งั้นข้อความในช่องโดนตัดครึ่ง */}
+          <div className="relative w-full sm:w-auto sm:min-w-[12rem] sm:flex-1">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="ค้นรหัส ชื่อสินค้า หรือเหตุผล"
+              aria-label="ค้นหาในรายการหยุดสั่ง"
+              className="w-full rounded-lg border border-slate-200 bg-white py-1.5 pl-8 pr-3 text-sm outline-none ring-teal-500/30 focus:ring-2 dark:border-slate-700 dark:bg-slate-900"
+            />
+          </div>
+          <label className="flex items-center gap-1.5 text-xs text-slate-500">
+            เรียงตาม
+            <select
+              value={sort}
+              onChange={(e) => setSort(e.target.value as BlockSort)}
+              className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs outline-none ring-teal-500/30 focus:ring-2 dark:border-slate-700 dark:bg-slate-900"
+            >
+              {BLOCK_SORTS.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
+
       {isLoading ? (
         <p className="py-6 text-center text-sm text-slate-500">กำลังโหลด...</p>
       ) : blocks.length === 0 ? (
+        <div className="py-6 text-center">
+          <p className="text-sm text-slate-500">ยังไม่มีสินค้าที่หยุดสั่ง</p>
+          <p className="mt-1 text-xs text-slate-400">
+            เพิ่มได้จาก{" "}
+            <Link href="/stock" className="font-medium text-teal-700 underline dark:text-teal-400">
+              หน้าสต็อก
+            </Link>{" "}
+            — เลือกสินค้าที่ไม่อยากให้ระบบแนะนำสั่ง แล้วกดปุ่ม “หยุดสั่ง”
+          </p>
+        </div>
+      ) : shown.length === 0 ? (
         <p className="py-6 text-center text-sm text-slate-500">
-          ยังไม่มีสินค้าที่หยุดสั่ง
+          ไม่พบรายการที่ตรงกับ “{search.trim()}” ใน {blocks.length} รายการที่หยุดสั่งอยู่
         </p>
       ) : (
-        <ul className="mt-3 space-y-2">
-          {blocks.map((b) => (
-            <BlockRow key={b.skuId} block={b} onChanged={refresh} />
-          ))}
-        </ul>
+        <>
+          {showTools && shown.length < blocks.length && (
+            <p className="mt-2 text-[11px] text-slate-400">
+              แสดง {shown.length} จาก {blocks.length} รายการ
+            </p>
+          )}
+          <ul className="mt-3 space-y-2">
+            {shown.map((b) => (
+              <BlockRow key={b.skuId} block={b} onChanged={refresh} />
+            ))}
+          </ul>
+        </>
       )}
     </section>
   );
@@ -571,7 +688,9 @@ function BlockRow({
   return (
     <li className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
       <div className="flex items-start justify-between gap-2">
-        <p className="min-w-0 truncate text-sm text-slate-900 dark:text-slate-100">
+        {/* เดิมเป็น truncate บรรทัดเดียว — บนจอ 390px ชื่อโดนตัดตั้งแต่กลางคำ
+            จนแยกสินค้าที่ขึ้นต้นเหมือนกันไม่ออก · สองบรรทัดยังคุมความสูงการ์ดได้ */}
+        <p className="min-w-0 line-clamp-2 text-sm text-slate-900 dark:text-slate-100">
           <span className="font-mono text-teal-700 dark:text-teal-400">
             {block.skuCode}
           </span>{" "}
@@ -616,7 +735,9 @@ function BlockRow({
             placeholder="เหตุผล"
             className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none ring-teal-500/30 focus:ring-2 dark:border-slate-700 dark:bg-slate-900"
           />
-          <div className="grid grid-cols-2 gap-2">
+          {/* เหตุผลเดียวกับ stop-order-modal: datetime-local เป็นคอนโทรลเนทีฟที่กว้าง
+              สองคอลัมน์บนจอ ~390px ทำให้วันที่โดนตัดเหลือ "08/28/2026 01:" */}
+          <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2">
             <label className="block">
               <span className="text-[11px] font-medium text-slate-500">
                 ตั้งแต่วันที่
@@ -627,6 +748,11 @@ function BlockRow({
                 onChange={(e) => setEffective(e.target.value)}
                 className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none ring-teal-500/30 focus:ring-2 dark:border-slate-700 dark:bg-slate-900"
               />
+              {/* การ์ดใบนี้โชว์ "28 ส.ค. 69" ตอนอ่าน แต่ช่องแก้เป็นปฏิทินของเบราว์เซอร์ —
+                  ทวนค่าเป็นรูปแบบเดียวกับฝั่งอ่าน ไม่งั้นเหมือนคนละวัน */}
+              <div className="mt-0.5">
+                <ThaiDateEcho iso={effective} />
+              </div>
             </label>
             <label className="block">
               <span className="text-[11px] font-medium text-slate-500">
@@ -640,6 +766,15 @@ function BlockRow({
                 onChange={(e) => setEffectiveTo(e.target.value)}
                 className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none ring-teal-500/30 focus:ring-2 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:disabled:bg-slate-800"
               />
+              <div className="mt-0.5">
+                {permanent ? (
+                  <span className="whitespace-nowrap vmi-t-xs text-slate-400">
+                    ถาวร
+                  </span>
+                ) : (
+                  <ThaiDateEcho iso={effectiveTo} />
+                )}
+              </div>
             </label>
           </div>
           <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-slate-700 dark:text-slate-300">
@@ -695,6 +830,12 @@ function BlockRow({
           </p>
           <p className="mt-0.5 text-[11px] text-slate-400">
             หยุดสั่ง {formatBlockPeriod(block.effectiveFrom, block.effectiveTo)}
+          </p>
+          {/* ใครสั่งหยุดและเมื่อไหร่ — API คืนมาอยู่แล้ว การ์ดเดิมทิ้งไปทั้งสองค่า
+              ทำให้รายการเก่าอธิบายตัวเองไม่ได้ว่ามาจากไหน */}
+          <p className="mt-0.5 text-[11px] text-slate-400">
+            สั่งเมื่อ {formatThaiDateTime(block.createdAt)}
+            {block.createdBy ? ` · โดย ${block.createdBy}` : " · ไม่ได้บันทึกว่าใครสั่ง"}
           </p>
         </>
       )}

@@ -25,6 +25,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { StatCard } from "@/components/ui/stat-card";
+import { ThaiDateEcho } from "@/components/ui/thai-date-echo";
 import {
   MobileRow,
   MobileRowList,
@@ -90,29 +91,6 @@ function fmtDateTime(iso: string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-/**
- * ทวนวันที่ที่เลือกเป็นภาษาไทย ข้าง ๆ ช่องกรอก
- *
- * `<input type="date">` แสดงรูปแบบตาม locale ของเบราว์เซอร์ เครื่องที่ตั้งเป็น en-US
- * จะได้ `09/02/2026` ซึ่งบน UI ภาษาไทยอ่านได้ทั้ง "2 ก.ย." และ "9 ก.พ." — คนละเดือนกัน
- * และตัวกรองนี้ตัดสินว่าจะเห็น PO ใบไหน · เปลี่ยนรูปแบบในตัว input เองไม่ได้
- * (ต้องเขียน date picker ใหม่ทั้งตัว) แต่ทวนค่าที่ระบบเข้าใจให้เห็นได้ ซึ่งแก้ความกำกวมจบ
- */
-function ThaiDateEcho({ iso }: { iso: string }) {
-  if (!iso) return null;
-  const d = new Date(`${iso}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return null;
-  return (
-    <span className="whitespace-nowrap vmi-t-xs text-slate-500 dark:text-slate-400">
-      {d.toLocaleDateString("th-TH", {
-        day: "numeric",
-        month: "short",
-        year: "2-digit",
-      })}
-    </span>
-  );
 }
 
 function downloadPo(poNumber: string, format: "xlsx" | "json") {
