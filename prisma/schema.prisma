@@ -111,6 +111,27 @@ model PurchaseOrder {
   statusNote  String      @default("")
   issuedBy    String      @default("")
   issuedAt    DateTime    @default(now())
+
+  // --- ผลการส่งเข้า ERP (insertOCROrderToBill) ---
+  // เพิ่มไว้ก่อนที่จะมีตัวส่งจริง เพราะไม่ว่าคำตอบจากทีม ERP จะออกมาทางไหน
+  // ก็ต้องมีที่เก็บว่าใบไหนส่งไปแล้ว ส่งเมื่อไหร่ และพลาดเพราะอะไร
+  //
+  // **ไม่มีตาราง staging แยกเหมือน ocr-po-matching** — ของเขาเก็บรายบรรทัดเพราะหนึ่งออเดอร์
+  // แตกเป็นหลายใบได้ ส่วนเรามี 1 แถวต่อ 1 PO และ poNumber เป็น unique อยู่แล้ว
+  /// ส่งสำเร็จเมื่อไหร่ (null = ยังไม่สำเร็จ — ใบที่ยังอยู่ในคิวทั้งหมดคือ erpSentAt: null)
+  /// ประทับด้วย compare-and-set บน { poNumber, erpSentAt: null } เพื่อกันส่งซ้ำตอนกดพร้อมกัน
+  erpSentAt       DateTime?
+  /// พยายามส่งครั้งล่าสุดเมื่อไหร่ — เขียนทุกครั้งรวมครั้งที่ล้มเหลว
+  /// มีไว้ตอบว่า "ใบที่ค้างอยู่ เคยถูกลองส่งไปแล้วหรือยัง" ซึ่ง erpSentAt ตอบไม่ได้
+  erpAttemptedAt  DateTime?
+  /// เหตุผลที่ล้มเหลวครั้งล่าสุด — **เก็บข้อความดิบจากปลายทาง** ไม่ใช่ code ที่เราตีความเอง
+  /// เพราะปลายทางไม่มีรหัส error เลย มีแต่ resultMsg เป็นภาษาอังกฤษ (ตัดที่ 1000 ตัวอักษรตอนเขียน)
+  /// null = ยังไม่เคยพลาด · ส่งสำเร็จแล้วไม่ล้างค่านี้ เพื่อให้ยังเห็นว่าเคยพลาดมาก่อน
+  erpError        String?
+  /// จำนวนแถวที่ปลายทางบอกว่า insert ไป (result.insertedRows)
+  /// เก็บไว้เทียบกับจำนวนบรรทัดที่ส่ง — ฝั่ง ocr อ่านค่านี้แต่ไม่เคยเทียบ เราควรเทียบ
+  erpInsertedRows Int?
+
   order       Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
   items       OrderItem[]
 

@@ -12,13 +12,29 @@
 import fs from "fs";
 import path from "path";
 
+/**
+ * หา path จริงของไฟล์ฐานข้อมูลจาก DATABASE_URL
+ *
+ * **path แบบ relative ต้องนับจากโฟลเดอร์ของ schema ไม่ใช่ cwd** — นี่คือกติกาของ Prisma เอง
+ * `file:./dev.db` ในโปรเจกต์นี้จึงหมายถึง `prisma/dev.db` ไม่ใช่ `./dev.db` ที่ราก
+ *
+ * เดิมนับจาก cwd ⇒ บนเครื่อง dev จะหาไม่เจอ แล้วจบแบบ exit 0 เงียบ ๆ พร้อมข้อความ
+ * "Database not found" ⇒ ใครสั่ง `npm run backup:db && prisma migrate dev` จะ migrate
+ * ต่อโดยที่**ไม่มีสำเนาอยู่จริง** ทั้งที่คำสั่งแรกดูเหมือนผ่าน (เจอ 11 ก.ย. 69)
+ * บน production ไม่เคยโดนเพราะ docker ตั้ง DATABASE_URL เป็น absolute path
+ */
 function resolveDbPath() {
   const url = process.env.DATABASE_URL ?? "file:./dev.db";
   if (!url.startsWith("file:")) {
     throw new Error(`Unsupported DATABASE_URL for backup: ${url}`);
   }
   const raw = url.slice("file:".length);
-  return path.isAbsolute(raw) ? raw : path.join(process.cwd(), raw);
+  if (path.isAbsolute(raw)) return raw;
+
+  const fromSchema = path.join(process.cwd(), "prisma", raw);
+  if (fs.existsSync(fromSchema)) return fromSchema;
+  // ถอยไป cwd เผื่อ layout อื่นที่ schema ไม่ได้อยู่ใน prisma/
+  return path.join(process.cwd(), raw);
 }
 
 /** สำเนาแบบ consistent · ถอยไป copyFileSync ถ้า VACUUM INTO ใช้ไม่ได้ */
@@ -51,7 +67,12 @@ async function snapshot(dbPath, dest) {
 async function main() {
   const dbPath = resolveDbPath();
   if (!fs.existsSync(dbPath)) {
-    console.warn("[VMI backup] Database not found:", dbPath);
+    // จบด้วย 0 ตั้งใจ — บูตครั้งแรกบน docker ยังไม่มีไฟล์ ถือว่าไม่มีอะไรให้สำรอง
+    // แต่ต้องบอกให้ชัดว่าไปหาที่ไหนมา ไม่งั้นอ่านแล้วนึกว่าสำรองเรียบร้อย
+    console.warn(
+      "[VMI backup] ไม่มีไฟล์ฐานข้อมูลให้สำรอง — ไม่ได้สร้างสำเนา · หาที่:",
+      dbPath
+    );
     process.exit(0);
   }
 
