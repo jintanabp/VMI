@@ -66,6 +66,7 @@ function doc(
     storeName: "ร้านทดสอบ",
     approvedAt: new Date("2026-09-10T04:30:06.000Z"),
     approvedBy: "sales@example.com",
+    deliveryDate: "2026-08-31",
     lines,
   });
 }

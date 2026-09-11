@@ -35,8 +35,9 @@ export const ERP_ORDER_NO_MAX = PO_NUMBER_MAX_LEN;
 /** ค่า divisionCode ที่ใช้กับลูกค้าคลัง VDA
  *
  *  มาจาก `cfm_customer_reference.csv` ที่ Bronze ซึ่งระบุ `DIVISIONSALE = E`
- *  สำหรับลูกค้าของ vda1–vda5 ทุกราย · **ยังต้องให้ทีม ERP ยืนยัน** ก่อนส่งจริง
- *  (อยู่ในโค้ดไม่ใช่ env เพราะผู้ใช้ไม่ต้องการแก้ env บนเซิร์ฟเวอร์) */
+ *  สำหรับลูกค้าของ vda1–vda5 ทุกราย · **ยืนยันแล้ว 11 ก.ย. 69 ว่า `E` ถูกต้อง**
+ *  (อยู่ในโค้ดไม่ใช่ env เพราะผู้ใช้ไม่ต้องการแก้ env บนเซิร์ฟเวอร์) ·
+ *  ปลายทางเป็น `DIVISIONSALE CHAR(1)` ⇒ ยาวได้ตัวเดียวพอดี */
 export const DEFAULT_DIVISION_CODE = "E";
 
 export interface ErpOrderDetail {

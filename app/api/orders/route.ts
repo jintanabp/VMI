@@ -9,6 +9,7 @@ import {
   getAuthorizedStoreId,
 } from "@/lib/auth/store-context";
 import { evaluatePriceOverride } from "@/lib/calculations";
+import { checkDeliveryDate } from "@/lib/orders/delivery-date";
 import {
   lookupOrderPromoLines,
   type OrderPromoLineResult,
@@ -54,6 +55,11 @@ const createOrderSchema = z.object({
    * ไม่บังคับ เพื่อให้ client เวอร์ชันเก่าที่ยังเปิดค้างอยู่ส่งออเดอร์ได้ตามปกติ
    */
   clientRequestId: z.string().trim().min(8).max(64).optional(),
+  /**
+   * วันที่ร้านอยากรับของ (YYYY-MM-DD) — ไม่บังคับ เพื่อให้หน้าจอเวอร์ชันเก่าที่เปิดค้างอยู่
+   * ยังส่งออเดอร์ได้ · ใบที่ไม่มีวันจะออก PO ที่ยังส่งเข้า ERP ไม่ได้ ซึ่งตัวตรวจบอกเหตุผลอยู่แล้ว
+   */
+  deliveryDate: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
 
 // PATCH เดิมเป็น destructure ดิบ ๆ จาก request.json() — ไม่ validate อะไรเลย
@@ -197,6 +203,13 @@ export async function POST(request: Request) {
 
   const items = parsed.data.items;
 
+  // ตรวจวันรับของฝั่งเซิร์ฟเวอร์ด้วย — `min` บน <input type="date"> กันได้แค่คนที่ใช้หน้าจอ
+  const deliveryDate = parsed.data.deliveryDate ?? null;
+  if (deliveryDate) {
+    const bad = checkDeliveryDate(deliveryDate);
+    if (bad) return NextResponse.json({ error: bad }, { status: 400 });
+  }
+
   // ตัดสินธง "ราคาไม่ตรง C4" ฝั่งเซิร์ฟเวอร์ตอนส่ง แล้วแช่ค่าที่ใช้เทียบไว้
   // — ราคา master เปลี่ยนรายวัน ถ้าคำนวณใหม่ตอนอ่าน ธงจะกระพริบและพิสูจน์ย้อนหลังไม่ได้
   const skus = await prisma.sku.findMany({
@@ -260,7 +273,8 @@ export async function POST(request: Request) {
   const order = await orders.createOrder(
     storeId,
     enrichedItems,
-    parsed.data.clientRequestId
+    parsed.data.clientRequestId,
+    deliveryDate
   );
 
   // ส่งซ้ำใบเดิม — คืนใบเดิมเงียบ ๆ ห้ามเด้งแจ้งเตือนเซลล์ซ้ำ

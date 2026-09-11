@@ -66,6 +66,50 @@ describe.skipIf(!hasPrisma)("approveWithPoSplit — ชนกันระหว�
     await prisma.poSequence.deleteMany();
   });
 
+  it("**วันรับของที่ร้านเลือกไหลถึงเอกสาร PO และ payload ของ ERP**", async () => {
+    // 17:00Z = เที่ยงคืนของวันที่ 15 ก.ย. เวลาไทย — เก็บแบบเดียวกับที่ createOrder เขียน
+    const { orderId } = await seedPendingOrder(prisma, {
+      deliveryDate: new Date("2026-09-14T17:00:00Z"),
+    });
+
+    const res = await approveWithPoSplit(orderId, "a@x.com", {});
+    const poNumber = res.purchaseOrders[0]!.poNumber;
+
+    const { rebuildPoDocumentFromDb } = await import("@/lib/po/po-from-db");
+    const doc = await rebuildPoDocumentFromDb(poNumber);
+    expect(doc?.deliveryDate).toBe("2026-09-15");
+
+    const { buildErpContext } = await import("@/lib/po/erp-context");
+    const { buildErpPayload, checkErpReadiness } = await import("@/lib/po/erp-payload");
+    const ctx = buildErpContext({
+      storeCode: doc!.storeCode,
+      approvedAt: doc!.approvedAt,
+      deliveryDate: doc!.deliveryDate,
+    });
+
+    expect(buildErpPayload(doc!, ctx).deliveryDate).toBe("2026-09-15 00:00:00");
+    // และเหตุผลที่เคยกันทุกใบไว้ต้องหายไปแล้ว
+    expect(checkErpReadiness(doc!, ctx).reasons).not.toContain("missing_delivery_date");
+  });
+
+  it("ออเดอร์เก่าที่ไม่มีวันรับของ ยังติด missing_delivery_date ไม่ใช่เดาวันให้", async () => {
+    const { orderId } = await seedPendingOrder(prisma);
+    const res = await approveWithPoSplit(orderId, "a@x.com", {});
+
+    const { rebuildPoDocumentFromDb } = await import("@/lib/po/po-from-db");
+    const doc = await rebuildPoDocumentFromDb(res.purchaseOrders[0]!.poNumber);
+    expect(doc?.deliveryDate).toBeNull();
+
+    const { buildErpContext } = await import("@/lib/po/erp-context");
+    const { checkErpReadiness } = await import("@/lib/po/erp-payload");
+    const ctx = buildErpContext({
+      storeCode: doc!.storeCode,
+      approvedAt: doc!.approvedAt,
+      deliveryDate: doc!.deliveryDate,
+    });
+    expect(checkErpReadiness(doc!, ctx).reasons).toContain("missing_delivery_date");
+  });
+
   it("สองคนกดอนุมัติพร้อมกัน → สำเร็จคนเดียว อีกคนได้ ORDER_ALREADY_DECIDED", async () => {
     const { orderId } = await seedPendingOrder(prisma);
 

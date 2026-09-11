@@ -74,6 +74,7 @@ async function main() {
     const ctx = buildErpContext({
       storeCode: doc.storeCode,
       approvedAt: doc.approvedAt,
+      deliveryDate: doc.deliveryDate,
     });
     const payload = buildErpPayload(doc, ctx);
     const readiness = checkErpReadiness(doc, ctx);

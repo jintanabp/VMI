@@ -1,3 +1,4 @@
+import { bangkokDateStr } from "@/lib/fabric/bkk-date";
 import { prisma } from "@/lib/prisma";
 import { calcNetUnitPrice, resolveOrderLinePrice } from "@/lib/calculations";
 import { resolveVdaStoreName } from "@/lib/fabric/vda-store-name";
@@ -36,6 +37,10 @@ export async function rebuildPoDocumentFromDb(
     storeCode,
     storeName: resolveVdaStoreName(storeCode) || po.order.store.name,
     approvedAt: po.issuedAt,
+    // อ่านจากออเดอร์ต้นทาง ไม่ได้เก็บซ้ำบนแถว PO — เอกสารที่ประกอบใหม่จะได้ตรงกับไฟล์เสมอ
+    deliveryDate: po.order.deliveryDate
+      ? bangkokDateStr(po.order.deliveryDate)
+      : null,
     approvedBy: po.issuedBy,
     lines: po.items.map((item) => {
       const { unitPrice, source } = resolveOrderLinePrice({

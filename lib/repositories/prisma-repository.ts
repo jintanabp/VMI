@@ -82,7 +82,7 @@ export const prismaOrderRepository: OrderRepository = {
    * เช็คก่อนสร้างยังชนกันได้ถ้าสอง request มาพร้อมกันจริง ๆ จึงต้องมี unique index
    * เป็นด่านสุดท้าย แล้วดักโค้ด P2002 คืนใบที่อีก request สร้างสำเร็จไปแล้ว
    */
-  async createOrder(storeId, items, clientRequestId) {
+  async createOrder(storeId, items, clientRequestId, deliveryDate) {
     if (clientRequestId) {
       const existing = await prisma.order.findUnique({
         where: { clientRequestId },
@@ -95,6 +95,9 @@ export const prismaOrderRepository: OrderRepository = {
       storeId,
       clientRequestId: clientRequestId ?? null,
       status: "pending_approval",
+      // เก็บเป็นเที่ยงคืนเวลาไทย (UTC+7) ⇒ 17:00Z ของวันก่อนหน้า — ตรงกับที่ปลายทางรับเป็น DATE
+      // ใช้ Date.parse บนสตริงที่ระบุโซนชัดเจน ไม่ปล่อยให้ขึ้นกับโซนของเครื่องที่รัน
+      deliveryDate: deliveryDate ? new Date(`${deliveryDate}T00:00:00+07:00`) : null,
       items: {
         create: items.map((item) => ({
           skuId: item.skuId,

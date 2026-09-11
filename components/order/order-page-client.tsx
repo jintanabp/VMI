@@ -1,6 +1,12 @@
 "use client";
 
 import { appPath } from "@/lib/paths";
+import {
+  checkDeliveryDate,
+  defaultDeliveryDate,
+  earliestDeliveryDate,
+  thaiShortDate,
+} from "@/lib/orders/delivery-date";
 import { apiFetch } from "@/lib/api-fetch";
 import { suggestRemainingQty } from "@/lib/stock/suggest-remaining";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -946,6 +952,19 @@ export function OrderPageClient({
    * ส่งสำเร็จแล้วหน้านี้เปลี่ยนเป็นจอ "ส่งแล้ว" และดราฟต์ถูกล้าง — ออเดอร์ถัดไป
    * เริ่มจากหน้าใหม่ซึ่งได้รหัสใหม่เอง
    */
+  /**
+   * วันที่ร้านอยากรับของ — เริ่มที่วันนี้ + lead time แล้วเลื่อนออกไปได้
+   *
+   * คิดครั้งเดียวตอนหน้าโหลดด้วย `useState(() => …)` ไม่ใช่ทุก render —
+   * ไม่งั้นถ้าหน้าเปิดค้างข้ามเที่ยงคืน ค่าจะขยับเองใต้มือคนที่กำลังกรอกอยู่
+   */
+  const [deliveryDate, setDeliveryDate] = useState(() => defaultDeliveryDate());
+  const earliestDelivery = useMemo(() => earliestDeliveryDate(), []);
+  const deliveryError = useMemo(
+    () => checkDeliveryDate(deliveryDate),
+    [deliveryDate]
+  );
+
   const requestIdRef = useRef<string>("");
   if (!requestIdRef.current) {
     requestIdRef.current =
@@ -961,6 +980,7 @@ export function OrderPageClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           clientRequestId: requestIdRef.current,
+          deliveryDate,
           items: submittableLines.map((l) => ({
             skuId: l.row.skuId,
             suggestedQty: l.row.suggestOrder,
@@ -1262,18 +1282,51 @@ export function OrderPageClient({
               รวม {stats.totalQty} หีบ · {stats.skuCount} รายการ
             </p>
           </div>
+
+          {/* วันรับของ — อยู่ติดปุ่มส่งเพราะเป็นสิ่งสุดท้ายที่ต้องตัดสินก่อนกด
+              ไม่ใช่ตัวกรองที่ตั้งไว้แล้วลืม · ทวนวันเป็นไทยข้าง ๆ ด้วยเหตุผลเดียวกับ
+              ตัวกรอง PO: ปฏิทินของเบราว์เซอร์อ่านเป็น 09/02 ได้ทั้งสองความหมาย */}
+          <label className="flex shrink-0 flex-col gap-0.5 text-left">
+            <span className="vmi-t-xs font-medium text-slate-500 dark:text-slate-400">
+              วันที่ต้องการรับของ
+            </span>
+            <span className="flex items-center gap-1.5">
+              <input
+                id="delivery-date"
+                type="date"
+                value={deliveryDate}
+                min={earliestDelivery}
+                onChange={(e) => setDeliveryDate(e.target.value)}
+                disabled={submitMutation.isPending}
+                aria-invalid={deliveryError != null}
+                className={cn(
+                  "rounded-lg border bg-white px-2 py-1 text-sm outline-none ring-teal-500/30 focus:ring-2 dark:bg-slate-900",
+                  deliveryError
+                    ? "border-red-400 dark:border-red-700"
+                    : "border-slate-200 dark:border-slate-700"
+                )}
+              />
+              <span className="whitespace-nowrap vmi-t-xs text-slate-500 dark:text-slate-400">
+                {thaiShortDate(deliveryDate)}
+              </span>
+            </span>
+          </label>
           <Button
             size="sm"
             className="shrink-0"
             disabled={
-              submittableLines.length === 0 || submitMutation.isPending
+              submittableLines.length === 0 ||
+              submitMutation.isPending ||
+              deliveryError != null
             }
             title={
               submittableLines.length === 0
                 ? "ยังไม่มีรายการที่จำนวนมากกว่า 0"
-                : stats.blockingCount > 0
-                  ? "มีรายการจำนวนไม่เข้าเป้าหมาย — กดแล้วจะให้ยืนยันก่อนส่ง"
-                  : undefined
+                : deliveryError
+                  ? deliveryError
+                  : stats.blockingCount > 0
+                    ? "มีรายการจำนวนไม่เข้าเป้าหมาย — กดแล้วจะให้ยืนยันก่อนส่ง"
+                    : undefined
             }
             onClick={requestSubmit}
           >

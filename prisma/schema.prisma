@@ -68,6 +68,12 @@ model Order {
   clientRequestId String?  @unique
   status       String      @default("pending_approval")
   rejectReason String?
+  /// วันที่ร้านอยากรับของ — ร้านเลือกเองตอนกดส่ง (ค่าตั้งต้น = วันนี้ + LEAD_TIME_DAYS)
+  ///
+  /// เก็บเป็นวันล้วน ๆ เที่ยงคืนเวลาไทย ไม่ใช่ instant ที่มีเวลา เพราะปลายทาง ERP
+  /// รับเป็น DATE และฝั่ง ocr ก็ส่งเที่ยงคืนเสมอ · null = ออเดอร์ที่ส่งก่อนมีฟีเจอร์นี้
+  /// (11 ก.ย. 69) ซึ่งจะออก PO ที่ยังส่งเข้า ERP ไม่ได้จนกว่าจะมีคนกรอกให้
+  deliveryDate DateTime?
   createdAt    DateTime    @default(now())
   approvedAt   DateTime?
   /// เวลาที่พนักงานตัดสิน (อนุมัติ *หรือ* ปฏิเสธ)

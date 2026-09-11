@@ -44,8 +44,11 @@ export function erpCustomerCodeForVda(storeCode: string): string {
 /**
  * รหัสเซลส์ที่ดูแลคลังนี้ — ตัวแรกในทะเบียน
  *
- * ยังต้องให้ทีม ERP ยืนยันว่าควรส่งรหัสเซลส์ของคลัง หรือรหัสของคนที่กดอนุมัติใบนั้น
- * (คำถามข้อ 5 ในแผน) — ถ้าคำตอบเป็นอย่างหลัง จุดที่ต้องแก้คือฟังก์ชันนี้จุดเดียว
+ * **ยืนยันแล้ว 11 ก.ย. 69: ส่งรหัส "คนที่ดูแลคลังนั้น" ไม่ใช่คนที่กดอนุมัติใบ**
+ *
+ * ซึ่งเป็นคำตอบที่ปลอดภัยกว่าด้วย: ปลายทางตีกลับเป็น `RECORDSTATUS = 5` เมื่อลูกค้า
+ * ไม่อยู่ในลิสต์ CFM ของเซลส์คนที่ส่ง ⇒ ถ้าส่งรหัสของคนที่กดอนุมัติแล้วคนนั้นไม่ได้ถือ
+ * ลูกค้ารายนั้น ใบจะเข้าไปก่อนแล้วค่อยตกทีหลังแบบเงียบ ๆ ไม่ใช่ 400 ตอนยิง
  */
 export function erpSalesmanCodeForVda(storeCode: string): string {
   const key = normalizeStoreKey(storeCode);
@@ -60,23 +63,28 @@ export function erpSalesmanCodeForVda(storeCode: string): string {
 }
 
 /**
- * `deliveryDate` — **ยังไม่รู้กติกา ต้องถามทีม ERP ก่อน**
+ * `deliveryDate` — **วันที่ร้านเลือกเองตอนกดส่งออเดอร์** (พี่เคาะ 11 ก.ย. 69)
  *
- * VMI ไม่มี "วันนัดส่ง" ในระบบเลย (ต่างจากฝั่ง ocr-po-matching ที่เซลส์กรอกจากใบ PO
- * ของลูกค้า) ตัวเลือกที่คุยกันไว้: วันอนุมัติ + lead time, ให้เซลส์เลือกตอนกดส่ง,
- * หรือใช้วันอนุมัติเลย — ทั้งสามมีผลกับคิวส่งของจริง จึงต้องรอคำตอบ
+ * เดิมคืน `null` เสมอเพราะ VMI ไม่มีวันนัดส่งในระบบเลย · ตอนนี้ร้านเลือกได้ที่หน้ากดส่ง
+ * เริ่มที่วันนี้ + `LEAD_TIME_DAYS` และเลื่อนออกไปได้ (ดู `lib/orders/delivery-date.ts`)
  *
- * จนกว่าจะได้คำตอบ ฟังก์ชันนี้คืน `null` เสมอ ⇒ ทุกใบขึ้นว่า "ยังส่งไม่ได้"
- * **ห้ามเดาแล้วปล่อยเงียบ** — payload ที่ดูสมบูรณ์ทั้งที่วันส่งเป็นการเดา
- * คือสิ่งที่จะทำให้ของไปผิดวันโดยไม่มีใครรู้ว่าใครกำหนด
+ * ส่งเป็น **เที่ยงคืน** ตามที่ฝั่ง ocr ส่งมาตลอด (`… 00:00:00`) เพราะปลายทางเก็บเป็น
+ * `DELIVERYDATE DATE` — เวลาไม่มีความหมาย แต่รูปแบบต้องครบ
+ *
+ * ยังคืน `null` ได้อยู่สำหรับออเดอร์ที่ส่งก่อนมีฟีเจอร์นี้ ⇒ ใบนั้นติด
+ * `missing_delivery_date` ตามเดิม **ห้ามเดาวันแทนร้าน** — payload ที่ดูสมบูรณ์
+ * ทั้งที่วันส่งเป็นการเดา คือสิ่งที่ทำให้ของไปผิดวันโดยไม่มีใครรู้ว่าใครกำหนด
  */
-export function erpDeliveryDate(): string | null {
-  return null;
+export function erpDeliveryDate(deliveryDate: string | null): string | null {
+  if (!deliveryDate) return null;
+  return `${deliveryDate} 00:00:00`;
 }
 
 export function buildErpContext(args: {
   storeCode: string;
   approvedAt: string | Date;
+  /** วันที่ร้านเลือก — มาจาก `PoDocument.deliveryDate` */
+  deliveryDate: string | null;
 }): ErpPayloadContext {
   const approved =
     args.approvedAt instanceof Date ? args.approvedAt : new Date(args.approvedAt);
@@ -85,6 +93,6 @@ export function buildErpContext(args: {
     salesmanCode: erpSalesmanCodeForVda(args.storeCode),
     divisionCode: DEFAULT_DIVISION_CODE,
     createDate: erpDateTime(approved),
-    deliveryDate: erpDeliveryDate(),
+    deliveryDate: erpDeliveryDate(args.deliveryDate),
   };
 }

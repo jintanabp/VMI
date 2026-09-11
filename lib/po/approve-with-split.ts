@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { bangkokDateStr } from "@/lib/fabric/bkk-date";
 import { getRepositories } from "@/lib/repositories";
 import { calcNetUnitPrice, resolveOrderLinePrice } from "@/lib/calculations";
 import { resolveVdaStoreName } from "@/lib/fabric/vda-store-name";
@@ -161,6 +162,10 @@ export async function approveWithPoSplit(
         storeName,
         approvedAt: now,
         approvedBy: actorEmail,
+        // วันที่ร้านเลือกตอนกดส่ง — เก็บเป็นวันไทยล้วน ๆ ให้ตรงกับที่ปลายทางรับเป็น DATE
+        deliveryDate: order.deliveryDate
+          ? bangkokDateStr(order.deliveryDate)
+          : null,
         lines: includedItems.map((item) => {
           const { unitPrice, source } = resolveOrderLinePrice({
             salesPriceOverride: item.salesPriceOverride,

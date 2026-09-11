@@ -163,7 +163,9 @@ export interface OrderRepository {
   createOrder(
     storeId: string,
     items: OrderItemInput[],
-    clientRequestId?: string
+    clientRequestId?: string,
+    /** วันที่ร้านอยากรับของ (YYYY-MM-DD) — null = ออเดอร์เก่าก่อนมีฟีเจอร์นี้ */
+    deliveryDate?: string | null
   ): Promise<{ id: string; reused: boolean }>;
   listOrders(filters?: {
     salesRepEmail?: string;

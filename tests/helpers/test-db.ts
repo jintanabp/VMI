@@ -92,7 +92,7 @@ export interface SeedResult {
 /** ออเดอร์เล็กที่สุดที่อนุมัติได้จริง: ร้าน 1 + SKU 2 + ออเดอร์ pending 1 */
 export async function seedPendingOrder(
   db: PrismaClient,
-  opts: { storeCode?: string; qtys?: number[] } = {}
+  opts: { storeCode?: string; qtys?: number[]; deliveryDate?: Date | null } = {}
 ): Promise<SeedResult> {
   const storeCode = opts.storeCode ?? "vda1";
   const qtys = opts.qtys ?? [10, 20];
@@ -113,6 +113,7 @@ export async function seedPendingOrder(
     data: {
       storeId: store.id,
       status: "pending_approval",
+      deliveryDate: opts.deliveryDate ?? null,
       items: {
         create: qtys.map((qty, i) => ({
           skuId: skus[i]!.id,

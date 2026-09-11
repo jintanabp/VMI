@@ -62,6 +62,8 @@ export interface PoDocument {
   storeName: string;
   approvedAt: string;
   approvedBy: string;
+  /** วันที่ร้านอยากรับของ (YYYY-MM-DD เวลาไทย) — null = ออเดอร์เก่าก่อน 11 ก.ย. 69 */
+  deliveryDate: string | null;
   itemCount: number;
   totalQty: number;
   totalAmount: number;
@@ -83,6 +85,8 @@ export function buildPoDocument(args: {
   storeName: string;
   approvedAt: Date;
   approvedBy: string;
+  /** วันที่ร้านอยากรับของ — ส่ง null ได้เมื่อออเดอร์เก่าไม่มีค่านี้ */
+  deliveryDate: string | null;
   lines: Omit<PoDocumentLine, "amount" | "vatAmount">[];
 }): PoDocument {
   /**
@@ -114,6 +118,7 @@ export function buildPoDocument(args: {
     storeCode: args.storeCode,
     storeName: args.storeName,
     approvedAt: args.approvedAt.toISOString(),
+    deliveryDate: args.deliveryDate,
     approvedBy: args.approvedBy,
     itemCount: lines.length,
     totalQty: lines.reduce((s, l) => s + l.qty, 0),

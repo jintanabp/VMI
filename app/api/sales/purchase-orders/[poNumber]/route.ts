@@ -181,6 +181,7 @@ export async function GET(
     const erpCtx = buildErpContext({
       storeCode: doc.storeCode,
       approvedAt: doc.approvedAt,
+      deliveryDate: doc.deliveryDate,
     });
     return NextResponse.json({
       payload: buildErpPayload(doc, erpCtx),
