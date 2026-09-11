@@ -27,15 +27,19 @@ export function MobileRow({
   selected,
   warn,
   children,
+  ref,
   ...rest
 }: {
   className?: string;
   selected?: boolean;
   warn?: boolean;
   children: React.ReactNode;
+  /** ให้ผู้เรียกวัดความสูงจริงของการ์ดได้ (virtualizer ของหน้าสต็อกบนโทรศัพท์ใช้) */
+  ref?: React.Ref<HTMLDivElement>;
 } & React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
+      ref={ref}
       {...rest}
       className={cn(
         "px-2 py-2.5 transition-colors sm:px-3",

@@ -38,16 +38,10 @@ export async function verifyStorePassword(
   }
 }
 
-/**
- * ตรวจความแข็งแรงของรหัสขั้นต่ำ — บังคับเฉพาะตอน "ตั้งใหม่"
- * รหัสเดิมที่สั้นกว่านี้ยังใช้เข้าระบบได้ (verify ไม่เรียกฟังก์ชันนี้)
- */
-export function validatePasswordStrength(password: string): string | null {
-  if (!password || password.length < 8) {
-    return "รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร";
-  }
-  if (password.length > 128) {
-    return "รหัสผ่านยาวเกินไป";
-  }
-  return null;
-}
+// เกณฑ์ความยาวย้ายไป ./password-rules แล้ว (ฝั่งเบราว์เซอร์ import ไฟล์นี้ไม่ได้เพราะมี crypto)
+// re-export ไว้ให้ที่เรียกเดิมไม่ต้องแก้ และจะได้ไม่มีใครเผลอเขียนเกณฑ์ขึ้นมาใหม่
+export {
+  PASSWORD_MIN_LEN,
+  PASSWORD_MAX_LEN,
+  validatePasswordStrength,
+} from "./password-rules";

@@ -1,6 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import type { StoreAccount } from "@prisma/client";
-import { hashStorePassword } from "./store-password";
+import {
+  hashStorePassword,
+  validatePasswordStrength,
+  verifyStorePassword,
+} from "./store-password";
 
 export type StoreAccountStatus = "pending" | "approved" | "rejected";
 
@@ -155,6 +159,54 @@ export async function setStoreAccountPassword(email: string, password: string) {
     where: { email: e },
     data: { passwordHash, mustSetPassword: false, resetRequestedAt: null },
   });
+}
+
+/**
+ * ร้านเปลี่ยนรหัสเอง — ต้องรู้รหัสเดิม
+ *
+ * ต่างจาก `setStoreAccountPassword` ที่ใช้ตอนตั้งครั้งแรก/แอดมินรีเซ็ตให้: ตัวนั้นเชื่อว่าคนเรียก
+ * มีสิทธิ์อยู่แล้ว ส่วนตัวนี้เป็นทางที่เปิดให้ร้านที่ล็อกอินอยู่เรียกได้ จึงต้องพิสูจน์รหัสเดิม
+ * ไม่งั้นคุกกี้ที่หลุดไปเปลี่ยนรหัสเจ้าของบัญชีได้เลย
+ *
+ * คืน error code ไม่ใช่ข้อความ — ให้ route เป็นคนตัดสินว่าจะบอกผู้ใช้ว่าอะไร
+ */
+export type ChangePasswordError =
+  | "not_found"
+  | "no_password"
+  | "wrong_current"
+  | "same_as_current"
+  | "weak";
+
+export async function changeStoreAccountPassword(
+  email: string,
+  currentPassword: string,
+  newPassword: string
+): Promise<{ ok: true; account: StoreAccount } | { ok: false; error: ChangePasswordError; message?: string }> {
+  const e = norm(email);
+  const account = await prisma.storeAccount.findUnique({ where: { email: e } });
+  if (!account) return { ok: false, error: "not_found" };
+  // บัญชีที่ยังไม่เคยตั้งรหัส (หรือโดนแอดมินรีเซ็ต) ไม่มีรหัสเดิมให้ยืนยัน — ต้องไปทางตั้งครั้งแรก
+  if (account.mustSetPassword || !account.passwordHash) {
+    return { ok: false, error: "no_password" };
+  }
+
+  const ok = await verifyStorePassword(currentPassword, account.passwordHash);
+  if (!ok) return { ok: false, error: "wrong_current" };
+
+  // ตรวจก่อนว่าซ้ำของเดิมไหม แล้วค่อยตรวจความแข็งแรง — ไม่งั้นคนที่รหัสเดิมสั้นกว่า 8 ตัว
+  // (บัญชีเก่าก่อนยกขั้นต่ำ) จะได้ข้อความว่า "สั้นไป" ทั้งที่ปัญหาจริงคือพิมพ์รหัสเดิมซ้ำ
+  if (await verifyStorePassword(newPassword, account.passwordHash)) {
+    return { ok: false, error: "same_as_current" };
+  }
+  const weak = validatePasswordStrength(newPassword);
+  if (weak) return { ok: false, error: "weak", message: weak };
+
+  const passwordHash = await hashStorePassword(newPassword);
+  const updated = await prisma.storeAccount.update({
+    where: { email: e },
+    data: { passwordHash, mustSetPassword: false, resetRequestedAt: null },
+  });
+  return { ok: true, account: updated };
 }
 
 /** ร้านค้าขอรีเซ็ตรหัส — บันทึกเวลาให้แอดมินเห็น */

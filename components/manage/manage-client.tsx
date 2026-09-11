@@ -1,7 +1,7 @@
 "use client";
 
 import { appPath } from "@/lib/paths";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, UnauthorizedError } from "@/lib/api-fetch";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -35,6 +35,10 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useDataVersion } from "@/hooks/use-data-version";
 import { cn, matchesProductSearch } from "@/lib/utils";
 import { daysError } from "@/lib/stock/threshold-rules";
+import {
+  PASSWORD_MIN_LEN,
+  validatePasswordStrength,
+} from "@/lib/auth/password-rules";
 import type { StockRowComputed } from "@/lib/repositories/types";
 import { friendlyError } from "@/lib/error-message";
 
@@ -291,25 +295,39 @@ export function ManageClient({
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
             {email || storeCode}
           </p>
-          <div className="mt-3 flex items-center gap-3">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={requestReset}
-              disabled={resetting || !email}
-            >
-              {resetting ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <KeyRound className="h-4 w-4" />
+
+          <ChangePasswordForm disabled={!email} />
+
+          <div className="mt-5 border-t border-slate-100 pt-4 dark:border-slate-800">
+            <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+              จำรหัสเดิมไม่ได้?
+            </p>
+            {/* ปุ่มนี้ไม่ได้ส่งอีเมลหาใคร — route แค่ตั้งธงให้แอดมินเห็นในหน้าแอดมิน
+                ข้อความเดิมไม่ได้บอกไว้ คนกดจึงนั่งรอลิงก์ที่ไม่มีวันมา */}
+            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+              ปุ่มนี้จะแจ้งแอดมินให้รีเซ็ตรหัสให้ — ไม่มีอีเมลส่งออกไป และต้องรอแอดมินดำเนินการ
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-3">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={requestReset}
+                disabled={resetting || !email}
+                title={!email ? "บัญชีนี้ไม่มีอีเมล จึงขอรีเซ็ตไม่ได้" : undefined}
+              >
+                {resetting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <KeyRound className="h-4 w-4" />
+                )}
+                แจ้งแอดมินให้รีเซ็ตรหัส
+              </Button>
+              {resetMsg && (
+                <span className="text-xs text-teal-700 dark:text-teal-400">
+                  {resetMsg}
+                </span>
               )}
-              ขอรีเซ็ตรหัสผ่าน
-            </Button>
-            {resetMsg && (
-              <span className="text-xs text-teal-700 dark:text-teal-400">
-                {resetMsg}
-              </span>
-            )}
+            </div>
           </div>
         </section>
 
@@ -432,6 +450,153 @@ export function ManageClient({
         </div>
       </main>
     </PageShell>
+  );
+}
+
+/**
+ * ฟอร์มเปลี่ยนรหัสผ่านของร้านที่ล็อกอินอยู่
+ *
+ * ไม่ส่งอีเมลไปกับคำขอ — เซิร์ฟเวอร์อ่านจากเซสชันเอง (ดูคอมเมนต์ใน route) ที่นี่จึงไม่มีช่องอีเมล
+ * เกณฑ์ความยาวมาจาก `lib/auth/password-rules` ตัวเดียวกับที่เซิร์ฟเวอร์ใช้ ฝั่งจอจะได้ไม่บอก
+ * คนละอย่างกับที่เซิร์ฟเวอร์จะตอบ
+ */
+function ChangePasswordForm({ disabled }: { disabled: boolean }) {
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [show, setShow] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState(false);
+
+  // เหตุผลที่กดไม่ได้ — เรียงตามลำดับที่คนกรอกจริง ไม่งั้นจะโดนบอกว่า "รหัสไม่ตรงกัน"
+  // ตั้งแต่ยังพิมพ์ช่องยืนยันไม่เสร็จ
+  const blockedReason = (() => {
+    if (disabled) return "บัญชีนี้ไม่มีอีเมล จึงเปลี่ยนรหัสเองไม่ได้";
+    if (!current) return "กรอกรหัสผ่านเดิมก่อน";
+    if (!next) return "กรอกรหัสผ่านใหม่";
+    const weak = validatePasswordStrength(next);
+    if (weak) return weak;
+    if (next === current) return "รหัสใหม่ต้องไม่ซ้ำกับรหัสเดิม";
+    if (!confirm) return "พิมพ์รหัสใหม่อีกครั้งเพื่อยืนยัน";
+    if (confirm !== next) return "รหัสใหม่ทั้งสองช่องไม่ตรงกัน";
+    return null;
+  })();
+
+  async function submit() {
+    setBusy(true);
+    setError("");
+    setDone(false);
+    try {
+      const res = await apiFetch(appPath("/api/auth/store/change-password"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currentPassword: current, newPassword: next }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error ?? `เปลี่ยนรหัสไม่สำเร็จ (${res.status})`);
+        return;
+      }
+      setCurrent("");
+      setNext("");
+      setConfirm("");
+      setDone(true);
+    } catch (e) {
+      // เซสชันหมดจริง ๆ ต้องปล่อยให้ตัวจัดการกลางเด้งไป login ไม่ใช่กลืนเป็น "เน็ตมีปัญหา"
+      if (e instanceof UnauthorizedError) throw e;
+      setError("ติดต่อเซิร์ฟเวอร์ไม่ได้ ลองใหม่อีกครั้ง");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const field =
+    "w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none ring-teal-500/30 focus:ring-2 disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:disabled:bg-slate-800";
+
+  return (
+    <div className="mt-3">
+      <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+        เปลี่ยนรหัสผ่าน
+      </p>
+      <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+        ต้องรู้รหัสเดิม · รหัสใหม่อย่างน้อย {PASSWORD_MIN_LEN} ตัวอักษร
+      </p>
+
+      {/* ช่องเดียวต่อบรรทัดจนถึง 480px — สามช่องเรียงกันบนจอโทรศัพท์อ่านไม่ออก */}
+      <div className="mt-2 grid max-w-md grid-cols-1 gap-2">
+        <label className="block">
+          <span className="text-[11px] font-medium text-slate-500">รหัสผ่านเดิม</span>
+          <input
+            type={show ? "text" : "password"}
+            value={current}
+            onChange={(e) => setCurrent(e.target.value)}
+            disabled={disabled || busy}
+            autoComplete="current-password"
+            className={field}
+          />
+        </label>
+        <label className="block">
+          <span className="text-[11px] font-medium text-slate-500">รหัสผ่านใหม่</span>
+          <input
+            type={show ? "text" : "password"}
+            value={next}
+            onChange={(e) => setNext(e.target.value)}
+            disabled={disabled || busy}
+            autoComplete="new-password"
+            className={field}
+          />
+        </label>
+        <label className="block">
+          <span className="text-[11px] font-medium text-slate-500">
+            ยืนยันรหัสผ่านใหม่
+          </span>
+          <input
+            type={show ? "text" : "password"}
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            disabled={disabled || busy}
+            autoComplete="new-password"
+            className={field}
+          />
+        </label>
+      </div>
+
+      <label className="mt-2 flex w-fit cursor-pointer items-center gap-2 text-xs font-medium text-slate-700 dark:text-slate-300">
+        <Checkbox
+          checked={show}
+          onCheckedChange={(v) => setShow(v === true)}
+          disabled={disabled || busy}
+        />
+        แสดงรหัสผ่าน
+      </label>
+
+      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+      {done && (
+        <p className="mt-2 text-xs text-teal-700 dark:text-teal-400">
+          เปลี่ยนรหัสผ่านแล้ว — ครั้งต่อไปให้เข้าระบบด้วยรหัสใหม่
+        </p>
+      )}
+
+      <div className="mt-2">
+        <Button
+          size="sm"
+          onClick={submit}
+          disabled={busy || blockedReason != null}
+          title={blockedReason ?? undefined}
+        >
+          {busy ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Save className="h-4 w-4" />
+          )}
+          บันทึกรหัสใหม่
+        </Button>
+        {blockedReason && !busy && (
+          <span className="ml-2 text-xs text-slate-400">{blockedReason}</span>
+        )}
+      </div>
+    </div>
   );
 }
 

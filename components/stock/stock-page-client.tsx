@@ -166,6 +166,12 @@ function isStockPayload(data: unknown): data is StockApiResponse {
 
 /** ความสูงแถวเริ่มต้น (px) — ต้องตรงกับ --vmi-row-h ใน globals.css */
 const DEFAULT_ROW_PX = 48;
+/**
+ * ความสูงเริ่มต้นของการ์ดหนึ่งใบบนโทรศัพท์ — เป็นแค่ค่าเดาก่อนวัดของจริง
+ * (วัดที่ 390px: การ์ดปกติราว 150px กางแผงแล้วเกิน 350px — เอาค่ากลาง ๆ ให้ scrollbar
+ *  ไม่กระโดดมากตอนเลื่อนผ่านของที่ยังไม่เคยวัด)
+ */
+const MOBILE_CARD_EST_PX = 168;
 
 // v2 = เปลี่ยนค่าเริ่มต้นเป็นรหัสสินค้าน้อยไปมาก — ต้องเปลี่ยนคีย์
 // ไม่งั้นเครื่องที่เคยเปิดหน้านี้จะยังโดน sort เดิม (desc) ที่ค้างใน sessionStorage ทับ
@@ -257,12 +263,28 @@ export function StockPageClient({
 
   /** true = desktop table (≥1024px); false = mobile/card list */
   const [isDesktop, setIsDesktop] = useState(false);
+  /**
+   * true = การ์ดเรียงคอลัมน์เดียว (<768px)
+   *
+   * ช่วง 768–1023px `.vmi-card-grid` เป็นกริด 2 คอลัมน์ (globals.css) ซึ่ง virtualizer
+   * ที่นับทีละแถวใช้ไม่ได้ — ต้องจับคู่การ์ดเป็นแถวก่อน · แท็บเล็ตแรงกว่าโทรศัพท์และเห็น
+   * 2 ใบต่อแถวอยู่แล้ว จึงปล่อยไว้ก่อน ไม่ใช่ลืม
+   */
+  const [isPhone, setIsPhone] = useState(false);
   useEffect(() => {
     const mq = window.matchMedia("(min-width: 1024px)");
-    const apply = () => setIsDesktop(mq.matches);
+    const phoneMq = window.matchMedia("(max-width: 767px)");
+    const apply = () => {
+      setIsDesktop(mq.matches);
+      setIsPhone(phoneMq.matches);
+    };
     apply();
     mq.addEventListener("change", apply);
-    return () => mq.removeEventListener("change", apply);
+    phoneMq.addEventListener("change", apply);
+    return () => {
+      mq.removeEventListener("change", apply);
+      phoneMq.removeEventListener("change", apply);
+    };
   }, []);
 
   const rows = useMemo(() => data?.rows ?? [], [data?.rows]);
@@ -626,8 +648,15 @@ export function StockPageClient({
   const expandedHeights = useRef<Map<string, number>>(new Map());
   // โหมดโปรเป็นการ์ดซ้อนกัน ไม่ใช่ลิสต์ <tr> แบน — virtualizer ที่ประเมินความสูง
   // จากตารางเดียวใช้ไม่ได้ ต้องปิดไว้ ไม่งั้น estimateSize จะ index แถวที่ไม่มีใน DOM
+  //
+  // โทรศัพท์เข้าเงื่อนไขด้วยตั้งแต่ 11 ก.ย. 69 — วัดที่ 390px กับ vda1 (841 การ์ด, 50,094 DOM node):
+  // CPU ช้าลง 4 เท่า กว่าการ์ดจะขึ้น 5.4 วินาที กด "+" แล้วตัวเลขเปลี่ยนใน 1.6 วินาที ·
+  // ช้าลง 6 เท่า เป็น 9.1 วินาที และ 3.1 วินาที ⇒ ไม่ใช่ "ช้านิดหน่อย"
   const shouldVirtualize =
-    mode === "list" && isDesktop && !isLoading && displayRows.length >= 40;
+    mode === "list" &&
+    (isDesktop || isPhone) &&
+    !isLoading &&
+    displayRows.length >= 40;
   // ความสูงแถวมาจาก --vmi-row-h ใน globals.css (แหล่งความจริงเดียว)
   // 48 เป็นแค่ fallback ก่อน DOM พร้อม
   const rowBasePx = useRef(DEFAULT_ROW_PX);
@@ -635,6 +664,9 @@ export function StockPageClient({
     count: shouldVirtualize ? displayRows.length : 0,
     getScrollElement: () => tableScrollRef.current,
     estimateSize: (index) => {
+      // การ์ดบนโทรศัพท์สูงกว่าแถวตารางหลายเท่าและสูงไม่เท่ากัน — ให้ค่าประมาณกลาง ๆ ไปก่อน
+      // แล้ว measureElement ที่ติดไว้กับการ์ดจะแทนที่ด้วยความสูงจริงทีละใบ
+      if (!isDesktop) return MOBILE_CARD_EST_PX;
       const base = rowBasePx.current;
       const row = displayRows[index];
       if (!row) return base;
@@ -648,6 +680,8 @@ export function StockPageClient({
       if (expanded.has(row.skuId)) h += expandedHeights.current.get(row.skuId) ?? 220;
       return h;
     },
+    // เคยลองเพิ่มเป็น 24 บนมือถือเพื่อลดการ render ระหว่างปัด — **แย่ลง** (เฟรมกลาง 133→200 ms
+    // ที่ CPU ช้า 4 เท่า) เพราะการ์ดที่เผื่อไว้ต้องถูกวัดความสูงด้วยทุกใบ · 10 คือค่าที่วัดแล้วดีที่สุด
     overscan: 10,
   });
 
@@ -1531,12 +1565,26 @@ export function StockPageClient({
                   )}
                 </div>
               ) : (
+                <>
+                {/* ตัวเว้นด้านบน/ล่างอยู่นอก MobileRowList เพราะลิสต์มี divide-y —
+                    div เปล่าที่อยู่ข้างในจะกลายเป็นเส้นคั่นลอย ๆ */}
+                {virtualItems && (virtualItems[0]?.start ?? 0) > 0 && (
+                  <div aria-hidden style={{ height: virtualItems[0]!.start }} />
+                )}
                 <MobileRowList grid>
-                  {displayRows.map((row, index) => {
+                  {(virtualItems
+                    ? virtualItems.map((v) => ({
+                        row: displayRows[v.index]!,
+                        index: v.index,
+                      }))
+                    : displayRows.map((row, index) => ({ row, index }))
+                  ).map(({ row, index }) => {
                     const { cvdEst, flag, reason } = orderCvdFlag(row);
                     return (
                     <StockMobileRow
                       key={row.skuId}
+                      measureRef={virtualItems ? rowVirtualizer.measureElement : undefined}
+                      virtualIndex={index}
                       row={row}
                       afterPromoGroup={followsPooledPromoGroup(displayRows, index)}
                       storeCode={activeVda}
@@ -1586,6 +1634,15 @@ export function StockPageClient({
                     );
                   })}
                 </MobileRowList>
+                {virtualItems &&
+                  (() => {
+                    const last = virtualItems[virtualItems.length - 1];
+                    if (!last) return null;
+                    const bottom = rowVirtualizer.getTotalSize() - last.end;
+                    if (bottom <= 0) return null;
+                    return <div aria-hidden style={{ height: bottom }} />;
+                  })()}
+                </>
               )}
             </div>
             ) : (
@@ -2344,6 +2401,8 @@ const StockMobileRow = memo(function StockMobileRow({
   onToggleExpand,
   showFreeGoodRow,
   recentOrder,
+  measureRef,
+  virtualIndex,
 }: {
   row: DisplayRow;
   storeCode: string;
@@ -2385,6 +2444,12 @@ const StockMobileRow = memo(function StockMobileRow({
   onToggleExpand: () => void;
   onToggle: () => void;
   showFreeGoodRow?: boolean;
+  /**
+   * ตัววัดของ virtualizer — ติดไว้ตอนโทรศัพท์เปิด virtualization เท่านั้น
+   * การ์ดสูงไม่เท่ากัน (แผงที่กาง, แถวของแถม, หัวกลุ่มโปร) การวัดของจริงตรงกว่าการเดา
+   */
+  measureRef?: (el: HTMLElement | null) => void;
+  virtualIndex?: number;
 }) {
   const lowStock =
     row.needsOrder || (row.stockCvd !== null && row.stockCvd < row.minDays);
@@ -2400,6 +2465,8 @@ const StockMobileRow = memo(function StockMobileRow({
   return (
     <>
     <MobileRow
+      ref={measureRef}
+      data-index={virtualIndex}
       data-sku-code={row.skuCode}
       selected={selected}
       // MobileRow จัดการพื้นหลังตอน selected ให้แล้ว (selected ชนะ warn)
