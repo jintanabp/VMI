@@ -49,9 +49,12 @@ function fmtDateTime(iso: string): string {
 export function PoDetailPanel({
   poNumber,
   onClose,
+  isAdmin = false,
 }: {
   poNumber: string;
   onClose: () => void;
+  /** เห็น JSON ดิบที่จะยิงเข้า ERP ได้ไหม — พนักงานทั่วไปไม่ต้องเห็น มีแต่ dev/แอดมินที่ต้องใช้ debug */
+  isAdmin?: boolean;
 }) {
   const { data, isLoading, isError, refetch } = useQuery<PoDocument>({
     queryKey: ["po-detail", poNumber],
@@ -99,7 +102,7 @@ export function PoDetailPanel({
         aria-modal="true"
         aria-label={`รายละเอียด PO ${poNumber}`}
         tabIndex={-1}
-        className="vmi-po-detail flex h-full w-full max-w-3xl flex-col bg-white shadow-xl outline-none dark:bg-slate-900"
+        className="vmi-po-detail flex h-full w-full max-w-5xl flex-col bg-white shadow-xl outline-none dark:bg-slate-900"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="flex shrink-0 items-start justify-between gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
@@ -334,7 +337,7 @@ export function PoDetailPanel({
                 </section>
               )}
 
-              <PoErpPayloadSection poNumber={poNumber} />
+              <PoErpPayloadSection poNumber={poNumber} isAdmin={isAdmin} />
             </>
           )}
         </div>

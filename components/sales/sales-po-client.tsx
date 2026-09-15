@@ -941,7 +941,11 @@ export function SalesPoClient() {
       </main>
 
       {detailPo && (
-        <PoDetailPanel poNumber={detailPo} onClose={() => setDetailPo(null)} />
+        <PoDetailPanel
+          poNumber={detailPo}
+          onClose={() => setDetailPo(null)}
+          isAdmin={session?.role === "admin"}
+        />
       )}
 
       <ConfirmDialog
