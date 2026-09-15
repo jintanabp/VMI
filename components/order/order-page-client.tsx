@@ -43,6 +43,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Modal, ModalBody, ModalFooter, ModalHeader } from "@/components/ui/modal";
 import { CvdFlagCell } from "@/components/ui/cvd-flag-cell";
 import {
   OrderNoticeBar,
@@ -192,6 +193,9 @@ export function OrderPageClient({
   const [submitError, setSubmitError] = useState<string | null>(null);
   /** ยืนยันอีกครั้งเมื่อมีรายการที่จำนวนไม่เข้าเป้าหมาย — เตือน ไม่ใช่ห้ามส่ง */
   const [confirmRiskyOpen, setConfirmRiskyOpen] = useState(false);
+  /** เดิมช่องเลือกวันรับของแอบอยู่ในแถบปุ่มล่างสุด เล็กจนร้านมองข้ามได้ง่าย —
+   * ย้ายมาเป็นกล่องยืนยันแยกที่ขึ้นทุกครั้งตอนกดส่ง จะได้ไม่มีทางพลาด */
+  const [confirmDeliveryOpen, setConfirmDeliveryOpen] = useState(false);
   /** ชิปคำเตือนที่กดค้างไว้ — กรองตารางให้เหลือเฉพาะรายการของคำเตือนนั้น */
   const [noticeFilter, setNoticeFilter] = useState<string | null>(null);
   /** รหัส SKU ที่ติ๊กไว้เพื่อลบออกจากคำสั่ง */
@@ -1028,7 +1032,17 @@ export function OrderPageClient({
    * (เดิมปิดปุ่มทิ้งไว้ ทำให้ร้านที่ของหมดแล้วสั่ง 1 หีบ ส่งออเดอร์ไม่ได้เลย
    *  ทั้งที่หน้านี้ไม่มีช่องแก้จำนวนให้ปรับด้วยซ้ำ)
    */
+  /**
+   * กดส่งครั้งแรกเจอด่านวันรับของก่อนเสมอ — เดิมข้ามตรงไปเช็คจำนวนเสี่ยงเลย
+   * ทำให้ร้านที่ไม่ได้สังเกตช่องวันที่ (เล็กและอยู่ปลายแถบปุ่ม) ส่งไปโดยไม่ได้ตั้งใจดูวันเลย
+   */
   function requestSubmit() {
+    setConfirmDeliveryOpen(true);
+  }
+
+  /** กดยืนยันวันรับของแล้ว — ไปต่อด่านจำนวนเสี่ยงถ้ามี ไม่งั้นส่งเลย */
+  function confirmDeliveryAndProceed() {
+    setConfirmDeliveryOpen(false);
     /**
      * ยอดโปรกลุ่มที่ไม่ลงล็อตไม่กั้นการส่งแล้ว — หน้าตรวจโปร (ขั้นที่ 1 ที่ /stock)
      * ถามไปแล้วว่าจะปรับหรือใช้ยอดเดิม ถ้ามากั้นซ้ำตรงนี้ ร้านที่เลือก "ใช้จำนวนเดิม"
@@ -1283,50 +1297,14 @@ export function OrderPageClient({
             </p>
           </div>
 
-          {/* วันรับของ — อยู่ติดปุ่มส่งเพราะเป็นสิ่งสุดท้ายที่ต้องตัดสินก่อนกด
-              ไม่ใช่ตัวกรองที่ตั้งไว้แล้วลืม · ทวนวันเป็นไทยข้าง ๆ ด้วยเหตุผลเดียวกับ
-              ตัวกรอง PO: ปฏิทินของเบราว์เซอร์อ่านเป็น 09/02 ได้ทั้งสองความหมาย */}
-          <label className="flex shrink-0 flex-col gap-0.5 text-left">
-            <span className="vmi-t-xs font-medium text-slate-500 dark:text-slate-400">
-              วันที่ต้องการรับของ
-            </span>
-            <span className="flex items-center gap-1.5">
-              <input
-                id="delivery-date"
-                type="date"
-                value={deliveryDate}
-                min={earliestDelivery}
-                onChange={(e) => setDeliveryDate(e.target.value)}
-                disabled={submitMutation.isPending}
-                aria-invalid={deliveryError != null}
-                className={cn(
-                  "rounded-lg border bg-white px-2 py-1 text-sm outline-none ring-teal-500/30 focus:ring-2 dark:bg-slate-900",
-                  deliveryError
-                    ? "border-red-400 dark:border-red-700"
-                    : "border-slate-200 dark:border-slate-700"
-                )}
-              />
-              <span className="whitespace-nowrap vmi-t-xs text-slate-500 dark:text-slate-400">
-                {thaiShortDate(deliveryDate)}
-              </span>
-            </span>
-          </label>
           <Button
             size="sm"
             className="shrink-0"
-            disabled={
-              submittableLines.length === 0 ||
-              submitMutation.isPending ||
-              deliveryError != null
-            }
+            disabled={submittableLines.length === 0 || submitMutation.isPending}
             title={
               submittableLines.length === 0
                 ? "ยังไม่มีรายการที่จำนวนมากกว่า 0"
-                : deliveryError
-                  ? deliveryError
-                  : stats.blockingCount > 0
-                    ? "มีรายการจำนวนไม่เข้าเป้าหมาย — กดแล้วจะให้ยืนยันก่อนส่ง"
-                    : undefined
+                : "กดแล้วให้เลือกวันรับของก่อนส่ง"
             }
             onClick={requestSubmit}
           >
@@ -1360,6 +1338,61 @@ export function OrderPageClient({
         onConfirm={removeSelected}
         onClose={() => setConfirmRemoveOpen(false)}
       />
+
+      {/* วันรับของ — เดิมเป็นช่องเล็ก ๆ แอบอยู่ปลายแถบปุ่มล่างสุด ร้านมองข้ามได้ง่าย
+          ย้ายมาเป็นกล่องที่ขึ้นทุกครั้งตอนกดส่ง (แทนที่จะฝากความหวังไว้กับว่าร้านจะสังเกตเห็น) */}
+      <Modal
+        open={confirmDeliveryOpen}
+        onClose={() => setConfirmDeliveryOpen(false)}
+        size="sm"
+        labelledBy="confirm-delivery-title"
+      >
+        <ModalHeader>
+          <h3
+            id="confirm-delivery-title"
+            className="text-sm font-bold text-slate-900 dark:text-slate-100"
+          >
+            วันที่ต้องการรับของ
+          </h3>
+        </ModalHeader>
+        <ModalBody>
+          <label className="flex flex-col gap-1">
+            <input
+              id="delivery-date"
+              type="date"
+              value={deliveryDate}
+              min={earliestDelivery}
+              onChange={(e) => setDeliveryDate(e.target.value)}
+              aria-invalid={deliveryError != null}
+              className={cn(
+                "rounded-lg border bg-white px-3 py-2 text-base outline-none ring-teal-500/30 focus:ring-2 dark:bg-slate-900",
+                deliveryError
+                  ? "border-red-400 dark:border-red-700"
+                  : "border-slate-200 dark:border-slate-700"
+              )}
+            />
+            <span className="vmi-t-xs text-slate-500 dark:text-slate-400">
+              {deliveryError ?? thaiShortDate(deliveryDate)}
+            </span>
+          </label>
+        </ModalBody>
+        <ModalFooter>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setConfirmDeliveryOpen(false)}
+          >
+            ยกเลิก
+          </Button>
+          <Button
+            size="sm"
+            disabled={deliveryError != null}
+            onClick={confirmDeliveryAndProceed}
+          >
+            ยืนยันวันรับของ
+          </Button>
+        </ModalFooter>
+      </Modal>
 
       <ConfirmDialog
         open={confirmRiskyOpen}
