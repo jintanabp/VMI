@@ -149,15 +149,26 @@ export async function stampErpSuccess(
   return { stamped: count === 1 };
 }
 
-/** ประทับว่าพยายามแล้วไม่สำเร็จ — **ไม่แตะ `erpSentAt`** ใบจึงยังอยู่ในคิว */
+/**
+ * ประทับว่าพยายามแล้วไม่สำเร็จ — **ไม่แตะ `erpSentAt`** ใบจึงยังอยู่ในคิว
+ *
+ * `failure` ต้องเก็บด้วย ไม่ใช่แค่ข้อความ — **`clone-for-erp` อ่านค่านี้ตัดสินว่าขอเลขใหม่
+ * ได้ไหม**: ขอได้เฉพาะ `"rejected"` (ปลายทางตอบปฏิเสธชัดเจน) ส่วน `"timeout"`/`"network"`/
+ * `"http_error"` แปลว่ายังไม่รู้ว่าเข้าไปแล้วหรือไม่ ขอเลขใหม่ตอนนั้นเสี่ยงส่งซ้ำสองเลข
+ */
 export async function stampErpFailure(
   poNumber: string,
   message: string,
+  failure: ErpSendFailure,
   now: Date = new Date()
 ): Promise<void> {
   await prisma.purchaseOrder.updateMany({
     where: { poNumber },
-    data: { erpAttemptedAt: now, erpError: truncateErpError(message) },
+    data: {
+      erpAttemptedAt: now,
+      erpError: truncateErpError(message),
+      erpFailureKind: failure,
+    },
   });
 }
 
@@ -202,7 +213,7 @@ export async function deliverPoToErp(args: {
   const result = await postErpPayload(payload, endpoint, args.fetchImpl);
 
   if (!result.ok) {
-    await stampErpFailure(doc.poNumber, result.message, now);
+    await stampErpFailure(doc.poNumber, result.message, result.failure, now);
     return {
       ok: false,
       poNumber: doc.poNumber,

@@ -1,5 +1,6 @@
 import { checkPoNumberFormat, PO_NUMBER_MAX_LEN } from "./po-number";
 import type { PoDocument } from "./po-document";
+import { collectOwedFreeGoods } from "@/lib/promo/order-free-goods";
 
 /**
  * ประกอบ payload ของ ERP `insertOCROrderToBill` จากเอกสาร PO ของเรา — **pure ทั้งไฟล์**
@@ -13,14 +14,31 @@ import type { PoDocument } from "./po-document";
  * การส่งจริงเป็นงานเฟส 2 ที่ต้องรอทีม ERP ตอบเรื่อง deliveryDate และรอ UAT ก่อน
  * เหตุผลที่ต้องรอ: ยิง production ผิดใบเดียว คู่ orderNo+customerCode จะถูกล็อก **6 เดือน**
  *
- * ## ทำไมไม่ส่งของแถม
- * สเปกกำหนดว่าออเดอร์ปกติ (`isSpecial` ว่าง) **ห้ามมีบรรทัด `buyOrFree: "F"`**
- * เพราะระบบวางบิลจะคิดโปรโมชั่นใหม่จาก C4 เอง — ส่ง F ไปจะได้ของแถมสองเท่า
- * โครงข้อมูลของ VMI เข้ากับกติกานี้พอดี เพราะเก็บของแถมเป็น attribute ของบรรทัดซื้อ
- * (`PoDocumentLine.freeGood`) ไม่ใช่บรรทัดแยก จึงไม่มีอะไรต้องกรองออก
+ * ## ราคาไม่ตรง C4 → special deal — แก้ 14 ก.ย. 69 (กลับคำตัดสินใจเดิม)
+ * รอบแรกเข้าใจผิดว่า "ใช้ราคาที่เราส่งได้เลย" แปลว่าไม่ต้องใช้ `isSpecial`/`isErrorC4` เลย
+ * แต่ตรวจโค้ด ocr-po-matching จริงแล้วพบว่า **`isErrorC4` ถูกกำหนดจาก "ราคาไม่ตรง C4"
+ * โดยตรง** (`backend/c4_alignment.error_po_numbers()`: "PO numbers carrying at least
+ * one C4-misaligned line") ไม่ใช่จากอย่างอื่นเลย — ตรงกับ `doc.priceKind !== "c4"`
+ * ของ VMI แบบ 1:1 ⇒ กติกาจริงคือ:
+ * - **ราคาตรง C4** (`priceKind === "c4"`) → ออเดอร์ปกติ ไม่ส่ง `isSpecial`/`isErrorC4` เลย
+ *   (omit ทั้งคู่ ไม่ใช่ส่ง "" — ตามตัวอย่าง "normal order" ในสเปก prod)
+ * - **ราคาไม่ตรง C4** (`priceKind !== "c4"`) → ส่ง `isSpecial: "Y"` + `isErrorC4: "Y"`
+ *   คู่กันเสมอ (สเปกบังคับ ไม่งั้น 400) **เพื่อให้เข้ากระบวนการอนุมัติของ marketing**
+ *   ที่ยืนยันแล้วว่า "ต้องมี" — ถ้าส่งเป็นออเดอร์ปกติเฉย ๆ จะไม่มีอะไรไปกระตุ้นให้มีคนอนุมัติเลย
  *
- * ส่วน `isSpecial=Y` (ล็อกของแถมตามที่เราคิด) และ `isErrorC4=Y` (ธง "ราคาไม่ตรง C4"
- * ซึ่งสเปกบังคับให้มาคู่กับ isSpecial) **ผู้ใช้สั่งไม่ให้ใช้** จึงไม่มีในไฟล์นี้เลย
+ * ## บรรทัด `F` (ของแถม) — สร้างแล้วเมื่อ `isSpecial=Y`
+ * สเปก: ออเดอร์ปกติห้ามมีบรรทัด `F` (ระบบวางบิลคิดโปรใหม่จาก C4 เอง) แต่ special deal
+ * **ต้องส่งเอง** (`docs/ocr-insertOCROrderToBill-prod.md` ตัวอย่าง "special deal"/"C4 error")
+ * ⇒ `buildErpPayload` เรียก `collectOwedFreeGoods(doc.lines)` (ตัวเดียวกับที่ Excel export
+ * ใช้สรุปของแถม dedupe โปรกลุ่มแล้ว) แล้วแปลงแต่ละก้อนเป็นบรรทัด `F`:
+ * `unitPrice`/`amount`/`discountPercent`/`discountUnit`/`vatAmount` = 0 ทั้งหมด (ตรงกับ
+ * `sgo_billing.py:81-93` และตัวอย่างในสเปก) `promotionTo` ชี้ SKU ตัวแรกที่ทำให้ได้ของแถมนั้น
+ * (ตัวอย่างในสเปกก็ชี้กลับที่ SKU ที่ซื้อ ไม่ใช่ตัวเอง)
+ *
+ * **ข้อมูลจริงในเครื่องนี้ยังมีของแถม 0 จาก 2,436 บรรทัด** (ตรวจ 14 ก.ย. 69) — โค้ดที่คำนวณ/
+ * บันทึกของแถม (`app/api/orders/route.ts` เรียก `lookupOrderPromoLines`) ทำงานถูกต้องอยู่แล้ว
+ * แค่ยังไม่มีออเดอร์ทดสอบไหนสั่งของที่ติดโปรของแถมพอดี — ทางแปลงบรรทัด `F` นี้จึงยังไม่เคยเทส
+ * กับข้อมูลจริง มีแต่เทสสังเคราะห์ (`tests/erp-payload.test.ts`)
  */
 
 /** VAT 7% — ค่าเดียวกับ po-document.ts และ erp_export.py ของ ocr-po-matching */
@@ -61,6 +79,10 @@ export interface ErpOrderPayload {
   createDate: string;
   /** null = ยังไม่รู้กติกา (รอทีม ERP) — ตัวตรวจความพร้อมจะกันใบนี้ไว้ */
   deliveryDate: string | null;
+  /** มีเฉพาะเมื่อราคาไม่ตรง C4 — ไม่มี key นี้เลยสำหรับออเดอร์ปกติ (omit ตามสเปก ไม่ใช่ "") */
+  isSpecial?: "Y";
+  /** มาคู่กับ isSpecial เสมอ — ดูหัวไฟล์ */
+  isErrorC4?: "Y";
   countItem: number;
   orderDetail: ErpOrderDetail[];
 }
@@ -93,7 +115,9 @@ export type ErpReason =
 export interface ErpReadiness {
   ok: boolean;
   reasons: ErpReason[];
-  /** รหัสสินค้าที่ทำให้ติดเหตุผลนั้น — เอาไปโชว์บนจอให้คนตามแก้ได้ */
+  /** สิ่งที่ควรรู้แต่ไม่กันส่ง — ตอนนี้มีแค่ price_off_c4 (ดูหัวไฟล์) */
+  notices: ErpReason[];
+  /** รหัสสินค้าที่ทำให้ติดเหตุผลนั้น — เอาไปโชว์บนจอให้คนตามแก้ได้ (รวม notices ด้วย) */
   offendingSkus: Partial<Record<ErpReason, string[]>>;
 }
 
@@ -116,14 +140,16 @@ export function buildErpPayload(
   doc: PoDocument,
   ctx: ErpPayloadContext
 ): ErpOrderPayload {
-  const orderDetail: ErpOrderDetail[] = doc.lines.map((l) => {
+  const isSpecial = doc.priceKind !== "c4";
+
+  const buyLines: ErpOrderDetail[] = doc.lines.map((l) => {
     const unitPrice = l.unitPrice ?? 0;
     const net = l.netUnitPrice ?? unitPrice;
     const quantityCase = toCases(l.qty);
     return {
       productCode: l.skuCode,
-      // ออเดอร์ปกติชี้กลับที่ตัวเอง — ช่องนี้มีไว้ผูกของแถมกับสินค้าที่ทำให้ได้แถม
-      // ซึ่งเป็นเรื่องของ isSpecial ที่เราไม่ใช้
+      // ชี้กลับที่ตัวเองเสมอ ไม่ว่าปกติหรือ special deal — ตัวอย่างในสเปกทั้งสองแบบ
+      // บรรทัดซื้อก็ promotionTo ตัวเอง มีแต่บรรทัด F เท่านั้นที่ชี้ไปสินค้าอื่น
       promotionTo: l.skuCode,
       quantityCase,
       quantityUnit: "B",
@@ -137,6 +163,26 @@ export function buildErpPayload(
     };
   });
 
+  // เฉพาะ special deal เท่านั้นที่ส่งบรรทัด F ได้ — ออเดอร์ปกติห้ามเด็ดขาด (400)
+  const freeLines: ErpOrderDetail[] = isSpecial
+    ? collectOwedFreeGoods(doc.lines).map((fg) => ({
+        productCode: fg.code,
+        // ชี้ไปสินค้าตัวแรกที่ทำให้ได้ของแถมนี้ (โปรกลุ่มมีได้หลายตัว — เลือกตัวแรกพอ
+        // ตามที่ ocr เองก็ทำแบบนี้เมื่อไม่รู้ว่าจะจับคู่กับตัวไหนเป๊ะ ๆ)
+        promotionTo: fg.fromSkuCodes[0] ?? fg.code,
+        quantityCase: toCases(fg.qty),
+        quantityUnit: "B",
+        discountPercent: 0,
+        discountUnit: 0,
+        unitPrice: 0,
+        amount: 0,
+        vatAmount: 0,
+        buyOrFree: "F",
+      }))
+    : [];
+
+  const orderDetail = [...buyLines, ...freeLines];
+
   return {
     orderNo: doc.poNumber,
     customerCode: ctx.customerCode,
@@ -144,7 +190,9 @@ export function buildErpPayload(
     divisionCode: ctx.divisionCode,
     createDate: ctx.createDate,
     deliveryDate: ctx.deliveryDate,
-    // นับจากบรรทัดที่ส่งจริงเสมอ ไม่ใช่ doc.itemCount — ปลายทางตอบ 400 ถ้าไม่ตรงกัน
+    // omit ทั้งคู่เมื่อไม่ special — ตรงกับตัวอย่าง "normal order" ในสเปกที่ไม่มี key นี้เลย
+    ...(isSpecial ? { isSpecial: "Y" as const, isErrorC4: "Y" as const } : {}),
+    // นับจากบรรทัดที่ส่งจริงเสมอ (รวมบรรทัด F) ไม่ใช่ doc.itemCount — ปลายทางตอบ 400 ถ้าไม่ตรงกัน
     // และนี่คือจุดที่ฝั่ง ocr เคยพลาดมาแล้ว (countitem ที่ stage ไว้ ≠ จำนวนที่ส่ง)
     countItem: orderDetail.length,
     orderDetail,
@@ -160,12 +208,16 @@ export function checkErpReadiness(
   ctx: ErpPayloadContext
 ): ErpReadiness {
   const reasons: ErpReason[] = [];
+  const notices: ErpReason[] = [];
   const offending: Partial<Record<ErpReason, string[]>> = {};
   const add = (reason: ErpReason, sku?: string) => {
     if (!reasons.includes(reason)) reasons.push(reason);
     if (sku) {
       offending[reason] = [...(offending[reason] ?? []), sku];
     }
+  };
+  const notice = (reason: ErpReason) => {
+    if (!notices.includes(reason)) notices.push(reason);
   };
 
   if (!doc.poNumber.trim()) {
@@ -195,11 +247,11 @@ export function checkErpReadiness(
     if (l.unitPrice == null) add("missing_unit_price", l.skuCode);
   }
 
-  // ราคาที่ไม่ตรง C4: ระบบวางบิลจะคิดโปรใหม่จาก C4 แล้วราคาที่ร้านกับเซลส์ตกลงกันไว้
-  // จะไม่ถูกใช้ — ยังไม่รู้ว่าปลายทางจัดการเคสนี้ยังไง (คำถามข้อ 3 ถึงทีม ERP)
-  if (doc.priceKind !== "c4") add("price_off_c4");
+  // ราคาที่ไม่ตรง C4 = special deal (isSpecial/isErrorC4 = Y ใน buildErpPayload) — ไม่กันส่ง
+  // เพราะเป็นเส้นทางที่ถูกต้องแล้ว แค่เตือนไว้ให้รู้ว่าใบนี้จะเข้ากระบวนการอนุมัติของ marketing
+  if (doc.priceKind !== "c4") notice("price_off_c4");
 
-  return { ok: reasons.length === 0, reasons, offendingSkus: offending };
+  return { ok: reasons.length === 0, reasons, notices, offendingSkus: offending };
 }
 
 const REASON_LABEL: Record<ErpReason, string> = {
@@ -218,7 +270,7 @@ const REASON_LABEL: Record<ErpReason, string> = {
   qty_not_positive_integer: "จำนวนสั่งไม่ใช่จำนวนหีบที่มากกว่า 0",
   missing_unit_price: "ไม่มีราคาต่อหีบ",
   price_off_c4:
-    "ราคาบนใบนี้ไม่ตรง C4 — ระบบวางบิลปลายทางจะคิดโปรใหม่จาก C4 ซึ่งอาจไม่ตรงกับที่ตกลงไว้ (รอคำตอบจากทีม ERP)",
+    "ราคาบนใบนี้ไม่ตรง C4 — ส่งเป็น special deal (isSpecial=Y) พร้อมของแถมที่ต้องส่งเอง จะเข้ากระบวนการอนุมัติของ marketing ฝั่ง ERP เพิ่มอีกขั้น",
 };
 
 export function erpReasonLabel(reason: ErpReason): string {

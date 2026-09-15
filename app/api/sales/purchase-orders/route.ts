@@ -39,6 +39,14 @@ export interface PurchaseOrderRow {
   storeName: string;
   /** จำนวน PO ทั้งหมดที่ออกจากออเดอร์เดียวกัน — บอกว่าใบนี้ถูกแบ่งมา */
   siblingCount: number;
+  erpSentAt: string | null;
+  /** ไม่ว่าง = เคยพยายามส่ง ERP แล้วไม่สำเร็จ (ไม่ว่าจะปฏิเสธชัดเจนหรือผลไม่ชัดเจน) */
+  erpError: string | null;
+  /** "rejected" = ปฏิเสธชัดเจน · อย่างอื่น/null = ผลไม่ชัดเจน — ต่างจาก sibling badge เพราะ
+   * บอกว่า "ใบนี้มีปัญหากับ ERP" ไม่ใช่แค่ "ออเดอร์นี้ถูกแบ่ง" (สองเรื่องนี้เคยปนกันจนดูสับสน) */
+  erpFailureKind: string | null;
+  /** ถูกแทนที่ด้วยเลขใหม่แล้ว (clone-for-erp) — ชี้ไปเลขใหม่ */
+  replacedByPoNumber: string | null;
 }
 
 /**
@@ -182,6 +190,10 @@ export async function GET(request: Request) {
     storeCode: po.order.store.code,
     storeName: po.order.store.name,
     siblingCount: po.order._count.purchaseOrders,
+    erpSentAt: po.erpSentAt?.toISOString() ?? null,
+    erpError: po.erpError,
+    erpFailureKind: po.erpFailureKind,
+    replacedByPoNumber: po.replacedByPoNumber,
   }));
 
   return NextResponse.json({

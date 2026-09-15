@@ -134,9 +134,25 @@ model PurchaseOrder {
   /// เพราะปลายทางไม่มีรหัส error เลย มีแต่ resultMsg เป็นภาษาอังกฤษ (ตัดที่ 1000 ตัวอักษรตอนเขียน)
   /// null = ยังไม่เคยพลาด · ส่งสำเร็จแล้วไม่ล้างค่านี้ เพื่อให้ยังเห็นว่าเคยพลาดมาก่อน
   erpError        String?
+  /// ชนิดของความล้มเหลวครั้งล่าสุด — ค่าที่ใช้ได้ดูที่ `ErpSendFailure` (erp-delivery.ts)
+  /// **สำคัญกับ clone-for-erp**: ขอเลขใหม่ได้เฉพาะ `"rejected"` (ปลายทางตอบปฏิเสธชัดเจน)
+  /// เท่านั้น — `"timeout"`/`"network"` แปลว่า "ไม่รู้ว่าเข้าไปแล้วหรือไม่" ขอเลขใหม่ตอนนั้น
+  /// เสี่ยงส่งซ้ำสองเลขถ้าใบเดิมเข้าไปจริง · null = แถวเก่าก่อนมีคอลัมน์นี้ ถือว่าไม่ชัดเจน
+  /// เหมือนกัน (ห้ามเดาว่า rejected)
+  erpFailureKind  String?
   /// จำนวนแถวที่ปลายทางบอกว่า insert ไป (result.insertedRows)
   /// เก็บไว้เทียบกับจำนวนบรรทัดที่ส่ง — ฝั่ง ocr อ่านค่านี้แต่ไม่เคยเทียบ เราควรเทียบ
   erpInsertedRows Int?
+
+  // --- ขอเลขใหม่ให้ใบที่ ERP ปฏิเสธ (clone-for-erp) ---
+  // เลข PO เดิมที่ยิงไปแล้วโดน ERP ปฏิเสธ ห้ามส่งซ้ำด้วยเลขเดิม (ล็อก 6 เดือน) — แนวเดียวกับ
+  // ocr-po-matching/backend/order_clone.py: สร้างใบใหม่แทนการแก้เลขเดิม ไม่มีทางกู้ใบเก่าคืน
+  /// ใบนี้เกิดจากการขอเลขใหม่ของใบไหน — null = ใบปกติ ไม่ใช่ใบที่ขอเลขใหม่มา
+  erpReplacesPoNumber String?
+  /// ใบนี้ถูกแทนที่ด้วยเลขใหม่ใบไหนแล้ว — null = ยังไม่เคยขอเลขใหม่
+  replacedByPoNumber  String?
+  /// เวลาที่ถูกแทนที่ — คู่กับ replacedByPoNumber เสมอ
+  erpVoidedAt         DateTime?
 
   order       Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
   items       OrderItem[]

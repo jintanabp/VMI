@@ -1,9 +1,8 @@
 import { bangkokDateStr } from "@/lib/fabric/bkk-date";
 import { prisma } from "@/lib/prisma";
-import { calcNetUnitPrice, resolveOrderLinePrice } from "@/lib/calculations";
 import { resolveVdaStoreName } from "@/lib/fabric/vda-store-name";
 import { buildPoDocument, type PoDocument } from "./po-document";
-import { skuVatStatus } from "./sku-vat-status";
+import { orderItemToDocLine } from "./order-item-doc-line";
 import type { PoPriceKind } from "./split-plan";
 
 /**
@@ -42,39 +41,6 @@ export async function rebuildPoDocumentFromDb(
       ? bangkokDateStr(po.order.deliveryDate)
       : null,
     approvedBy: po.issuedBy,
-    lines: po.items.map((item) => {
-      const { unitPrice, source } = resolveOrderLinePrice({
-        salesPriceOverride: item.salesPriceOverride,
-        unitPriceOverride: item.unitPriceOverride,
-        c4UnitPrice: item.c4UnitPrice,
-      });
-      return {
-        skuCode: item.sku.code,
-        skuName: item.sku.name,
-        qty: item.finalQty,
-        unit: "case" as const,
-        unitPrice,
-        priceSource: source,
-        vatStatus: skuVatStatus(item.sku.code),
-        discountBaht: item.c4DiscountBaht,
-        discountPct: item.c4DiscountPct,
-        netUnitPrice:
-          calcNetUnitPrice(unitPrice, item.c4DiscountBaht, item.c4DiscountPct) ??
-          unitPrice,
-        promoGroup: item.c4PromoGroup,
-        promoGroupMembers: item.c4PromoGroupMembers,
-        promoLabel: item.c4PromoLabel,
-        freeGood: item.c4FreeGoodCode
-          ? {
-              code: item.c4FreeGoodCode,
-              name: item.c4FreeGoodName || item.c4FreeGoodCode,
-              qty: item.c4FreeGoodQty ?? 0,
-              unit: item.c4FreeGoodUnit ?? "",
-            }
-          : null,
-        priceFlagged: item.priceFlagged,
-        priceFlagReason: item.priceFlagReason,
-      };
-    }),
+    lines: po.items.map(orderItemToDocLine),
   });
 }

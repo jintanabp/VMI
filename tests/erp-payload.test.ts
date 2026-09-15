@@ -102,10 +102,20 @@ describe("buildErpPayload", () => {
     );
   });
 
-  it("**ไม่ส่ง isSpecial / isErrorC4 เลย** — ผู้ใช้สั่งห้ามใช้", () => {
+  it("ราคาตรง C4 — ออเดอร์ปกติ ไม่ส่ง isSpecial/isErrorC4 เลย (omit ไม่ใช่ \"\")", () => {
     const p = buildErpPayload(doc(), ctx) as unknown as Record<string, unknown>;
     expect("isSpecial" in p).toBe(false);
     expect("isErrorC4" in p).toBe(false);
+  });
+
+  it("ราคาไม่ตรง C4 — ส่ง isSpecial=Y + isErrorC4=Y คู่กันเสมอ (override/mixed)", () => {
+    const override = buildErpPayload(doc([line()], { priceKind: "override" }), ctx);
+    expect(override.isSpecial).toBe("Y");
+    expect(override.isErrorC4).toBe("Y");
+
+    const mixed = buildErpPayload(doc([line()], { priceKind: "mixed" }), ctx);
+    expect(mixed.isSpecial).toBe("Y");
+    expect(mixed.isErrorC4).toBe("Y");
   });
 
   it("countItem ต้องเท่ากับจำนวนบรรทัดที่ส่งจริงเสมอ", () => {
@@ -114,12 +124,42 @@ describe("buildErpPayload", () => {
     expect(p.countItem).toBe(p.orderDetail.length);
   });
 
-  it("**ไม่มีบรรทัด F แม้แถวนั้นมีของแถม** — ออเดอร์ปกติห้ามส่งของแถม", () => {
+  it("ราคาตรง C4 — ไม่มีบรรทัด F แม้แถวนั้นมีของแถม (ออเดอร์ปกติห้ามส่งของแถม)", () => {
     const withFree = line({
       freeGood: { code: "744334", name: "ของแถม", qty: 1, unit: "หีบ" },
     });
-    const p = buildErpPayload(doc([withFree]), ctx);
+    const p = buildErpPayload(doc([withFree]), ctx); // priceKind ค่าเริ่มต้น = c4
     expect(p.orderDetail).toHaveLength(1);
+    expect(p.orderDetail.every((d) => d.buyOrFree === "B")).toBe(true);
+  });
+
+  it("ราคาไม่ตรง C4 + มีของแถม — ต้องมีบรรทัด F ครบ ทุกช่องเป็น 0 และ promotionTo ชี้กลับ SKU ที่ซื้อ", () => {
+    const withFree = line({
+      skuCode: "744318",
+      freeGood: { code: "744334", name: "ของแถม", qty: 2, unit: "หีบ" },
+    });
+    const p = buildErpPayload(doc([withFree], { priceKind: "override" }), ctx);
+    expect(p.orderDetail).toHaveLength(2);
+    expect(p.countItem).toBe(2);
+
+    const free = p.orderDetail.find((d) => d.buyOrFree === "F");
+    expect(free).toBeTruthy();
+    expect(free!.productCode).toBe("744334");
+    expect(free!.promotionTo).toBe("744318");
+    expect(free!.quantityCase).toBe(2);
+    expect(free!.unitPrice).toBe(0);
+    expect(free!.amount).toBe(0);
+    expect(free!.discountPercent).toBe(0);
+    expect(free!.discountUnit).toBe(0);
+    expect(free!.vatAmount).toBe(0);
+
+    const buy = p.orderDetail.find((d) => d.buyOrFree === "B");
+    expect(buy!.promotionTo).toBe("744318"); // ชี้ตัวเองเหมือนเดิม ไม่ใช่ special deal ก็ไม่เปลี่ยน
+  });
+
+  it("ราคาไม่ตรง C4 แต่ไม่มีของแถม — isSpecial=Y ได้ แต่ไม่มีบรรทัด F ให้ส่งเปล่า ๆ", () => {
+    const p = buildErpPayload(doc([line()], { priceKind: "override" }), ctx);
+    expect(p.isSpecial).toBe("Y");
     expect(p.orderDetail.every((d) => d.buyOrFree === "B")).toBe(true);
   });
 
@@ -170,6 +210,7 @@ describe("buildErpPayload", () => {
 
 describe("checkErpReadiness", () => {
   const reasonsOf = (r: { reasons: ErpReason[] }) => r.reasons;
+  const noticesOf = (r: { notices: ErpReason[] }) => r.notices;
 
   it("ใบที่ครบทุกอย่างต้องผ่าน", () => {
     expect(checkErpReadiness(doc(), ctx).ok).toBe(true);
@@ -191,13 +232,15 @@ describe("checkErpReadiness", () => {
     expect(r.offendingSkus.vat_unknown).toEqual(["999999"]);
   });
 
-  it("ราคาไม่ตรง C4 ต้องติดธง เพราะปลายทางจะคิดโปรใหม่", () => {
-    expect(reasonsOf(checkErpReadiness(doc([line()], { priceKind: "override" }), ctx))).toContain(
-      "price_off_c4"
-    );
-    expect(reasonsOf(checkErpReadiness(doc([line()], { priceKind: "mixed" }), ctx))).toContain(
-      "price_off_c4"
-    );
+  it("ราคาไม่ตรง C4 เป็นแค่ notice ส่งได้ตามปกติ (ทีม ERP ยืนยัน 14 ก.ย. 69 ว่าใช้ราคาที่เราส่ง)", () => {
+    const overrideR = checkErpReadiness(doc([line()], { priceKind: "override" }), ctx);
+    expect(overrideR.ok).toBe(true);
+    expect(reasonsOf(overrideR)).not.toContain("price_off_c4");
+    expect(noticesOf(overrideR)).toContain("price_off_c4");
+
+    const mixedR = checkErpReadiness(doc([line()], { priceKind: "mixed" }), ctx);
+    expect(mixedR.ok).toBe(true);
+    expect(noticesOf(mixedR)).toContain("price_off_c4");
   });
 
   it("ข้อมูลคลังไม่ครบ = บอกทีละช่อง", () => {

@@ -95,12 +95,17 @@ describe.skipIf(!hasPrisma)("ประทับผลการส่ง ERP", ()
 
   it("ล้มเหลว = ไม่แตะ erpSentAt ใบยังอยู่ในคิว", async () => {
     await freshPo(PO);
-    await stampErpFailure(PO, "orderNo and customerCode already exists within 6 months");
+    await stampErpFailure(
+      PO,
+      "orderNo and customerCode already exists within 6 months",
+      "rejected"
+    );
 
     const row = await prisma.purchaseOrder.findUnique({ where: { poNumber: PO } });
     expect(row?.erpSentAt).toBeNull();
     expect(row?.erpAttemptedAt).not.toBeNull();
     expect(row?.erpError).toContain("already exists");
+    expect(row?.erpFailureKind).toBe("rejected");
 
     // ยังอยู่ในคิวจริง — query เดียวกับที่ตัวส่งจะใช้หาใบที่ยังไม่ผ่าน
     const queued = await prisma.purchaseOrder.count({ where: { erpSentAt: null } });
@@ -109,7 +114,7 @@ describe.skipIf(!hasPrisma)("ประทับผลการส่ง ERP", ()
 
   it("ส่งสำเร็จทีหลังไม่ล้าง erpError — ประวัติว่าเคยพลาดยังอยู่", async () => {
     await freshPo(PO);
-    await stampErpFailure(PO, "ปลายทางไม่ตอบ");
+    await stampErpFailure(PO, "ปลายทางไม่ตอบ", "timeout");
     const r = await stampErpSuccess(PO, 1);
 
     expect(r.stamped).toBe(true);
@@ -120,7 +125,7 @@ describe.skipIf(!hasPrisma)("ประทับผลการส่ง ERP", ()
 
   it("ข้อความยาวเกินถูกตัดก่อนลงฐานข้อมูล", async () => {
     await freshPo(PO);
-    await stampErpFailure(PO, "x".repeat(5000));
+    await stampErpFailure(PO, "x".repeat(5000), "http_error");
     const row = await prisma.purchaseOrder.findUnique({ where: { poNumber: PO } });
     expect(row?.erpError?.length).toBe(1000);
   });

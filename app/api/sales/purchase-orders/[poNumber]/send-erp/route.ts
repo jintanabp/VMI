@@ -42,7 +42,13 @@ export async function POST(
 
   const po = await prisma.purchaseOrder.findUnique({
     where: { poNumber },
-    select: { orderId: true, erpSentAt: true },
+    select: {
+      orderId: true,
+      erpSentAt: true,
+      erpError: true,
+      erpFailureKind: true,
+      replacedByPoNumber: true,
+    },
   });
   if (!po) {
     return NextResponse.json({ error: "ไม่พบ PO" }, { status: 404 });
@@ -61,6 +67,25 @@ export async function POST(
       },
       { status: 409 }
     );
+  }
+
+  // ถูกแทนที่ด้วยเลขใหม่ไปแล้ว (clone-for-erp) — ห้ามส่งใบเก่าอีก ไปส่งใบใหม่แทน
+  if (po.replacedByPoNumber) {
+    return NextResponse.json(
+      { error: `ใบนี้ถูกแทนที่ด้วยเลขใหม่แล้ว (${po.replacedByPoNumber}) — ไปส่งที่ใบใหม่แทน` },
+      { status: 409 }
+    );
+  }
+
+  // เคยพยายามส่งแล้วไม่สำเร็จ (ไม่ว่าจะถูกปฏิเสธชัดเจนหรือผลไม่ชัดเจนแบบ timeout) —
+  // ห้ามกดส่งซ้ำด้วยเลขเดิมทั้งคู่ — **ด่านนี้เคยขาดหายไปจนกดส่งซ้ำผ่าน UI เดิมได้จริง**
+  // (พบจากการทดสอบจริง 14 ก.ย. 69 — เดิมมีแค่ฝั่งหน้าเว็บที่โชว์คำเตือน แต่ปุ่มไม่ได้ปิดจริง)
+  if (po.erpError) {
+    const guidance =
+      po.erpFailureKind === "rejected"
+        ? "ใบนี้เคยถูก ERP ปฏิเสธ — ต้องขอเลขใหม่ก่อน (ปุ่ม \"ขอเลขใหม่แล้วลองส่งอีกครั้ง\")"
+        : "ผลการส่งครั้งก่อนไม่ชัดเจน (เช่น ปลายทางไม่ตอบ) — ต้องให้คนตรวจกับทีม ERP ก่อนว่าเข้าไปแล้วหรือไม่ ห้ามส่งซ้ำเอง";
+    return NextResponse.json({ error: guidance }, { status: 409 });
   }
 
   const endpoint = erpEndpoint();

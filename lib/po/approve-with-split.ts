@@ -3,6 +3,7 @@ import { bangkokDateStr } from "@/lib/fabric/bkk-date";
 import { getRepositories } from "@/lib/repositories";
 import { calcNetUnitPrice, resolveOrderLinePrice } from "@/lib/calculations";
 import { resolveVdaStoreName } from "@/lib/fabric/vda-store-name";
+import { orderItemToDocLine } from "./order-item-doc-line";
 import {
   buildBasePoNumber,
   buildChildPoNumber,
@@ -18,7 +19,6 @@ import {
   type SplittableItem,
 } from "./split-plan";
 import type { PurchaseOrderInput } from "@/lib/repositories/types";
-import { skuVatStatus } from "./sku-vat-status";
 
 /**
  * อนุมัติออเดอร์แล้วออก PO ตามกลุ่มที่จัดไว้
@@ -166,50 +166,13 @@ export async function approveWithPoSplit(
         deliveryDate: order.deliveryDate
           ? bangkokDateStr(order.deliveryDate)
           : null,
-        lines: includedItems.map((item) => {
-          const { unitPrice, source } = resolveOrderLinePrice({
-            salesPriceOverride: item.salesPriceOverride,
-            unitPriceOverride: item.unitPriceOverride,
-            c4UnitPrice: item.c4UnitPrice,
-          });
-          return {
-            skuCode: item.sku.code,
-            skuName: item.sku.name,
-            qty: item.finalQty,
-            unit: "case" as const,
-            unitPrice,
-            priceSource: source,
-            vatStatus: skuVatStatus(item.sku.code),
-            discountBaht: item.c4DiscountBaht,
-            discountPct: item.c4DiscountPct,
-            // ส่วนลด C4 คิดทับบนราคาที่ตั้งเอง — ร้าน/พนักงานโต้แย้งราคาแคตตาล็อกได้
-            // แต่ปั้นขั้นโปรเองไม่ได้
-            netUnitPrice:
-              calcNetUnitPrice(
-                unitPrice,
-                item.c4DiscountBaht,
-                item.c4DiscountPct,
-              ) ?? unitPrice,
-            // เดิม hardcode null ทั้งบล็อก — เอกสารที่ส่งฝ่ายจัดซื้อจึงไม่มีข้อมูลโปร/ของแถมเลย
-            promoGroup: item.c4PromoGroup,
-            promoGroupMembers: item.c4PromoGroupMembers,
-            promoLabel: item.c4PromoLabel,
-            freeGood: item.c4FreeGoodCode
-              ? {
-                  code: item.c4FreeGoodCode,
-                  name: item.c4FreeGoodName || item.c4FreeGoodCode,
-                  qty: item.c4FreeGoodQty ?? 0,
-                  unit: item.c4FreeGoodUnit ?? "",
-                }
-              : null,
-            priceFlagged: item.priceFlagged,
-            priceFlagReason: item.priceFlagReason,
-            note:
-              item.finalQty === 0
-                ? "จำนวน 0 — อยู่ในโปรกลุ่ม ตรวจขั้นโปรก่อนส่ง"
-                : undefined,
-          };
-        }),
+        lines: includedItems.map((item) => ({
+          ...orderItemToDocLine(item),
+          note:
+            item.finalQty === 0
+              ? "จำนวน 0 — อยู่ในโปรกลุ่ม ตรวจขั้นโปรก่อนส่ง"
+              : undefined,
+        })),
       });
 
       const exportPath = await writePoDocument(doc);

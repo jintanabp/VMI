@@ -139,6 +139,10 @@ export async function GET(
       exportPath: true,
       groupKey: true,
       erpSentAt: true,
+      erpError: true,
+      erpFailureKind: true,
+      erpReplacesPoNumber: true,
+      replacedByPoNumber: true,
     },
   });
   if (!po) {
@@ -196,6 +200,13 @@ export async function GET(
       // แผงเดียวกันนี้มีปุ่มส่งแล้ว จึงต้องรู้ว่าใบนี้เคยส่งไปหรือยัง — ส่งมากับ payload
       // ที่มันโหลดอยู่แล้ว ดีกว่าให้แผงยิงอีกรอบเพื่อถามอย่างเดียว
       erpSentAt: po.erpSentAt?.toISOString() ?? null,
+      erpError: po.erpError ?? null,
+      // "rejected" เท่านั้นที่ขอเลขใหม่ได้ — timeout/network ไม่รู้ว่าเข้าไปแล้วหรือไม่
+      erpFailureKind: po.erpFailureKind ?? null,
+      // ใบนี้ขอเลขใหม่มาจากใบไหน (มีค่าเมื่อใบนี้เกิดจาก clone-for-erp)
+      erpReplacesPoNumber: po.erpReplacesPoNumber ?? null,
+      // ใบนี้ถูกแทนที่ด้วยเลขใหม่ไปแล้วหรือยัง (มีค่า = ห้ามส่งใบนี้อีก ไปดูเลขใหม่แทน)
+      replacedByPoNumber: po.replacedByPoNumber ?? null,
       // ขาส่งเปิดหรือยัง — ต้องบอกหน้าจอด้วย ไม่งั้นปุ่มจะกดได้แล้วค่อยพังที่ 503
       // ซึ่งเป็นอาการเดียวกับ "ปุ่มบอกอย่าง ทำอีกอย่าง" ที่ไล่แก้มาทั้งโปรเจกต์
       sendEnabled: erpEndpoint() != null,

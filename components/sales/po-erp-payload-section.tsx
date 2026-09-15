@@ -8,7 +8,9 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
+  Info,
   Loader2,
+  RefreshCw,
   Send,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
@@ -35,6 +37,14 @@ import {
 interface ErpPreview {
   /** ISO เวลาที่ส่งสำเร็จ — null = ยังไม่เคยส่ง */
   erpSentAt: string | null;
+  /** ข้อความล้มเหลวล่าสุด — null = ยังไม่เคยพลาด (หรือยังไม่เคยส่ง) */
+  erpError: string | null;
+  /** "rejected" | "timeout" | "network" | "http_error" | null — ดู clone-for-erp.ts */
+  erpFailureKind: string | null;
+  /** ใบนี้ขอเลขใหม่มาจากใบไหน — null = ใบปกติ */
+  erpReplacesPoNumber: string | null;
+  /** ใบนี้ถูกแทนที่ด้วยเลขใหม่ไปแล้วหรือยัง */
+  replacedByPoNumber: string | null;
   /** ขาส่งเปิดหรือยัง — false = ปุ่มต้องปิดแม้ใบจะพร้อมแล้ว */
   sendEnabled: boolean;
   sendDisabledReason: string;
@@ -49,6 +59,8 @@ export function PoErpPayloadSection({ poNumber }: { poNumber: string }) {
   const [confirming, setConfirming] = useState(false);
   const [sendError, setSendError] = useState("");
   const [sendResult, setSendResult] = useState<string>("");
+  const [cloneError, setCloneError] = useState("");
+  const [cloneResult, setCloneResult] = useState<string>("");
   const qc = useQueryClient();
 
   // โหลดเฉพาะเมื่อกางแผง — คนส่วนใหญ่เปิด PO มาดูรายการสินค้า ไม่ได้มาดู payload
@@ -102,20 +114,68 @@ export function PoErpPayloadSection({ poNumber }: { poNumber: string }) {
     },
   });
 
+  const cloneMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiFetch(
+        appPath(
+          `/api/sales/purchase-orders/${encodeURIComponent(poNumber)}/clone-for-erp/`
+        ),
+        { method: "POST", headers: { "Content-Type": "application/json" } }
+      );
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? `ขอเลขใหม่ไม่สำเร็จ (${res.status})`);
+      return body as { poNumber: string };
+    },
+    onSuccess: (r) => {
+      setCloneError("");
+      setCloneResult(`ขอเลขใหม่แล้ว — ใบใหม่คือ ${r.poNumber}`);
+      void qc.invalidateQueries({ queryKey: ["sales-purchase-orders"] });
+      void qc.invalidateQueries({ queryKey: ["po-erp-payload", poNumber] });
+    },
+    onError: (e) => {
+      setCloneError(e instanceof Error ? e.message : "ขอเลขใหม่ไม่สำเร็จ");
+    },
+  });
+
   // มาจาก response เดียวกับ payload — แผงแม่ไม่ต้องรู้เรื่องนี้เลย
   const erpSentAt = data?.erpSentAt ?? null;
   const alreadySent = Boolean(erpSentAt);
-  /** เหตุผลที่กดไม่ได้ — null = กดได้ · เรียงตามลำดับที่คนจะเจอจริง */
+  const replacedBy = data?.replacedByPoNumber ?? null;
+
+  // ขอเลขใหม่ได้เฉพาะเมื่อปลายทางปฏิเสธชัดเจน ("rejected") เท่านั้น — timeout/network
+  // แปลว่ายังไม่รู้ว่าเข้าไปแล้วหรือไม่ ขอเลขใหม่ตอนนั้นเสี่ยงส่งซ้ำสองเลข
+  const isConfirmedRejection = data?.erpFailureKind === "rejected";
+  const isAmbiguousFailure = Boolean(
+    data?.erpError && data?.erpFailureKind && data.erpFailureKind !== "rejected"
+  );
+  const canRequestNewNumber = Boolean(
+    isConfirmedRejection && !alreadySent && !replacedBy
+  );
+
+  /**
+   * เหตุผลที่กดไม่ได้ — null = กดได้ · เรียงตามลำดับที่คนจะเจอจริง
+   *
+   * ⚠️ **บั๊กที่เจอจากการทดสอบจริง 14 ก.ย. 69 (แก้แล้ว):** เดิม `erpError`/
+   * `erpFailureKind` ไม่ได้เช็คตรงนี้เลย — ใบที่เคยพลาด (ทั้งปฏิเสธชัดเจนและ timeout)
+   * ปุ่ม "ส่งเข้า ERP" ใบเดิมยังกดได้ปกติ ทั้งที่กล่องเตือนข้าง ๆ บอกว่าห้ามส่งซ้ำ — ขัดกันเอง
+   * และเสี่ยงให้กดส่งซ้ำเลขเดิมได้จริง ต้องกันไว้ที่ปุ่มด้วย ไม่ใช่แค่โชว์คำเตือนลอย ๆ
+   */
   const blockedReason = alreadySent
     ? "ใบนี้ส่งเข้า ERP ไปแล้ว — ส่งซ้ำไม่ได้ (ปลายทางล็อกเลขไว้ 6 เดือน)"
-    : !data
-      ? "ยังโหลดข้อมูลไม่เสร็จ"
-      : !data.readiness.ok
-        ? `ยังส่งไม่ได้ ${data.readiness.reasons.length} เรื่อง — ดูรายการข้างบน`
-        : // ใบพร้อมแล้วแต่ขาส่งยังไม่เปิด — ต้องบอกตรงนี้ ไม่ใช่ปล่อยให้กดแล้วเจอ 503
-          !data.sendEnabled
-          ? data.sendDisabledReason
-          : null;
+    : replacedBy
+      ? `ใบนี้ถูกแทนที่ด้วยเลขใหม่แล้ว (${replacedBy}) — ไปส่งที่ใบใหม่แทน`
+      : isConfirmedRejection
+        ? "ใบนี้เคยถูก ERP ปฏิเสธ — ส่งซ้ำด้วยเลขเดิมไม่ได้ ต้องขอเลขใหม่ก่อน (ดูกล่องด้านล่าง)"
+        : isAmbiguousFailure
+          ? "ผลการส่งครั้งก่อนไม่ชัดเจน — ห้ามส่งซ้ำจนกว่าจะตรวจกับทีม ERP ก่อน (ดูกล่องด้านล่าง)"
+          : !data
+            ? "ยังโหลดข้อมูลไม่เสร็จ"
+            : !data.readiness.ok
+              ? `ยังส่งไม่ได้ ${data.readiness.reasons.length} เรื่อง — ดูรายการข้างบน`
+              : // ใบพร้อมแล้วแต่ขาส่งยังไม่เปิด — ต้องบอกตรงนี้ ไม่ใช่ปล่อยให้กดแล้วเจอ 503
+                !data.sendEnabled
+                ? data.sendDisabledReason
+                : null;
 
   async function copyJson() {
     try {
@@ -201,6 +261,89 @@ export function PoErpPayloadSection({ poNumber }: { poNumber: string }) {
                       );
                     })}
                   </ul>
+                </div>
+              )}
+
+              {data.readiness.notices.length > 0 && (
+                <div className="mt-1.5 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 dark:border-sky-900/50 dark:bg-sky-950/20">
+                  <ul className="space-y-1">
+                    {data.readiness.notices.map((n) => (
+                      <li
+                        key={n}
+                        className="flex items-start gap-1.5 text-[11px] text-sky-900 dark:text-sky-200/90"
+                      >
+                        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        {erpReasonLabel(n)}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {data.erpReplacesPoNumber && (
+                <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+                  ใบนี้ขอเลขใหม่มาแทนใบ{" "}
+                  <span className="font-mono">{data.erpReplacesPoNumber}</span> ที่ ERP
+                  เคยปฏิเสธ
+                </p>
+              )}
+
+              {isAmbiguousFailure && !alreadySent && !replacedBy && (
+                <div className="mt-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-2 dark:border-red-900/50 dark:bg-red-950/20">
+                  {/* icon + ข้อความต้องเป็นแค่ 2 flex item — เดิมใส่ flex บน <p> ที่มี
+                      text node กับ <b> เป็น sibling กัน ทำให้แต่ละท่อนข้อความกลายเป็นคนละ
+                      flex item แล้วเรียงเป็นคอลัมน์แคบ ๆ ข้างกันแทนที่จะไหลเป็นย่อหน้าเดียว
+                      (เจอจากทดสอบจริงที่หน้าจอแคบ 14 ก.ย. 69) — ห่อข้อความทั้งก้อนใน span เดียว */}
+                  <p className="flex items-start gap-1.5 text-[11px] text-red-800 dark:text-red-200">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>
+                      ยิงครั้งก่อนไม่ชัดเจนว่าเข้า ERP หรือไม่ (ปลายทางไม่ตอบ/เน็ตมีปัญหา) —{" "}
+                      <b>ห้ามขอเลขใหม่หรือส่งซ้ำเอง</b> ต้องให้คนตรวจกับทีม ERP ก่อนว่าใบนี้
+                      เข้าไปแล้วหรือยัง
+                    </span>
+                  </p>
+                  {/* ข้อความ error ดิบมีคำเตือนสำคัญปนอยู่ ("ห้ามส่งซ้ำ...") — ห้าม truncate
+                      ทิ้ง เดิมตัดจนคำเตือนหายไปทั้งประโยคที่หน้าจอแคบ ให้ขึ้นบรรทัดแทน */}
+                  <p className="mt-0.5 break-words text-[10px] text-red-600 dark:text-red-300/80">
+                    {data.erpError}
+                  </p>
+                </div>
+              )}
+
+              {canRequestNewNumber && (
+                <div className="mt-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-900/50 dark:bg-amber-950/20">
+                  <p className="text-[11px] text-amber-900 dark:text-amber-200">
+                    ใบนี้เคยยิงเข้า ERP แล้วไม่สำเร็จ — <b>ส่งซ้ำด้วยเลขเดิมไม่ได้</b>{" "}
+                    ต้องขอเลขใหม่ก่อน
+                  </p>
+                  <p className="mt-0.5 break-words text-[10px] text-amber-700 dark:text-amber-300/80">
+                    {data.erpError}
+                  </p>
+                  {cloneResult ? (
+                    <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-teal-700 dark:text-teal-300">
+                      <Check className="h-4 w-4 shrink-0" />
+                      {cloneResult}
+                    </p>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => cloneMutation.mutate()}
+                      disabled={cloneMutation.isPending}
+                      className="mt-1.5 inline-flex items-center gap-1 rounded-lg border border-amber-400 bg-white px-2.5 py-1 text-[11px] font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-60 dark:border-amber-700 dark:bg-slate-900 dark:text-amber-200 dark:hover:bg-amber-950/40"
+                    >
+                      {cloneMutation.isPending ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-3.5 w-3.5" />
+                      )}
+                      ขอเลขใหม่แล้วลองส่งอีกครั้ง
+                    </button>
+                  )}
+                  {cloneError && (
+                    <p className="mt-1 text-[11px] text-red-600 dark:text-red-400">
+                      {cloneError}
+                    </p>
+                  )}
                 </div>
               )}
 

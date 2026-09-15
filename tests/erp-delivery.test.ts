@@ -171,13 +171,15 @@ describe("postErpPayload", () => {
   });
 });
 
-describe("erpEndpoint — ประตูที่ยังปิดอยู่", () => {
-  it("คืน null เพราะสวิตช์ส่งจริงยังปิด", () => {
-    expect(erpEndpoint()).toBeNull();
+describe("erpEndpoint — เปิดแล้ว 14 ก.ย. 69 แต่ชี้ UAT เท่านั้น", () => {
+  it("คืนปลายทาง UAT ไม่ใช่ null อีกต่อไป", () => {
+    expect(erpEndpoint()).not.toBeNull();
+    expect(erpEndpoint()?.url).toBe(ERP_UAT_URL);
   });
 
   it("**โค้ดที่รันได้ต้องไม่มีโฮสต์ production อยู่เลย**", () => {
     expect(ERP_UAT_URL).toContain("spcuatws.sahapat.com");
     expect(ERP_UAT_URL).not.toContain("spcws.sahapat.com");
+    expect(erpEndpoint()?.url).not.toContain("spcws.sahapat.com");
   });
 });

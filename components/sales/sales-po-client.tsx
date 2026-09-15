@@ -3,11 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   ChevronLeft,
   ChevronRight,
   Download,
   FileText,
   Loader2,
+  RefreshCw,
   Search,
   Trash2,
 } from "lucide-react";
@@ -657,6 +659,37 @@ export function SalesPoClient() {
                             แบ่ง {po.siblingCount} ใบ
                           </span>
                         )}
+                        {/* แยกจาก badge "แบ่ง N ใบ" ข้างบนโดยตั้งใจ — อันนั้นบอกว่าออเดอร์
+                            ถูกแบ่งกลุ่ม ส่วนนี้บอกว่า "ใบนี้เองมีปัญหากับ ERP" ซึ่งเป็นคนละเรื่อง
+                            (เดิมสองเรื่องนี้ปนกันเพราะ clone-for-erp ก็ทำให้ siblingCount
+                            เพิ่มเหมือนกัน — พบจากการทดสอบจริงว่าดูสับสน 14 ก.ย. 69) */}
+                        {po.replacedByPoNumber ? (
+                          <span
+                            className="ml-1.5 inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[11px] font-semibold text-slate-500 ring-1 ring-slate-300 dark:text-slate-400 dark:ring-slate-600"
+                            title={`ถูกแทนที่ด้วยเลขใหม่ ${po.replacedByPoNumber}`}
+                          >
+                            <RefreshCw className="h-3 w-3" />
+                            ถูกแทนที่
+                          </span>
+                        ) : po.erpError ? (
+                          po.erpFailureKind === "rejected" ? (
+                            <span
+                              className="ml-1.5 inline-flex items-center gap-0.5 rounded bg-amber-100 px-1 py-0.5 text-[11px] font-semibold text-amber-800 ring-1 ring-amber-300 dark:bg-amber-950/50 dark:text-amber-300 dark:ring-amber-800"
+                              title="ERP ปฏิเสธ — รอขอเลขใหม่"
+                            >
+                              <AlertTriangle className="h-3 w-3" />
+                              รอขอเลขใหม่
+                            </span>
+                          ) : (
+                            <span
+                              className="ml-1.5 inline-flex items-center gap-0.5 rounded bg-red-100 px-1 py-0.5 text-[11px] font-semibold text-red-700 ring-1 ring-red-300 dark:bg-red-950/50 dark:text-red-300 dark:ring-red-800"
+                              title="ผลการส่งเข้า ERP ไม่ชัดเจน — ต้องตรวจกับทีม ERP ก่อน"
+                            >
+                              <AlertTriangle className="h-3 w-3" />
+                              ต้องตรวจ ERP
+                            </span>
+                          )
+                        ) : null}
                       </td>
                       <td className="px-3 py-2 text-slate-700 dark:text-slate-300">
                         {formatStoreLabel(po.storeCode, po.storeName)}
@@ -772,6 +805,29 @@ export function SalesPoClient() {
                         <p className="truncate text-xs text-slate-500">
                           {formatStoreLabel(po.storeCode, po.storeName)}
                         </p>
+                        {/* การ์ดมือถือเดิมไม่มีป้ายนี้เลย (คนละบล็อกจากตาราง desktop) —
+                            ใบที่มีปัญหา ERP จะดูเหมือนใบปกติทุกอย่างจนกว่าจะเปิดรายละเอียด */}
+                        {po.replacedByPoNumber ? (
+                          <span
+                            className="mt-0.5 inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-semibold text-slate-500 ring-1 ring-slate-300 dark:text-slate-400 dark:ring-slate-600"
+                            title={`ถูกแทนที่ด้วยเลขใหม่ ${po.replacedByPoNumber}`}
+                          >
+                            <RefreshCw className="h-2.5 w-2.5" />
+                            ถูกแทนที่
+                          </span>
+                        ) : po.erpError ? (
+                          po.erpFailureKind === "rejected" ? (
+                            <span className="mt-0.5 inline-flex items-center gap-0.5 rounded bg-amber-100 px-1 py-0.5 text-[10px] font-semibold text-amber-800 ring-1 ring-amber-300 dark:bg-amber-950/50 dark:text-amber-300 dark:ring-amber-800">
+                              <AlertTriangle className="h-2.5 w-2.5" />
+                              รอขอเลขใหม่
+                            </span>
+                          ) : (
+                            <span className="mt-0.5 inline-flex items-center gap-0.5 rounded bg-red-100 px-1 py-0.5 text-[10px] font-semibold text-red-700 ring-1 ring-red-300 dark:bg-red-950/50 dark:text-red-300 dark:ring-red-800">
+                              <AlertTriangle className="h-2.5 w-2.5" />
+                              ต้องตรวจ ERP
+                            </span>
+                          )
+                        ) : null}
                       </div>
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-1">
