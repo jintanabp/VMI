@@ -176,6 +176,9 @@ interface EnrichedLine {
   skuCode?: string;
   promoGroupStripe?: PromoGroupStripe | null;
   promoGroupIsFirst?: boolean;
+  /** true = อยู่ในโปรกลุ่มและ live lookup ยังไม่มาถึง/ไม่ตรงกับจำนวนปัจจุบัน —
+   *  ห้ามโชว์เลข/ข้อความส่วนลดแบบเดา เพราะ SKU เดียวไม่รู้ยอดรวมทั้งกลุ่ม */
+  promoPending?: boolean;
 }
 
 export function OrderPageClient({
@@ -209,6 +212,8 @@ export function OrderPageClient({
     lines: Record<string, PromoApiLine>;
     orderTotal: number | null;
   } | null>(null);
+  /** true = โหลดโปร/ส่วนลดล่าสุดไม่สำเร็จแม้ลองซ้ำแล้ว — เตือนไว้ ไม่บล็อกอะไร */
+  const [promoFetchFailed, setPromoFetchFailed] = useState(false);
 
   useEffect(() => {
     // sessionStorage โยนได้เมื่อเบราว์เซอร์บล็อก storage (Safari ส่วนตัว, webview บางตัว,
@@ -275,7 +280,10 @@ export function OrderPageClient({
   useEffect(() => {
     if (lines.length === 0) return;
     const ctrl = new AbortController();
-    const timer = setTimeout(() => {
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let retried = false;
+
+    function runFetch() {
       void apiFetch(appPath("/api/promo/lookup"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -287,7 +295,11 @@ export function OrderPageClient({
         }),
         signal: ctrl.signal,
       })
-        .then((res) => (res.ok ? res.json() : null))
+        .then((res) =>
+          res.ok
+            ? res.json()
+            : Promise.reject(new Error(`promo lookup ${res.status}`))
+        )
         .then((data) => {
           if (!data?.lines) return;
           const bySku: Record<string, PromoApiLine> = {};
@@ -298,11 +310,27 @@ export function OrderPageClient({
             lines: bySku,
             orderTotal: data.orderTotal ?? null,
           });
+          setPromoFetchFailed(false);
         })
-        .catch(() => {});
+        .catch((err) => {
+          // ถูก abort เพราะมีรอบใหม่มาแทนที่ (จำนวนเปลี่ยน/ออกหน้า) — ไม่ใช่ error จริง
+          if (err?.name === "AbortError") return;
+          if (!retried) {
+            retried = true;
+            retryTimer = setTimeout(runFetch, 2000);
+            return;
+          }
+          setPromoFetchFailed(true);
+        });
+    }
+
+    const timer = setTimeout(() => {
+      setPromoFetchFailed(false);
+      runFetch();
     }, 350);
     return () => {
       clearTimeout(timer);
+      if (retryTimer) clearTimeout(retryTimer);
       ctrl.abort();
     };
   }, [lines]);
@@ -346,40 +374,81 @@ export function OrderPageClient({
       const cvdEst = cvd.cvdEst;
       const flag = cvd.flag;
       const api = promoApi?.lines[line.row.skuCode];
-      const fallbackPromo = getPromoForQty(line.qty, line.row.promoTiers ?? []);
-      /**
-       * ผสม api กับ fallback แบบ "ยกกลุ่ม" ไม่ใช่ ?? รายฟิลด์
-       *
-       * เดิมพอ api มา fallback ถูกทิ้งทั้งก้อน — lookup ที่คืนแค่ขั้นปัจจุบันจึงลบ
-       * ข้อความ "อีก X หีบ" ทิ้ง แต่ ?? รายฟิลด์ก็ผิดเพราะจะเอา nextPromo จาก api
-       * ไปผสมกับ qtyToNext ของ fallback แล้วได้ตัวเลขที่ไม่ตรงกัน
-       *
-       * fallback คิดจาก tiers ของแถวเดียว ส่วนโปรกลุ่มคิดจากยอดรวมทั้งกลุ่ม
-       * จึงห้ามใช้แทนกันเมื่อ SKU นี้อยู่ในกลุ่มโปร
-       */
-      const canFallback =
-        !api?.promoGroup || (api.promoGroupMembers ?? 0) <= 1;
-      const useApiNext = api?.nextPromo != null || !canFallback;
-      const next = api && useApiNext ? api : fallbackPromo;
-      const promo: PromoResult = api
-        ? {
-            currentPromo: api.currentPromo ?? fallbackPromo.currentPromo,
-            currentKind: api.currentKind ?? fallbackPromo.currentKind,
-            nextPromo: next.nextPromo,
-            nextPromoQty: next.nextPromoQty,
-            qtyToNext: next.qtyToNext,
-            nextKind: next.nextKind,
-            hasPromoLadder:
-              api.hasPromoLadder ??
-              (line.row.promoTiers?.length ?? 0) > 0,
-          }
-        : fallbackPromo;
+      // api ต้องตรงกับจำนวนปัจจุบันเป๊ะ ไม่งั้นถือว่ายังไม่มา (กันเลขค้างจาก
+      // debounce/รอบก่อนหน้าที่จำนวนเปลี่ยนไปแล้ว)
+      const apiFresh = api != null && api.qty === line.qty;
+      const isGrouped = isPooledPromoGroup(
+        api?.promoGroup ?? line.row.promoGroup,
+        api?.promoGroupMembers ?? line.row.promoGroupMembers
+      );
 
+      // ราคาทุนไม่ผูกกับการรวมยอดกลุ่ม (บั๊กที่พบกระทบแค่ "ส่วนลด") — ปล่อย fallback
+      // ตามเดิมได้เสมอ ไม่งั้นราคาที่ร้านแก้เอง (evaluatePriceOverride) จะพังตอนรอโปร
       const c4UnitPrice = api?.unitPrice ?? line.row.unitPrice ?? null;
-      const discountBaht =
-        api?.discountBaht ?? line.row.discountBahtPerCase ?? null;
-      const discountPct =
-        api?.discountPct ?? line.row.discountPctPerCase ?? null;
+
+      let promo: PromoResult;
+      let discountBaht: number | null;
+      let discountPct: number | null;
+      let freeGood: LineFreeGood | null;
+      let promoPending = false;
+
+      if (apiFresh) {
+        // api สดตรงกับจำนวนปัจจุบันแล้ว — ใช้ทั้งก้อนจาก api อย่างเดียว ไม่ผสมกับ
+        // fallback ใด ๆ ข้อความกับตัวเลขจึงมาจากแหล่งเดียวกันเสมอ ขัดแย้งกันไม่ได้อีก
+        promo = {
+          currentPromo: api!.currentPromo ?? null,
+          currentKind: api!.currentKind ?? null,
+          nextPromo: api!.nextPromo ?? null,
+          nextPromoQty: api!.nextPromoQty ?? null,
+          qtyToNext: api!.qtyToNext ?? null,
+          nextKind: api!.nextKind ?? null,
+          hasPromoLadder:
+            api!.hasPromoLadder ?? (line.row.promoTiers?.length ?? 0) > 0,
+        };
+        discountBaht = api!.discountBaht ?? null;
+        discountPct = api!.discountPct ?? null;
+        freeGood = api!.freeGood ?? null;
+      } else if (isGrouped) {
+        // อยู่ในโปรกลุ่มแต่ api ยังไม่มา/ไม่ตรงจำนวนแล้ว — SKU เดียวไม่รู้ยอดรวมทั้งกลุ่ม
+        // ห้ามเดาจาก tiers ของแถวเดียวหรือสแนปช็อตเก่าจากหน้าสต็อก (คือบั๊กที่เจอ:
+        // ตัวเลขกับข้อความมาจากคนละแหล่งแล้วขัดแย้งกันเอง) — โชว์ "กำลังคำนวณ" แทน
+        promo = {
+          currentPromo: null,
+          currentKind: null,
+          nextPromo: null,
+          nextPromoQty: null,
+          qtyToNext: null,
+          nextKind: null,
+          hasPromoLadder: (line.row.promoTiers?.length ?? 0) > 0,
+        };
+        discountBaht = null;
+        discountPct = null;
+        freeGood = null;
+        promoPending = true;
+      } else {
+        // ไม่ใช่โปรกลุ่ม — ยอดของแถวเดียวก็พอตัดสินขั้นได้ ไม่ต้องรอ live lookup
+        // (พฤติกรรมเดิมทุกประการ)
+        const fallbackPromo = getPromoForQty(
+          line.qty,
+          line.row.promoTiers ?? []
+        );
+        const next = api?.nextPromo != null ? api : fallbackPromo;
+        promo = api
+          ? {
+              currentPromo: api.currentPromo ?? fallbackPromo.currentPromo,
+              currentKind: api.currentKind ?? fallbackPromo.currentKind,
+              nextPromo: next.nextPromo,
+              nextPromoQty: next.nextPromoQty,
+              qtyToNext: next.qtyToNext,
+              nextKind: next.nextKind,
+              hasPromoLadder:
+                api.hasPromoLadder ?? (line.row.promoTiers?.length ?? 0) > 0,
+            }
+          : fallbackPromo;
+        discountBaht = api?.discountBaht ?? line.row.discountBahtPerCase ?? null;
+        discountPct = api?.discountPct ?? line.row.discountPctPerCase ?? null;
+        freeGood = api?.freeGood ?? null;
+      }
 
       const override = priceOverrides[line.row.skuCode] ?? null;
       const verdict = evaluatePriceOverride({
@@ -395,16 +464,19 @@ export function OrderPageClient({
       });
 
       const unitPrice = eff.unitPrice;
-      // ไม่มี override → ใช้ค่าจาก API เหมือนเดิมทุกประการ (ออเดอร์ที่ไม่แก้ราคาต้องไม่เปลี่ยนพฤติกรรม)
-      const netUnitPrice =
-        override != null
+      // กำลังรอโปรกลุ่ม → ห้ามคำนวณราคาสุทธิ/รวม เพราะจะเงียบ ๆ กลายเป็น "ไม่มีส่วนลด"
+      // ทั้งที่ยังไม่รู้ ไม่ใช่ว่าไม่มีจริง
+      const netUnitPrice = promoPending
+        ? null
+        : override != null
           ? eff.netUnitPrice
           : (api?.netUnitPrice ??
             calcNetUnitPrice(c4UnitPrice, discountBaht, discountPct) ??
             line.row.netUnitPrice ??
             c4UnitPrice);
-      const lineTotal =
-        override != null
+      const lineTotal = promoPending
+        ? null
+        : override != null
           ? calcLineAmount(line.qty, unitPrice, netUnitPrice)
           : (api?.lineTotal ??
             calcLineAmount(line.qty, c4UnitPrice, netUnitPrice));
@@ -417,6 +489,7 @@ export function OrderPageClient({
         cvdReason: cvd.reason,
         cvdBlocking: cvd.blocking,
         promo,
+        promoPending,
         unitPrice,
         c4UnitPrice,
         unitPriceOverride: verdict.override,
@@ -427,11 +500,11 @@ export function OrderPageClient({
         priceExpired: api?.priceExpired ?? line.row.priceExpired ?? false,
         discountBaht,
         discountPct,
-        freeGood: api?.freeGood ?? null,
+        freeGood,
         promoGroup: api?.promoGroup ?? line.row.promoGroup ?? null,
         promoGroupMembers:
           api?.promoGroupMembers ?? line.row.promoGroupMembers ?? 0,
-        pooledQty: api?.pooledQty ?? line.qty,
+        pooledQty: apiFresh ? api!.pooledQty ?? line.qty : line.qty,
       };
     });
   }, [lines, promoApi, priceOverrides]);
@@ -761,6 +834,11 @@ export function OrderPageClient({
     [enriched]
   );
 
+  const pendingPromoLines = useMemo(
+    () => enriched.filter((l) => l.promoPending),
+    [enriched]
+  );
+
   /**
    * คำเตือนทั้งหมดในรูปแบบเดียว — ชิปหนึ่งอันต่อหนึ่งเรื่อง
    *
@@ -788,6 +866,27 @@ export function OrderPageClient({
               {l.priceDiff != null && (
                 <> · ต่าง {formatBaht(l.priceDiff)}/หีบ</>
               )}
+            </span>
+          ),
+        })),
+      });
+    }
+
+    if (promoFetchFailed && pendingPromoLines.length > 0) {
+      groups.push({
+        key: "promoLoadFailed",
+        tone: "warn",
+        icon: <AlertTriangle className="h-3.5 w-3.5" />,
+        label: "โหลดโปรไม่สำเร็จ",
+        count: pendingPromoLines.length,
+        summary: `${pendingPromoLines.length} รายการในโปรกลุ่มยังคำนวณส่วนลดไม่ได้ (โหลดข้อมูลไม่สำเร็จ) — ลองแก้จำนวนอีกครั้งเพื่อให้ระบบลองใหม่ ก่อนส่งคำสั่งซื้อ`,
+        skuCodes: pendingPromoLines.map((l) => l.row.skuCode),
+        items: pendingPromoLines.map((l) => ({
+          key: l.row.skuCode,
+          node: (
+            <span className="vmi-cell-text block">
+              <span className="font-mono font-semibold">{l.row.skuCode}</span>{" "}
+              {l.row.skuName}
             </span>
           ),
         })),
@@ -899,6 +998,8 @@ export function OrderPageClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     mismatchLines,
+    pendingPromoLines,
+    promoFetchFailed,
     cvdNotices,
     duplicateLines,
     groupStepFixes,
@@ -1430,6 +1531,16 @@ function OrderSummaryPromo({
   line: EnrichedLine;
   onQtyChange: (skuCode: string, qty: number) => void;
 }) {
+  // กำลังรอผลรวมยอดโปรกลุ่ม — ห้ามส่ง currentPromo/tiers ที่เป็น null/รายแถวให้
+  // PromoDetailCell เพราะมันจะตีความว่า "ไม่มีโปร" หรือโชว์เงื่อนไขขั้นแรกแบบไม่รวมกลุ่ม
+  // ทั้งที่ยังไม่รู้ผลจริง
+  if (line.promoPending) {
+    return (
+      <span className="vmi-t-sm text-slate-400 dark:text-slate-500">
+        กำลังคำนวณ...
+      </span>
+    );
+  }
   return (
     <PromoDetailCell
       variant="compact"
@@ -1627,6 +1738,7 @@ function OrderSummaryList({
                     <StockDiscountPerCaseCell
                       discountBaht={line.discountBaht}
                       discountPct={line.discountPct}
+                      loading={line.promoPending}
                       compact
                     />
                   </MobileStat>
@@ -1635,10 +1747,14 @@ function OrderSummaryList({
                       unitPrice={line.unitPrice}
                       netUnitPrice={line.netUnitPrice}
                       expired={line.priceExpired}
+                      loading={line.promoPending}
                       compact
                     />
                   </MobileStat>
-                  <MobileStat label="รวม" value={formatBaht(line.lineTotal)} />
+                  <MobileStat
+                    label="รวม"
+                    value={line.promoPending ? "…" : formatBaht(line.lineTotal)}
+                  />
                   <MobileStat label="CVD" value={formatDays(line.cvdEst)} />
                 </MobileRowStats>
                 <MobileRowExtra className="pl-7">
@@ -1838,6 +1954,7 @@ function OrderSummaryList({
                   <StockDiscountPerCaseCell
                     discountBaht={line.discountBaht}
                     discountPct={line.discountPct}
+                    loading={line.promoPending}
                     compact
                   />
                 </td>
@@ -1846,11 +1963,16 @@ function OrderSummaryList({
                     unitPrice={line.unitPrice}
                     netUnitPrice={line.netUnitPrice}
                     expired={line.priceExpired}
+                    loading={line.promoPending}
                     compact
                   />
                 </td>
                 <td className="px-2 py-2.5 text-right text-xs font-medium tabular-nums">
-                  {formatBaht(line.lineTotal)}
+                  {line.promoPending ? (
+                    <span className="text-slate-400 dark:text-slate-500">…</span>
+                  ) : (
+                    formatBaht(line.lineTotal)
+                  )}
                 </td>
                 <td className="px-1.5 py-2.5 text-right">
                   <CvdFlagCell cvdEst={line.cvdEst} flag={line.flag} />

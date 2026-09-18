@@ -8,7 +8,10 @@ import {
   getAuthorizedStore,
   getAuthorizedStoreId,
 } from "@/lib/auth/store-context";
-import { evaluatePriceOverride } from "@/lib/calculations";
+import {
+  evaluatePooledDiscountConsistency,
+  evaluatePriceOverride,
+} from "@/lib/calculations";
 import { checkDeliveryDate } from "@/lib/orders/delivery-date";
 import {
   lookupOrderPromoLines,
@@ -235,7 +238,7 @@ export async function POST(request: Request) {
     c4BySku = null;
   }
 
-  const enrichedItems: OrderItemInput[] = items.map((i) => {
+  const enrichedItemsBase: OrderItemInput[] = items.map((i) => {
     const c4 = c4BySku?.get(codeById.get(i.skuId) ?? "") ?? null;
     const verdict = evaluatePriceOverride({
       override: i.unitPriceOverride ?? null,
@@ -266,6 +269,33 @@ export async function POST(request: Request) {
       c4FreeGoodName: free?.premiumName ?? null,
       c4FreeGoodQty: free?.qty ?? null,
       c4FreeGoodUnit: free?.unitLabel ?? null,
+    };
+  });
+
+  // ด่านเตือนความผิดปกติ (ไม่บล็อกการส่ง): สมาชิกกลุ่มโปรเดียวกันในออเดอร์นี้
+  // ต้องได้ส่วนลด/ป้ายโปร/pooledQty ตรงกันทุกตัว — ถ้าไม่ตรงคือสัญญาณว่าคำนวณ
+  // มาคนละแหล่งกัน (รูปแบบเดียวกับบั๊กที่เจอจริง: ตัวเลขถูกแต่ข้อความผิด)
+  const discountConsistency = evaluatePooledDiscountConsistency(
+    enrichedItemsBase.map((it, idx) => ({
+      skuCode: codeById.get(items[idx].skuId) ?? "",
+      finalQty: it.finalQty,
+      c4PromoGroup: it.c4PromoGroup ?? null,
+      c4PooledQty: it.c4PooledQty ?? null,
+      c4DiscountBaht: it.c4DiscountBaht ?? null,
+      c4DiscountPct: it.c4DiscountPct ?? null,
+      c4PromoLabel: it.c4PromoLabel ?? null,
+    }))
+  );
+  const enrichedItems: OrderItemInput[] = enrichedItemsBase.map((it, idx) => {
+    const skuCode = codeById.get(items[idx].skuId) ?? "";
+    const flag = discountConsistency.get(skuCode) ?? {
+      flagged: false,
+      reason: null,
+    };
+    return {
+      ...it,
+      discountFlagged: flag.flagged,
+      discountFlagReason: flag.reason,
     };
   });
 

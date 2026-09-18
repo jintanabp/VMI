@@ -141,6 +141,9 @@ export interface OrderItemInput {
   c4FreeGoodName?: string | null;
   c4FreeGoodQty?: number | null;
   c4FreeGoodUnit?: string | null;
+  /** สมาชิกกลุ่มโปรเดียวกันในออเดอร์นี้ได้ส่วนลด/pooledQty ไม่ตรงกัน — เตือนเฉย ๆ ไม่บล็อก */
+  discountFlagged?: boolean;
+  discountFlagReason?: string | null;
 }
 
 /** กลุ่ม PO ที่พร้อมบันทึกตอนอนุมัติ */

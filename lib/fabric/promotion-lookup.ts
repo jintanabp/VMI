@@ -57,6 +57,9 @@ export interface C4LookupResult {
   lines: C4LineResult[];
   freeGoods: C4FreeGood[];
   skipped: { itemId: string; product: string; reason: string }[];
+  /** แถวโปรที่ pool ไว้แล้วต่อ poolKey — ให้ผู้เรียกใช้ชุดเดียวกันสร้างข้อความ/ขั้นบันได
+   *  จะไม่ได้ผลลัพธ์คนละชุดกับตัวเลขส่วนลดที่คิดจากตรงนี้ */
+  poolRows: Map<string, PromoRow[]>;
 }
 
 /** ชิ้นต่อหีบของสินค้าของแถม — ไม่ส่งมา = ไม่แปลงหน่วย */
@@ -133,7 +136,12 @@ export function lookupC4(
 ): C4LookupResult {
   const day = opts.day ?? new Date();
   const region = normalizeRegion(opts.region);
-  const result: C4LookupResult = { lines: [], freeGoods: [], skipped: [] };
+  const result: C4LookupResult = {
+    lines: [],
+    freeGoods: [],
+    skipped: [],
+    poolRows: new Map(),
+  };
 
   const pools = new Map<
     string,
@@ -170,6 +178,9 @@ export function lookupC4(
     const sortedRows = [...pool.rows].sort(
       (a, b) => tierMinQty(a) - tierMinQty(b) || a.toQty - b.toQty
     );
+    // เก็บไว้ให้ผู้เรียกสร้างข้อความ/ขั้นบันไดจากแถวชุดเดียวกันนี้เสมอ
+    // แม้ pool นี้จะยังไม่มีขั้น active (ต่ำกว่าขั้นแรก/เกินขั้นสูงสุด) ก็ยังมีประโยชน์
+    result.poolRows.set(poolKey, sortedRows);
     const active = activeTier(sortedRows, pooledQty);
 
     if (!active) {
@@ -339,22 +350,54 @@ export function tierKind(row: PromoRow): PromoTierKind {
 }
 
 /**
+ * แถวไหน "คุ้ม" กว่ากัน — เทียบชนิดก่อน (ลดบาท > ลด% > ของแถม > ไม่มีอะไร)
+ * แล้วค่อยเทียบขนาดภายในชนิดเดียวกัน
+ *
+ * ใช้ตัดสินตอนสองแถวชนกันที่ tierMinQty เดียวกัน (ดู promoRowsToTiers) — ไม่ใช้
+ * เทียบลำดับขั้นบันไดปกติ (นั่นใช้ minQty ตรงๆ อยู่แล้ว)
+ */
+function tierBenefitRank(row: PromoRow): [number, number] {
+  if (row.discAmt > 0) return [3, row.discAmt];
+  if (row.discPct > 0) return [2, row.discPct];
+  if (hasPremium(row)) return [1, row.premiumQty];
+  return [0, 0];
+}
+
+function isBetterTierRow(a: PromoRow, b: PromoRow): boolean {
+  const [aKind, aVal] = tierBenefitRank(a);
+  const [bKind, bVal] = tierBenefitRank(b);
+  if (aKind !== bKind) return aKind > bKind;
+  return aVal > bVal;
+}
+
+/**
  * แปลงแถว C4 เป็นขั้นบันไดที่ปลายทางใช้
  *
  * minQty ที่ออกไปคือ "จำนวนจริงที่ต้องซื้อ" (tierMinQty) ไม่ใช่ fromQty ดิบ ๆ
  * ปลายทางทุกตัวเทียบ qty กับ minQty อยู่แล้ว การใส่ค่าที่ถูกตั้งแต่ตรงนี้จึงทำให้
  * ทั้งการ active ขั้น การนับล็อตของแถม และข้อความที่แสดง ตรงกันหมดโดยไม่ต้องแก้ทีละที่
+ *
+ * บั๊กที่เจอจริง: แถว "1-2 หีบ" (fromQty=1, toQty=2, ลด 63) บางกลุ่มมี MINIMUMPURCHASE=6
+ * แปลว่า tierMinQty จริงคือ 6 — ชนกับแถว "6+ หีบ" (fromQty=6, ลด 140) ที่ tierMinQty ก็เป็น 6
+ * เหมือนกัน ของเดิมเอาแถว "ที่เจอก่อน" (first-seen) ซึ่งมักเป็นแถวช่วงแคบที่ให้น้อยกว่า
+ * ทำให้ร้านที่สั่งครบ 6 เห็นข้อความ "ลด 63 ขั้นสูงสุด" ทั้งที่ตัวเลขที่คิดจริง (คนละฟังก์ชัน,
+ * lookupC4/activeTier) ได้ 140 ถูกต้อง — ร้านที่เข้าเกณฑ์ขั้นหนึ่งต้องไม่เห็นขั้นที่ด้อยกว่า
+ * เพราะลำดับแถวในไฟล์ จึงต้องเลือกแถวที่ "คุ้มกว่า" เมื่อ minQty ชนกัน ไม่ใช่แถวแรกที่เจอ
  */
 export function promoRowsToTiers(
   rows: PromoRow[],
   opts?: PromoTierOptions
 ): PromoTierInput[] {
-  const seen = new Set<number>();
-  const tiers: PromoTierInput[] = [];
+  const byMinQty = new Map<number, PromoRow>();
   for (const r of rows) {
     const minQty = tierMinQty(r);
-    if (seen.has(minQty)) continue;
-    seen.add(minQty);
+    const existing = byMinQty.get(minQty);
+    if (!existing || isBetterTierRow(r, existing)) {
+      byMinQty.set(minQty, r);
+    }
+  }
+  const tiers: PromoTierInput[] = [];
+  for (const [minQty, r] of byMinQty) {
     const kind = tierKind(r);
     const perLot = kind === "premium" ? premiumPerLot(r, opts?.packSizeOf) : null;
     tiers.push({

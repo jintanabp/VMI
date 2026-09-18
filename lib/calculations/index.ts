@@ -216,6 +216,14 @@ export {
   roundBaht,
 } from "./price-override";
 
+export type {
+  DiscountFlagReason,
+  PooledDiscountCheckItem,
+  PooledDiscountFlag,
+} from "./discount-consistency";
+
+export { evaluatePooledDiscountConsistency } from "./discount-consistency";
+
 export function formatNumber(value: number, decimals = 1): string {
   return value.toLocaleString("th-TH", {
     minimumFractionDigits: decimals,

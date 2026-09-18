@@ -114,6 +114,40 @@ export function PriceFlagBadge({
   );
 }
 
+/**
+ * สมาชิกกลุ่มโปรเดียวกันในออเดอร์นี้ได้ส่วนลด/pooledQty ไม่ตรงกัน — สัญญาณว่า
+ * คำนวณมาคนละแหล่ง เซลล์ต้องเห็นก่อนอนุมัติ (เตือนเฉย ๆ ไม่บล็อกการส่ง)
+ */
+export function DiscountFlagBadge({
+  reason,
+  title,
+  compact = false,
+  className,
+}: {
+  reason?: string | null;
+  title?: string;
+  compact?: boolean;
+  className?: string;
+}) {
+  const label =
+    reason === "pooled_qty_mismatch" ? "ยอดรวมกลุ่มไม่ตรง" : "ส่วนลดกลุ่มไม่ตรงกัน";
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-0.5 rounded-full font-semibold",
+        compact
+          ? "px-1.5 py-0.5 vmi-t-xs leading-tight"
+          : "px-2.5 py-1 text-xs",
+        flagStyles.yellow,
+        className
+      )}
+      title={title ?? label}
+    >
+      ⚠ {label}
+    </span>
+  );
+}
+
 export function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
     pending_approval:

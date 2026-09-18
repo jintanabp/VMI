@@ -91,15 +91,14 @@ export function lookupOrderPromoLines(
   const perSku: OrderPromoLineResult[] = lines.map((l, i) => {
     const code = String(l.skuCode ?? "");
     const qty = Number(l.qty ?? 0);
-    const rows = filterCandidateRows(
-      promo,
-      ctx.division,
-      ctx.cusgroup,
-      code,
-      ctx.region
-    );
-    const tiers = promoRowsToTiers(rows, { packSizeOf, nameOf });
     const lineResult = lookup.lines.find((r) => r.itemId === String(i));
+    // ต้องใช้แถวโปรชุดเดียวกับที่ lookupC4 รวมทั้งกลุ่มไปคิดตัวเลขส่วนลดแล้ว
+    // ไม่งั้นข้อความ "โปรที่ได้" จะคิดจากแถวของ SKU ตัวเดียว ซึ่งไม่ครบเท่ากลุ่ม
+    // ได้ขั้นคนละอันกับตัวเลข (discountBaht ถูก แต่ currentPromo ผิด)
+    const rows =
+      (lineResult && lookup.poolRows.get(lineResult.poolKey)) ??
+      filterCandidateRows(promo, ctx.division, ctx.cusgroup, code, ctx.region);
+    const tiers = promoRowsToTiers(rows, { packSizeOf, nameOf });
     const tierQty = lineResult?.pooledQty ?? qty;
     let display = getC4PromoForQty(tierQty, tiers);
 

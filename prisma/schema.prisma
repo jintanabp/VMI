@@ -258,6 +258,11 @@ model OrderItem {
   c4FreeGoodName      String?
   c4FreeGoodQty       Int?
   c4FreeGoodUnit      String?
+  /// สมาชิกกลุ่มโปรเดียวกันในออเดอร์นี้ได้ส่วนลด/pooledQty ไม่ตรงกัน — เตือนเฉย ๆ ไม่บล็อก
+  /// (ตัดสินฝั่งเซิร์ฟเวอร์ตอนส่ง เหตุผลเดียวกับ priceFlagged)
+  discountFlagged     Boolean @default(false)
+  /// group_mismatch | pooled_qty_mismatch
+  discountFlagReason  String?
 
   // --- ราคาที่พนักงานแก้ + การแบ่ง PO ---
   // แยกช่องจาก unitPriceOverride ของร้าน เพื่อไม่ให้ทับหลักฐานว่าร้าน "ขอ" ราคาเท่าไร

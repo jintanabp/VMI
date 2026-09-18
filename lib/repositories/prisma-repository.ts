@@ -123,6 +123,8 @@ export const prismaOrderRepository: OrderRepository = {
           c4FreeGoodName: item.c4FreeGoodName ?? null,
           c4FreeGoodQty: item.c4FreeGoodQty ?? null,
           c4FreeGoodUnit: item.c4FreeGoodUnit ?? null,
+          discountFlagged: item.discountFlagged ?? false,
+          discountFlagReason: item.discountFlagReason ?? null,
         })),
       },
     };

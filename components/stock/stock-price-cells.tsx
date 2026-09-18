@@ -179,13 +179,23 @@ export function StockDiscountPerCaseCell({
   discountPct,
   pending,
   compact = false,
+  loading = false,
 }: {
   discountBaht?: number | null;
   discountPct?: number | null;
   /** ส่วนลดของขั้นที่ยังไม่ถึง — โชว์จาง ๆ ว่ารออะไรอยู่ ไม่ใช่ส่วนลดที่ได้แล้ว */
   pending?: { minQty: number; discBaht: number | null; discPct: number | null } | null;
   compact?: boolean;
+  /** true = ยังรอผลรวมยอดโปรกลุ่ม ห้ามโชว์ "—" เพราะดูเหมือนคำนวณเสร็จแล้วว่าไม่มีส่วนลด */
+  loading?: boolean;
 }) {
+  if (loading) {
+    return (
+      <span className={cn("text-slate-400 dark:text-slate-500", compact && "text-xs")}>
+        …
+      </span>
+    );
+  }
   if (discountBaht != null && discountBaht > 0) {
     return (
       <span className={cn("text-slate-600 dark:text-slate-400", compact && "text-xs")}>
@@ -223,12 +233,18 @@ export function StockNetPriceCell({
   netUnitPrice,
   expired,
   compact = false,
+  loading = false,
 }: {
   unitPrice?: number | null;
   netUnitPrice?: number | null;
   expired?: boolean;
   compact?: boolean;
+  /** true = ยังรอผลรวมยอดโปรกลุ่ม ห้ามโชว์ราคาเต็มเหมือนสรุปแล้วว่าไม่มีส่วนลด */
+  loading?: boolean;
 }) {
+  if (loading) {
+    return <span className={cn("text-slate-400 dark:text-slate-500", compact && "text-xs")}>…</span>;
+  }
   if (unitPrice == null) return <span className="text-slate-400">-</span>;
   const net = netUnitPrice ?? unitPrice;
   const hasDiscount = net < unitPrice - 0.001;

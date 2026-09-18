@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Filter, Sparkles } from "lucide-react";
 import { PromoDetailCell } from "@/components/promo/promo-detail-cell";
-import { FlagBadge, PriceFlagBadge } from "@/components/ui/badge";
+import { DiscountFlagBadge, FlagBadge, PriceFlagBadge } from "@/components/ui/badge";
 import {
   MobileRow,
   MobileRowExtra,
@@ -53,6 +53,9 @@ export interface ReviewOrderItem {
   c4PriceExpired?: boolean | null;
   priceFlagged?: boolean;
   priceFlagReason?: string | null;
+  /** สมาชิกกลุ่มโปรเดียวกันในออเดอร์นี้ได้ส่วนลด/pooledQty ไม่ตรงกัน */
+  discountFlagged?: boolean;
+  discountFlagReason?: string | null;
   /** ราคาที่พนักงานตั้งเอง (แยกช่องจากของร้าน เพื่อไม่ทับหลักฐานว่าร้านขออะไร) */
   salesPriceOverride?: number | null;
   salesPriceBy?: string | null;
@@ -78,6 +81,13 @@ function priceFlagTitle(item: ReviewOrderItem): string {
   parts.push("ณ เวลาที่ร้านส่ง");
   if (item.c4PriceExpired) parts.push("ราคาระบบหมดอายุ");
   return parts.join(" · ");
+}
+
+/** ข้อความอธิบายธงส่วนลดกลุ่ม — คำนวณตอนส่ง ไม่คำนวณใหม่ตอนอ่าน (เหตุผลเดียวกับราคา) */
+function discountFlagTitle(item: ReviewOrderItem): string {
+  return item.discountFlagReason === "pooled_qty_mismatch"
+    ? "ยอดรวมที่ใช้ตัดสินขั้นโปรของสมาชิกกลุ่มนี้ไม่ตรงกับยอดที่สั่งจริง — ตรวจสอบก่อนอนุมัติ"
+    : "สมาชิกกลุ่มโปรเดียวกันในออเดอร์นี้ได้ส่วนลด/ป้ายโปรไม่ตรงกัน — ตรวจสอบก่อนอนุมัติ";
 }
 
 interface OrderReviewTableProps {
@@ -518,14 +528,16 @@ export function OrderReviewTable({
                     <MobileRow
                       key={item.id}
                       warn={
-                        (flag === "red" || Boolean(item.priceFlagged)) &&
+                        (flag === "red" ||
+                          Boolean(item.priceFlagged) ||
+                          Boolean(item.discountFlagged)) &&
                         item.promoGroupStripe == null
                       }
                       className={cn(
                         promoGroupRowBgClass(item.promoGroupStripe ?? null),
                         flag === "red" && !item.promoGroupStripe && "bg-red-50/40 dark:bg-red-950/20",
                         flag !== "red" &&
-                          item.priceFlagged &&
+                          (item.priceFlagged || item.discountFlagged) &&
                           !item.promoGroupStripe &&
                           "bg-amber-50/40 dark:bg-amber-950/20"
                       )}
@@ -554,6 +566,13 @@ export function OrderReviewTable({
                               <PriceFlagBadge
                                 reason={item.priceFlagReason}
                                 title={priceFlagTitle(item)}
+                                compact
+                              />
+                            )}
+                            {item.discountFlagged && (
+                              <DiscountFlagBadge
+                                reason={item.discountFlagReason}
+                                title={discountFlagTitle(item)}
                                 compact
                               />
                             )}
@@ -661,7 +680,7 @@ export function OrderReviewTable({
                         !item.promoGroupStripe &&
                         "bg-red-50/40 dark:bg-red-950/20",
                       flag !== "red" &&
-                        item.priceFlagged &&
+                        (item.priceFlagged || item.discountFlagged) &&
                         !item.promoGroupStripe &&
                         "bg-amber-50/40 dark:bg-amber-950/20"
                     )}
@@ -690,6 +709,13 @@ export function OrderReviewTable({
                             <PriceFlagBadge
                               reason={item.priceFlagReason}
                               title={priceFlagTitle(item)}
+                              compact
+                            />
+                          )}
+                          {item.discountFlagged && (
+                            <DiscountFlagBadge
+                              reason={item.discountFlagReason}
+                              title={discountFlagTitle(item)}
                               compact
                             />
                           )}
