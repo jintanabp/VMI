@@ -157,6 +157,13 @@ scripts/          sync, backup, verify, probe
 | ตารางสต็อกบนหน้าจอ | `components/stock/stock-page-client.tsx` (ไฟล์ขนาดใหญ่) |
 | โครงเมนูและเส้นทางหน้าผู้ดูแลระบบ | `lib/admin/admin-nav.ts` |
 | หน้าภาพรวมฝั่งเซลล์ | `lib/sales/dashboard-{summary,queries}.ts` และ `app/api/sales/dashboard` |
+| พนักงานเพิ่มสินค้าใหม่เข้าออเดอร์ / ร้านปฏิเสธแล้วลบแถว | `lib/po/add-order-item.ts` (`addOrderItem`, `removeRejectedAddedItem`, `computePooledGroup`) |
+| ค้นสินค้าทั้งแคตตาล็อก | `lib/fabric/sku-master.ts` → `searchRanked` · UI `components/sales/sku-picker.tsx` |
+| รอร้านยืนยันเพิ่มจำนวน (D3) | `lib/repositories/prisma-repository.ts` → `updateOrderItemQty` / `confirmQtyIncrease` / `rejectQtyIncrease` · route `app/api/store/orders/route.ts` (PATCH) |
+| กันอนุมัติขณะรอร้านยืนยัน | server: `app/api/orders/route.ts` (action `approve`) · client: `pendingConfirmCount` ใน `components/sales/sales-orders-client.tsx` |
+| อีเมล ↔ รหัสเซลล์ที่แอดมินกำหนด | `lib/auth/manual-salesman-assignments.ts` + `buildSalesSessionWithAccess` ใน `lib/auth/sales-session.ts` |
+| เคลียร์ SKU สิ้นเดือน | `app/api/orders/clear-sku/route.ts` |
+| กระดิ่งร้าน → เปิดออเดอร์ | `components/layout/store-notification-bell.tsx` (`openOrder`) + `?order=` ใน `components/history/order-history-client.tsx` |
 
 ### โครงสร้างหน้าผู้ดูแลระบบ
 
@@ -250,12 +257,36 @@ npm run dev:stop && npm run build
 เคยเกิดกรณีข้อมูล SKU หายไป 15 รายการจากการแยกข้อความด้วยเครื่องหมาย `,` โดยตรง
 ปัจจุบันมีชุดทดสอบครอบคลุมแล้ว
 
+### 4.9 แก้บรรทัดในโปรกลุ่มหลังร้านส่งแล้ว ต้องคิดพี่น้องใหม่ทั้งกลุ่ม
+
+`lookupC4` คิด `pooledQty` จากเฉพาะบรรทัดที่ส่งเข้าไปในคำเรียกเดียวกัน · เพิ่มหรือลบบรรทัดในกลุ่ม
+โดยไม่ส่งพี่น้องเข้าไปด้วย = ส่วนลดของทั้งกลุ่มผิดเงียบๆ · เคยเกือบพลาด: ตอนร้านปฏิเสธสินค้าที่พนักงาน
+เพิ่ม ถ้าลบแถวเฉยๆ พี่น้องจะค้างส่วนลดขั้นสูงที่ได้มาเพราะสินค้าที่ถูกลบ ใช้ `computePooledGroup()`
+ใน `lib/po/add-order-item.ts` และอัปเดตเฉพาะฟิลด์ pooled — **ห้ามแตะราคา/`priceFlagged` ของพี่น้อง**
+
+### 4.10 `requestedQty = 0` มีความหมายพิเศษ
+
+`0` = พนักงานเพิ่มสินค้านี้เอง ร้านไม่เคยสั่ง (ต่างจาก `null` = ออเดอร์เก่า) หลายจุดแยกพฤติกรรมด้วยค่านี้:
+ข้อความแถบยืนยันใน `/history`, ป้าย `PendingQtyIncreaseBadge newItem`, ชนิดแจ้งเตือน `item_added_*`,
+และการปฏิเสธ = ลบแถว · อย่าเปลี่ยนค่าเริ่มต้นของ `requestedQty` ตอนสร้างออเดอร์ให้เป็น 0
+
+### 4.11 ตารางที่เลื่อนแนวนอนบนมือถือ + ปุ่มในแถว `colSpan`
+
+แถวยืนยัน/ปฏิเสธใน `/history` อยู่ในตารางกว้างที่เลื่อนซ้ายขวาได้ ปุ่มที่ `justify-between` ไปอยู่ขวาสุด
+**นอกจอมือถือ** ร้านกดไม่ได้ (พบ 25 ก.ย. 2569) · แก้ด้วย `sticky left-*` + `max-w-[calc(100vw-…)]`
+บน div ข้างใน `td` — ตรวจจอ 390px ทุกครั้งที่ใส่ปุ่มในแถวตาราง
+
+### 4.12 ด่านกันกลุ่มโปรแตก PO ยังไม่ทำงาน
+
+`validatePoSplit()` มีกฎข้อ 1 แต่ไม่มีผู้เรียกคนไหนส่ง `promoGroup` เข้าไป — ดูรายละเอียดใน
+[08 — กฎทางธุรกิจ](./08-business-rules.md#กฎที่ห้ามละเมิด) · **ยังไม่แก้ รอผู้ใช้ตัดสิน**
+
 ---
 
 ## 5. การทดสอบ
 
 ```bash
-npm test          # ทำงานครั้งเดียว (305 กรณี จาก 27 ไฟล์)
+npm test          # ทำงานครั้งเดียว (470 กรณี จาก 43 ไฟล์ · ก.ย. 2569)
 npm run test:watch
 npx vitest run tests/cvd-flag.test.ts    # ระบุเฉพาะไฟล์
 ```
@@ -283,6 +314,12 @@ const { approveWithPoSplit } = await import("@/lib/po/approve-with-split");
 `lib/prisma.ts` อ่านค่า `DATABASE_URL` ขณะสร้าง client เพียงครั้งเดียว หาก import
 ก่อนกำหนดค่า ชุดทดสอบจะเขียนข้อมูลลงฐานข้อมูลสำหรับพัฒนาจริง
 
+ถ้าโค้ดที่ทดสอบต้องใช้ master/โปรจาก Fabric ให้ `vi.doMock("@/lib/fabric", …)` ก่อน import
+ดูตัวอย่างไฟล์โปรจำลองใน `tests/add-order-item.db.test.ts`
+
+> รันทั้งชุดตอนเครื่องทำงานหนัก (เช่นพร้อม `next build`) บางครั้ง `.db.test.ts` สร้างฐานข้อมูล
+> ชั่วคราวไม่ทันแล้วล้มพร้อมกันหลายไฟล์ (เห็นเป็น "skipped" จำนวนมาก) — รันซ้ำก่อนไล่หาบั๊ก
+
 ---
 
 ## 6. ขั้นตอนการทำงานที่พบบ่อย
@@ -309,6 +346,10 @@ const { approveWithPoSplit } = await import("@/lib/po/approve-with-split");
 1. `lib/orders/store-notify.ts` — เพิ่มค่าใน `StoreNotificationKind`
 2. `lib/orders/store-notify-display.ts` — เพิ่มใน `NOTIF_META` **และ** `notifTone`
 3. ปรับคำอธิบายใน `prisma/schema.prisma` (เป็นความคิดเห็นเท่านั้น ไม่ต้อง migrate)
+4. ส่ง `orderId` มาด้วยเสมอเมื่อผูกกับออเดอร์ — กระดิ่งใช้พาไปเปิดออเดอร์นั้น
+
+ฝั่งเซลล์ทำแบบเดียวกันที่ `lib/orders/sales-notify.ts` (`SalesNotificationKind`) และตาราง `KIND_META`
+ใน `components/sales/sales-notifications-client.tsx`
 
 ### การเพิ่มตารางข้อมูลจาก Fabric
 
@@ -333,6 +374,9 @@ npm run dev:stop         # 3. หยุด dev ก่อน build เสมอ
 npm run build            # 4. build ต้องสำเร็จ
 npx next lint            # 5. ต้องไม่มี warning เพิ่มขึ้นจากเดิม
 ```
+
+> ห้ามแก้ `schema.prisma` แล้ว `db push` เฉยๆ — ต้อง `npm run db:migrate` ให้มีไฟล์ migration จริง
+> ไม่งั้นเครื่อง production ที่รัน `migrate deploy` จะไม่มีคอลัมน์ใหม่แล้วตอบ 500
 
 **ข้อ 6 สำคัญที่สุด: เปิดหน้าจอจริงเพื่อตรวจสอบผลลัพธ์** การ build สำเร็จไม่ได้หมายความว่า
 ระบบทำงานถูกต้อง

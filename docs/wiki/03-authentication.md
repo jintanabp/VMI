@@ -97,6 +97,19 @@ sequenceDiagram
 
 manager/supervisor จะได้ `scopeSalesmanCodes` และ `scopeEmails` ของลูกทีมลึก 2 ชั้น
 
+### แอดมินกำหนดรหัสเซลล์ให้อีเมลเอง (ทับการจับคู่อัตโนมัติ)
+
+ก่อนดูตามลำดับข้างบน `buildSalesSessionWithAccess()` เรียก `getManualSalesmanCodes(email)`
+(`lib/auth/manual-salesman-assignments.ts`) ซึ่งอ่านตาราง `SalesmanEmailAssignment` (แก้ที่
+`/admin/system/vda-sales`)
+
+- มีแถว `active` อย่างน้อย 1 แถว → ใช้รหัสพวกนั้น**แทน**ผลอัตโนมัติจาก cross_target ทั้งหมด และใส่ทุกรหัสลง
+  `scopeSalesmanCodes` ตรงๆ (รหัสที่ไม่ได้เป็นหัวหน้า/ลูกทีมกันก็ไม่หาย)
+- ไม่มีแถว → พฤติกรรมเดิมทุกประการ
+- รหัสที่กำหนดไม่อยู่ใน master `cross_salesman` → login ไม่ผ่าน พร้อมข้อความให้ตรวจรหัส
+- อ่านตอนสร้าง session → มีผลเมื่อ login ครั้งถัดไป ไม่ใช่ทันที
+- แอดมินที่มี `salesmanCode` จะถูกพาไป `/sales` จาก `/` (ดู `app/page.tsx`) แอดมินล้วนไป `/admin` ตามเดิม
+
 ## สิทธิ์เข้าถึงออเดอร์
 
 อยู่ที่ `lib/orders/access.ts` — `assertOrderAccess(orderId, session)`

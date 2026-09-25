@@ -43,6 +43,9 @@ erDiagram
 | กลุ่มฟิลด์ | ฟิลด์ | ทำไมต้องแช่ |
 |---|---|---|
 | จำนวน | `suggestedQty` `finalQty` | เทียบได้ว่าร้าน/เซลล์แก้จากที่ระบบแนะนำไปเท่าไร |
+| จำนวนที่ร้านขอ | `requestedQty` | `finalQty` ตอนร้านส่ง แช่ไว้ไม่แก้อีก · `0` = พนักงานเพิ่มสินค้านี้เอง (ร้านไม่เคยสั่ง) · `null` = ออเดอร์เก่าก่อนมีฟีเจอร์ (ถือว่าไม่เคยแก้) · ใช้แยก PO-C/D และตัดสินว่าต้องรอร้านยืนยันไหม |
+| รอร้านยืนยัน | `qtyIncreasePendingConfirm` | `true` เมื่อพนักงานตั้ง `finalQty > requestedQty` (รวมสินค้าที่เพิ่มเอง) · ค้างอยู่ = **อนุมัติทั้งใบไม่ได้** (422) · ลดกลับ ≤ `requestedQty` ปลดเอง |
+| ปฏิเสธรายการ | `rejectedAt` `rejectReason` | บันทึกย้อนหลังเท่านั้น — ตัวที่กันไม่ให้เข้า PO คือ `finalQty=0` ตามเดิม |
 | CVD | `cvdEstimate` `minDays` `maxDays` | ให้เซลล์เห็นสีธงตรงกับที่ร้านเห็น แม้ threshold จะถูกแก้ทีหลัง |
 | ราคาร้าน | `unitPriceOverride` | ราคาที่ร้านขอ |
 | ราคา C4 | `c4UnitPrice` `c4DiscountBaht` `c4DiscountPct` `c4NetUnitPrice` `c4PriceExpired` | ราคามาสเตอร์เปลี่ยนรายวัน |
@@ -79,8 +82,13 @@ erDiagram
 
 | ตาราง | ทิศทาง | kind |
 |---|---|---|
-| `StoreNotification` | พนักงาน → ร้าน | `approved` `rejected` `deleted` `price_changed` `qty_changed` `po_issued` `po_cancelled` `po_received` |
-| `SalesNotification` | ร้าน → พนักงาน | `order_created` `order_cancelled` |
+| `StoreNotification` | พนักงาน → ร้าน | `approved` `rejected` `item_rejected` `deleted` `price_changed` `qty_changed` `qty_increase_pending` `item_added_pending` `po_issued` `po_cancelled` `po_received` |
+| `SalesNotification` | ร้าน → พนักงาน | `order_created` `order_cancelled` `qty_increase_confirmed` `qty_increase_rejected` `item_added_confirmed` `item_added_rejected` |
+
+`kind` เป็น `String` — เพิ่มชนิดใหม่ไม่ต้อง migrate แต่ต้องเพิ่มใน union type
+(`lib/orders/store-notify.ts` / `sales-notify.ts`) และตารางป้าย (`store-notify-display.ts` /
+`sales-notifications-client.tsx`) ไม่งั้นชิปจะขึ้นเป็นชื่อ kind ดิบๆ
+`StoreNotification.orderId` ใช้พาไปเปิดออเดอร์จากกระดิ่ง (`/history?order=<id>`)
 
 ทั้งคู่เก็บ**ข้อความเป็น snapshot** ไม่ผูก FK กับ `Order` เพราะออเดอร์ที่ถูกลบก็ยังต้องแจ้งให้รู้ว่าถูกลบ
 
@@ -97,6 +105,7 @@ erDiagram
 | `StoreGroupThreshold` | MIN/MAX ระดับกลุ่มสินค้า |
 | `StoreSkuBlock` | รายการหยุดสั่ง (มี `acknowledgedAt` ให้เซลล์รับทราบ) |
 | `PromoTier` | ขั้นโปรแบบเก่า ราย SKU (โปรจริงมาจาก Fabric) |
+| `SalesmanEmailAssignment` | **แอดมินกำหนดอีเมล ↔ รหัสเซลล์เอง** (`email` ตัวเล็ก, `salesmanCode` ตัวใหญ่, `active`) · unique `[email, salesmanCode]` · อีเมลที่มีแถว active = ใช้รหัสพวกนี้แทนผลอัตโนมัติจาก cross_target ทั้งหมด (`lib/auth/manual-salesman-assignments.ts`) |
 | `VdaWarehouse` | **ทะเบียนคลัง VDA ↔ รหัสลูกค้า** แก้จาก `/admin/data/warehouses` · ค่าใน `.env` (`VDA_CUSTOMER_MAP`) ใช้เป็น seed/fallback เท่านั้น แถวใน DB ชนะเสมอ |
 
 ### Index ที่ใส่ไว้ตั้งใจ
@@ -131,5 +140,15 @@ SQLite ไม่สร้าง index ให้ FK อัตโนมัติ �
 | `20260826075310_vda_warehouse` | ตาราง `VdaWarehouse` |
 | `20260826080500_seed_vda_warehouses` | ย้ายค่าจาก `.env` เข้าตาราง |
 | `20260827085727_order_po_indexes` | index ของ `Order` / `PurchaseOrder` |
+| `20260902090000_order_client_request_id` | `Order.clientRequestId` กันส่งซ้ำ |
+| `20260911040440_po_erp_delivery_result` | ผลการส่ง ERP บน `PurchaseOrder` |
+| `20260911085205_order_delivery_date` | `Order.deliveryDate` |
+| `20260914041746_po_erp_clone` | ขอเลข PO ใหม่เมื่อ ERP ปฏิเสธ |
+| `20260914043021_po_erp_failure_kind` | `erpFailureKind` |
+| `20260918092659_order_item_discount_flag` | `discountFlagged` / `discountFlagReason` |
+| `20260924030537_salesman_email_assignment` | ตาราง `SalesmanEmailAssignment` |
+| `20260924031934_order_item_reject` | `OrderItem.rejectedAt` / `rejectReason` |
+| `20260924032550_order_item_requested_qty` | `OrderItem.requestedQty` |
+| `20260924063722_order_item_qty_increase_pending` | `OrderItem.qtyIncreasePendingConfirm` |
 
 > ทุก migration ที่เพิ่มคอลัมน์เป็น **nullable หรือมีค่า default** เสมอ — ข้อมูลเดิมไม่พัง
