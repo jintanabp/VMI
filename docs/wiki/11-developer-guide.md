@@ -164,6 +164,9 @@ scripts/          sync, backup, verify, probe
 | อีเมล ↔ รหัสเซลล์ที่แอดมินกำหนด | `lib/auth/manual-salesman-assignments.ts` + `buildSalesSessionWithAccess` ใน `lib/auth/sales-session.ts` · หน้าจอ `components/admin/sales-code-directory-panel.tsx` (ข้อมูล `codes` จาก `buildVdaSalesDirectory`) |
 | เคลียร์สิ้นเดือน (ทั้งใบ / เฉพาะสินค้า) | UI `components/sales/month-end-clear-modal.tsx` · API `DELETE /api/orders` + `app/api/orders/clear-sku/route.ts` |
 | อนุมัติเฉพาะบางรายการ | `lib/po/approve-selected.ts` · client `partialItems` / `promoSiblings` ใน `sales-orders-client.tsx` |
+| ย้ายรายการข้าม PO / รวมเป็นใบเดียว | `assignmentsFor` + ปุ่มใน `components/sales/po-split-panel.tsx` |
+| ราคา/มูลค่าในตารางตรวจออเดอร์ | `linePrice` ใน `components/sales/order-review-table.tsx` — ค่าที่แช่ไว้ ตรงกับ `toSplittable` / เอกสาร PO |
+| เลย์เอาต์หน้าตรวจออเดอร์บนจอคอม (เลื่อนทั้งหน้า, sticky) | `app/globals.css` บล็อก "หน้าตรวจออเดอร์บนจอกว้าง" |
 | กระดิ่งร้าน → เปิดออเดอร์ | `components/layout/store-notification-bell.tsx` (`openOrder`) + `?order=` ใน `components/history/order-history-client.tsx` |
 | กระดิ่งเซลล์ → เปิดออเดอร์ | `components/layout/sales-notification-bell.tsx` + `?order=&status=` ใน `components/sales/sales-orders-client.tsx` · ป้ายชนิด `lib/orders/sales-notify-display.ts` |
 
@@ -278,17 +281,24 @@ npm run dev:stop && npm run build
 **นอกจอมือถือ** ร้านกดไม่ได้ (พบ 25 ก.ย. 2569) · แก้ด้วย `sticky left-*` + `max-w-[calc(100vw-…)]`
 บน div ข้างใน `td` — ตรวจจอ 390px ทุกครั้งที่ใส่ปุ่มในแถวตาราง
 
-### 4.12 ด่านกันกลุ่มโปรแตก PO ยังไม่ทำงาน
+### 4.12 ด่านกันกลุ่มโปรแตก PO — เปิดแล้ว ต้องส่ง promoGroup เสมอ
 
-`validatePoSplit()` มีกฎข้อ 1 แต่ไม่มีผู้เรียกคนไหนส่ง `promoGroup` เข้าไป — ดูรายละเอียดใน
-[08 — กฎทางธุรกิจ](./08-business-rules.md#กฎที่ห้ามละเมิด) · **ยังไม่แก้ รอผู้ใช้ตัดสิน**
+`validatePoSplit()` กฎข้อ 1 เคยไม่ทำงานเพราะไม่มีผู้เรียกส่ง `promoGroup` · ตอนนี้ทั้ง `toSplittable()` และ
+`approve-with-split.ts` ส่งแล้ว และ `proposePoSplit` รวมทั้งกลุ่มไว้ด้วยกัน — ถ้าเพิ่มผู้เรียกใหม่ต้องส่ง
+`promoGroup` / `promoGroupMembers` ด้วย ไม่งั้นด่านเงียบอีก
+
+### 4.13 sticky ภายใต้ `overflow:hidden` ไม่ติดจอ
+
+หน้าตรวจออเดอร์ใช้หัวตาราง/แถบปุ่ม/แถบซ้ายแบบ sticky — บรรพบุรุษตัวไหนเป็น `overflow: hidden|auto` sticky
+จะยึดกับกล่องนั้นแทนจอ (หัวตารางลอยทับแถว หายตอนเลื่อน) · ใช้ `overflow: clip` แทนเมื่อแค่ต้องตัดขอบ ·
+`.vmi-sales-orders-sidebar` ตั้ง `display:flex` ไว้หลัง utility ทำให้ `xl:hidden` บน aside ไม่มีผล ใช้ CSS class แทน
 
 ---
 
 ## 5. การทดสอบ
 
 ```bash
-npm test          # ทำงานครั้งเดียว (470 กรณี จาก 43 ไฟล์ · ก.ย. 2569)
+npm test          # ทำงานครั้งเดียว (501 กรณี จาก 46 ไฟล์ · 25 ก.ย. 2569)
 npm run test:watch
 npx vitest run tests/cvd-flag.test.ts    # ระบุเฉพาะไฟล์
 ```

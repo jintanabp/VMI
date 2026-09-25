@@ -15,7 +15,7 @@
 | GET·POST | `/api/stock/export` | Excel ตามตัวกรอง/การเรียงที่เห็นบนจอ (POST เมื่อส่งจำนวนที่แก้ไว้มาด้วย) |
 | GET | `/api/orders` | รายการออเดอร์ตามสิทธิ์ผู้เรียก · `status` `storeId` `salesRepId` `vdaCode` `allPersonVdas` |
 | POST | `/api/orders` | ร้านส่งออเดอร์ใหม่ |
-| PATCH | `/api/orders` | เซลล์: `approve` · `reject` · `updateQty` · `updatePrice` · `rejectItem` · `addItem` · `assignPoGroup` |
+| PATCH | `/api/orders` | เซลล์: `approve` · `reject` · `updateQty` · `updatePrice` · `rejectItem` · `addItem` · `assignPoGroup` (≤ 2000 บรรทัด — "รวมเป็น PO เดียว" ส่งทุกบรรทัด; การย้ายบางรายการส่งกลุ่มที่เสนอของบรรทัดที่เหลือไปด้วย) |
 | DELETE | `/api/orders?orderId=` | เซลล์ลบออเดอร์ · `?orderIds=` ลบหลายใบ · `?withPo=1` ลบที่ออก PO แล้วได้ · `?notify=0` ไม่แจ้งร้าน |
 | DELETE | `/api/orders/clear-sku?skuCode=` | เคลียร์สิ้นเดือน: ลบบรรทัดของ SKU นี้จากทุกออเดอร์ `pending_approval` ที่ยังไม่มี PO ในขอบเขตสิทธิ์ · ใบที่ไม่เหลือบรรทัดถูกลบทั้งใบ · คิดโปรพี่น้องกลุ่มเดียวกันใหม่ · แจ้งร้าน `item_cleared` (`?notify=0` = ไม่แจ้ง) · คืน `{ itemsRemoved, ordersRemoved }` |
 
@@ -77,7 +77,7 @@ Server จะ lookup โปร/ราคา C4 แล้ว**แช่ค่า�
 | GET | `/api/sales/purchase-orders/[poNumber]` | Excel (default) · `?format=json` โหลดไฟล์ · `?format=view` อ่านบนเว็บ · `?format=erp` ดู payload ที่จะส่งเข้า ERP + ผลตรวจความพร้อม (อ่านอย่างเดียว ไม่ส่งอะไรออกไป) |
 | PATCH | `/api/sales/purchase-orders/[poNumber]` | เปลี่ยนสถานะ PO |
 | POST | `/api/sales/purchase-orders/export` | Excel หลายใบรวมไฟล์เดียว (สูงสุด 50) |
-| GET·POST | `/api/sales/notifications` | ออเดอร์ใหม่จากร้าน + รายการหยุดสั่ง + คำตอบของร้านต่อรายการที่รอยืนยัน · POST เพื่อรับทราบ |
+| GET·POST | `/api/sales/notifications` | ออเดอร์ใหม่จากร้าน + รายการหยุดสั่ง + คำตอบของร้านต่อรายการที่รอยืนยัน · แต่ละแถวมี `orderId` + `orderStatus` (null = ออเดอร์ถูกลบ) ให้กระดิ่งพาไปเปิดใบ · POST `{ type: "order" \| "block", ids? }` เพื่อรับทราบ |
 | GET | `/api/sales/sku-search?q=&limit=` | ค้นสินค้าทั้งแคตตาล็อก (`item_barcode_map_v2`) ตามรหัส/บาร์โค้ด/ชื่อ/แบรนด์/หมวด · staff ทุก role · `q` สั้นกว่า 2 ตัว = ผลว่าง · `limit` ≤ 50 · คืน `{ results, total, capped, notReady }` (`notReady` = master ยังไม่โหลด ต่างจาก "ไม่พบ") |
 | GET | `/api/sales/dashboard` | สรุปหน้าภาพรวม `?days=` (ค่าเริ่มต้น 30 สูงสุด 180) — pending, priceFlagged, อัตราอนุมัติ, ร้านธงแดง, รายการตัดสินล่าสุด |
 | GET | `/api/sales/pending-count` | จำนวนออเดอร์รอตรวจ (สำหรับ badge) — ใช้ตัวนับเดียวกับ dashboard |
@@ -134,7 +134,8 @@ Server จะ lookup โปร/ราคา C4 แล้ว**แช่ค่า�
 | GET | `/api/admin/data-explorer/sources` · `/csv` · `/db` | เปิดดูไฟล์/ตารางที่ sync มา |
 | GET | `/api/admin/promo/explain` | เหตุผลที่ SKU ได้/ไม่ได้โปร (รายงานรายเดือนย้ายไป `/api/promo/month`) |
 | GET | `/api/admin/customers/search` · `/resolve` | ค้นหา/แปลงรหัสลูกค้า |
-| GET | `/api/admin/salesmen` · `/api/admin/vda-sales` · `/api/admin/badges` | ข้อมูลประกอบหน้า admin |
+| GET | `/api/admin/salesmen` · `/api/admin/badges` | ข้อมูลประกอบหน้า admin |
+| GET | `/api/admin/vda-sales` | ทะเบียนเซลล์ ↔ VDA · `codes[]` = หนึ่งแถวต่อรหัส `{ code, name, masterEmail, manual[{id,email}], vdas }` (รวมอีเมลอ้างอิงจาก `SalesmanEmailAssignment`) ใช้ในหน้า `/admin/system/vda-sales` · `people[]` / `vdas[]` ยังมีให้หน้าทดสอบมุมมองเซลล์ |
 | GET·POST·DELETE | `/api/admin/salesman-assignments` | กำหนดอีเมล ↔ รหัสเซลล์เอง (`SalesmanEmailAssignment`) · POST `{ salesmanCode, emails: string[] }` (หรือ `email` เดี่ยว — ยังรับ) · มีแถว active = ทับการจับคู่อัตโนมัติจาก cross_target ทั้งหมด · มีผลตอน login ครั้งถัดไป |
 
 ## ทั่วไป

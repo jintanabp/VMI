@@ -63,7 +63,7 @@ flowchart LR
 | บทบาท | เข้าสู่ระบบ | หน้าหลัก |
 |-------|-------------|----------|
 | **คลัง VDA / ร้านค้า** | อีเมล + รหัสผ่าน (`StoreAccount`) | `/stock`, `/order`, `/history`, `/manage` |
-| **เซลล์** | Microsoft Entra ID | `/sales` (ภาพรวม), `/sales/orders`, `/sales/po`, `/sales/notifications` |
+| **เซลล์** | Microsoft Entra ID (หรืออีเมลอ้างอิงที่แอดมินกำหนดให้รหัสเซลล์) | `/sales` (ภาพรวม), `/sales/orders`, `/sales/po`, `/sales/promotions` · แจ้งเตือนที่กระดิ่งมุมขวาบน (หน้ารวม `/sales/notifications`) |
 | **Admin** | Microsoft + อีเมลใน `ADMIN_EMAILS` | `/admin` · เข้าดูร้านได้โดยเลือกรหัส VDA |
 
 ---
@@ -75,6 +75,7 @@ flowchart LR
 - โหมดข้อมูล: `dummy` (dev) / `fabric` (production)
 - PO ออกเลขจริงและมีสถานะติดตาม (ดู [08 — กฎทางธุรกิจ](./08-business-rules.md))
 - เซลล์แก้ออเดอร์หลังร้านส่งได้ (ลด/เพิ่มจำนวน ปฏิเสธรายการ เพิ่มสินค้าใหม่) — การเพิ่มต้องรอร้านยืนยันก่อนอนุมัติ
+- อนุมัติเฉพาะบางรายการได้ (ที่เหลือแยกเป็นออเดอร์ใหม่) · แบ่ง/รวม PO ได้ · แจ้งเตือนกดแล้วเปิดใบออเดอร์นั้น
 - งานที่ยังค้างอยู่ใน [`docs/IMPROVEMENT-PLAN.md`](../IMPROVEMENT-PLAN.md)
 
 ---
