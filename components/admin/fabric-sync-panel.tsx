@@ -344,7 +344,9 @@ export function FabricSyncPanel() {
         <CardContent>
           {/* เดสก์ท็อป: ตารางเดียวเห็นครบ */}
           <div className="vmi-scroll -mx-2 hidden overflow-x-auto px-2 lg:block">
-            <table className="vmi-data-table w-full text-left">
+            {/* ตัวเลข/สถานะ/ชื่อไฟล์ห้ามตกบรรทัด ("12.3 ชม." เคยหักเป็นสองบรรทัดเพราะตารางถูกบีบเท่าการ์ด)
+                — ชื่อชุดข้อมูล (ไทย มีช่องว่าง) เป็นตัวรับความแคบแทน ตัดตามคำ จอแคบจริงค่อยเลื่อนแนวนอน */}
+            <table className="vmi-data-table w-full text-left [&_th]:whitespace-nowrap">
               <thead>
                 <tr>
                   <th className="px-2 py-2">ชุดข้อมูล</th>
@@ -371,15 +373,15 @@ export function FabricSyncPanel() {
                           {d.label}
                         </span>
                         {!d.required && (
-                          <span className="ml-1.5 text-[10px] text-slate-400">
+                          <span className="ml-1.5 whitespace-nowrap text-[10px] text-slate-400">
                             ไม่บังคับ
                           </span>
                         )}
                       </td>
-                      <td className="px-2 py-2 font-mono text-[11px] text-slate-500">
+                      <td className="px-2 py-2 font-mono text-[11px] whitespace-nowrap text-slate-500">
                         {d.fileName}
                       </td>
-                      <td className="px-2 py-2 text-right tabular-nums">
+                      <td className="px-2 py-2 text-right whitespace-nowrap tabular-nums">
                         <span
                           className={cn(
                             d.belowMinRows && "font-semibold text-red-700 dark:text-red-400"
@@ -393,12 +395,12 @@ export function FabricSyncPanel() {
                           {d.rows?.toLocaleString() ?? "—"}
                         </span>
                       </td>
-                      <td className="px-2 py-2 text-right tabular-nums">
+                      <td className="px-2 py-2 text-right whitespace-nowrap tabular-nums">
                         {fmtBytes(d.bytes)}
                       </td>
                       <td
                         className={cn(
-                          "px-2 py-2 text-right tabular-nums",
+                          "px-2 py-2 text-right whitespace-nowrap tabular-nums",
                           d.stale && "text-amber-700 dark:text-amber-400"
                         )}
                       >
@@ -410,7 +412,7 @@ export function FabricSyncPanel() {
                       <td className="px-2 py-2">
                         <span
                           className={cn(
-                            "inline-flex items-center gap-1.5",
+                            "inline-flex items-center gap-1.5 whitespace-nowrap",
                             TONE_CLASS[state.tone]
                           )}
                           title={state.hint}
@@ -419,7 +421,7 @@ export function FabricSyncPanel() {
                           {state.label}
                         </span>
                       </td>
-                      <td className="px-2 py-2 text-right tabular-nums text-slate-500">
+                      <td className="px-2 py-2 text-right whitespace-nowrap tabular-nums text-slate-500">
                         {fmtDuration(d.lastDurationMs)}
                       </td>
                       <td className="px-2 py-2 text-right">
