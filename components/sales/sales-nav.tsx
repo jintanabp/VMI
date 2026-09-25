@@ -4,12 +4,13 @@ import { appPath, isPathUnder, normalizePathname } from "@/lib/paths";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { Bell, ClipboardList, FileText, LayoutDashboard, Tag } from "lucide-react";
+import { ClipboardList, FileText, LayoutDashboard, Tag } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
 
 /**
- * แถบสลับหน้า ฝั่งเซลล์: ภาพรวม / ออเดอร์ / PO / โปรโมชั่น / การแจ้งเตือน
+ * แถบสลับหน้า ฝั่งเซลล์: ภาพรวม / ออเดอร์ / PO / โปรโมชั่น
+ * (แจ้งเตือนย้ายไปกระดิ่งมุมขวาบน — SalesNotificationBell · หน้า /sales/notifications ยังเข้าได้จากกระดิ่ง)
  *
  * ป้ายแท็บใช้คำเดียวกับเนื้อหาข้างใน — เดิมแท็บเขียน "คำสั่งซื้อ" แต่ทุกข้อความ
  * ในหน้านั้นเรียก "ออเดอร์" ("ไม่มีออเดอร์ในสถานะนี้", "ลบออเดอร์นี้?")
@@ -18,12 +19,6 @@ export function SalesNav() {
   // usePathname() คืนค่าพร้อม basePath และ / ปิดท้าย — ต้อง normalize ก่อนเทียบ
   // ไม่งั้นไม่มีแท็บไหนไฮไลต์เลย (ดู lib/paths.ts)
   const pathname = normalizePathname(usePathname());
-  const { data } = useQuery<{ unseenCount: number }>({
-    queryKey: ["sales-notifications"],
-    queryFn: () => apiFetch(appPath("/api/sales/notifications")).then((r) => r.json()),
-    refetchInterval: 60_000,
-  });
-  const unseen = data?.unseenCount ?? 0;
 
   // จำนวนออเดอร์รอตรวจ (badge บนแท็บคำสั่งซื้อ)
   // เดิมดึงลิสต์ออเดอร์ทั้งหมดพร้อม items มานับ .length ทุก 60 วิ ต่อแท็บที่เปิด
@@ -79,15 +74,6 @@ export function SalesNav() {
       // ไม่มี badge — โปรเปลี่ยนเดือนละครั้ง ไม่ใช่ของที่ต้องเร่งดู
       badge: 0,
       badgeTitle: "",
-      warnBadge: 0,
-      warnTitle: "",
-    },
-    {
-      href: "/sales/notifications",
-      label: "การแจ้งเตือน",
-      icon: Bell,
-      badge: unseen,
-      badgeTitle: `${unseen} การแจ้งเตือนที่ยังไม่รับทราบ`,
       warnBadge: 0,
       warnTitle: "",
     },

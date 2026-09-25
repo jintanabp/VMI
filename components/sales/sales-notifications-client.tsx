@@ -1,7 +1,7 @@
 "use client";
 
 import { appPath } from "@/lib/paths";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Ban,
@@ -9,10 +9,10 @@ import {
   Loader2,
   PackagePlus,
   Store,
-  Trash2,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { AppHeader } from "@/components/layout/app-header";
+import { ORDER_KIND_META } from "@/lib/orders/sales-notify-display";
 import { PageShell } from "@/components/layout/page-shell";
 import { useSalesSession } from "@/hooks/use-sales-session";
 import { Button } from "@/components/ui/button";
@@ -54,41 +54,6 @@ interface NotiResponse {
   unseenCount: number;
 }
 
-const ORDER_KIND_META: Record<
-  string,
-  { label: string; icon: typeof PackagePlus; className: string }
-> = {
-  order_created: {
-    label: "ออเดอร์ใหม่",
-    icon: PackagePlus,
-    className: "text-teal-600 dark:text-teal-400",
-  },
-  order_cancelled: {
-    label: "ร้านยกเลิก",
-    icon: Trash2,
-    className: "text-red-600 dark:text-red-400",
-  },
-  qty_increase_confirmed: {
-    label: "ร้านยืนยันเพิ่มจำนวน",
-    icon: PackagePlus,
-    className: "text-emerald-600 dark:text-emerald-400",
-  },
-  qty_increase_rejected: {
-    label: "ร้านปฏิเสธเพิ่มจำนวน",
-    icon: Trash2,
-    className: "text-red-600 dark:text-red-400",
-  },
-  item_added_confirmed: {
-    label: "ร้านรับสินค้าที่เพิ่ม",
-    icon: PackagePlus,
-    className: "text-emerald-600 dark:text-emerald-400",
-  },
-  item_added_rejected: {
-    label: "ร้านไม่รับสินค้าที่เพิ่ม",
-    icon: Trash2,
-    className: "text-red-600 dark:text-red-400",
-  },
-};
 
 function fmt(iso: string): string {
   const d = new Date(iso);
@@ -106,6 +71,12 @@ export function SalesNotificationsClient() {
   const qc = useQueryClient();
   const { session } = useSalesSession();
   const router = useRouter();
+  /** เปิดใบออเดอร์ที่แจ้งเตือนพูดถึง — ส่งสถานะไปด้วย หน้าออเดอร์จะสลับตัวกรองให้ใบนั้นอยู่ในลิสต์ */
+  function openOrder(orderId: string, status: string) {
+    router.push(
+      `/sales/orders?order=${encodeURIComponent(orderId)}&status=${encodeURIComponent(status)}`
+    );
+  }
   const [acking, setAcking] = useState(false);
 
   const { data, isLoading, isError, refetch } = useQuery<NotiResponse>({
@@ -224,8 +195,26 @@ export function SalesNotificationsClient() {
                 return (
                   <li
                     key={n.id}
+                    // กดที่แจ้งเตือน = เปิดใบออเดอร์นั้นเลย (ใบที่ถูกลบไปแล้วไม่มีสถานะ = กดไม่ได้)
+                    {...(n.orderId && n.orderStatus
+                      ? {
+                          role: "button",
+                          tabIndex: 0,
+                          title: "เปิดออเดอร์นี้",
+                          onClick: () => openOrder(n.orderId!, n.orderStatus!),
+                          onKeyDown: (e: KeyboardEvent) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              openOrder(n.orderId!, n.orderStatus!);
+                            }
+                          },
+                        }
+                      : {})}
                     className={cn(
                       "rounded-xl border p-3",
+                      n.orderId &&
+                        n.orderStatus &&
+                        "cursor-pointer transition-colors hover:border-teal-300 hover:shadow-sm",
                       n.acknowledged
                         ? "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900"
                         : "border-teal-200 bg-teal-50/50 dark:border-teal-900/50 dark:bg-teal-950/20"
@@ -284,7 +273,10 @@ export function SalesNotificationsClient() {
                             <Button
                               size="sm"
                               variant="outline"
-                              onClick={() => router.push("/sales/orders")}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openOrder(n.orderId!, n.orderStatus!);
+                              }}
                               title="ไปหน้าตรวจออเดอร์"
                             >
                               ตรวจ
@@ -294,7 +286,10 @@ export function SalesNotificationsClient() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            onClick={() => ack("order", [n.id])}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              ack("order", [n.id]);
+                            }}
                             disabled={acking}
                             title="รับทราบ"
                           >

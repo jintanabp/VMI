@@ -6,6 +6,8 @@ import { usePathname } from "next/navigation";
 import { ArrowLeft, LogOut, Package, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { StoreNotificationBell } from "@/components/layout/store-notification-bell";
+import { SalesNotificationBell } from "@/components/layout/sales-notification-bell";
+import { normalizePathname } from "@/lib/paths";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { cn } from "@/lib/utils";
 import { useSalesSession } from "@/hooks/use-sales-session";
@@ -188,6 +190,10 @@ export function AppHeader({
         </nav>
       )}
       {role === "customer" && <StoreNotificationBell />}
+      {/* เฉพาะหน้า /sales — หน้าแอดมินใช้ AppHeader ด้วย แต่ไม่ใช่ที่ทำงานตรวจออเดอร์ */}
+      {role !== "customer" && normalizePathname(pathname).startsWith("/sales") && (
+        <SalesNotificationBell />
+      )}
       <ThemeToggle />
       {actions}
       {(session || role === "customer") && (

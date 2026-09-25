@@ -4,7 +4,7 @@ import { appPath } from "@/lib/paths";
 import { StorePriceInput } from "@/components/order/store-price-input";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Filter, PackagePlus, Sparkles, XCircle } from "lucide-react";
+import { AlertTriangle, Filter, PackagePlus, Pencil, Sparkles, XCircle } from "lucide-react";
 import { PromoDetailCell } from "@/components/promo/promo-detail-cell";
 import { RejectItemModal } from "@/components/sales/reject-item-modal";
 import { AddOrderItemModal } from "@/components/sales/add-order-item-modal";
@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/mobile-row";
 import {
   calcNetUnitPrice,
+  resolveOrderLinePrice,
   formatBaht,
   formatNumber,
   getCvdFlag,
@@ -190,6 +191,113 @@ function hasActivePromo(api: PromoApiLine | undefined) {
   return Boolean(api?.currentPromo || api?.freeGood);
 }
 
+/**
+ * ราคาของบรรทัดจากค่าที่แช่ไว้ตอนร้านส่ง — ชุดเดียวกับที่ออกเอกสาร PO (approve-with-split /
+ * toSplittable): ราคาที่มีผล (พนักงาน → ร้าน → C4 ตอนส่ง) แล้วหักส่วนลด C4 ที่แช่ไว้
+ *
+ * เดิมตารางใช้ราคา/ส่วนลดจาก C4 "วันนี้" แต่ปุ่มอนุมัติ/แผงแบ่ง PO ใช้ค่าที่แช่ไว้ หน้าเดียวกันจึงมี
+ * มูลค่าสองตัวไม่ตรงกัน (ผู้ใช้ตัดสิน 25 ก.ย. 69: ตารางใช้ค่าที่จะขึ้น PO)
+ */
+function linePrice(item: ReviewOrderItem) {
+  const storeOverride = item.unitPriceOverride ?? null;
+  const salesOverride = item.salesPriceOverride ?? null;
+  const { unitPrice } = resolveOrderLinePrice({
+    salesPriceOverride: salesOverride,
+    unitPriceOverride: storeOverride,
+    c4UnitPrice: item.c4UnitPrice,
+  });
+  const net =
+    unitPrice != null
+      ? (calcNetUnitPrice(unitPrice, item.c4DiscountBaht, item.c4DiscountPct) ?? unitPrice)
+      : null;
+  return {
+    base: unitPrice,
+    net,
+    total: net != null ? net * item.finalQty : null,
+    setBy:
+      salesOverride != null ? ("เซลล์" as const) : storeOverride != null ? ("ร้าน" as const) : null,
+    system: salesOverride != null || storeOverride != null ? (item.c4UnitPrice ?? null) : null,
+  };
+}
+
+function UnitPriceCell({
+  item,
+  expired,
+  editing,
+  onEdit,
+  onPriceChange,
+}: {
+  item: ReviewOrderItem;
+  expired?: boolean;
+  editing: boolean;
+  onEdit?: (open: boolean) => void;
+  onPriceChange?: (override: number | null) => void;
+}) {
+  const p = linePrice(item);
+  if (editing && onPriceChange) {
+    return (
+      <div className="flex flex-col items-end gap-1">
+        <StorePriceInput
+          compact
+          value={item.salesPriceOverride ?? null}
+          c4UnitPrice={item.unitPriceOverride ?? item.c4UnitPrice ?? null}
+          expired={item.c4PriceExpired ?? false}
+          mismatch={item.priceFlagged ?? false}
+          onChange={(v) => {
+            onPriceChange(v);
+            onEdit?.(false);
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => onEdit?.(false)}
+          className="text-[11px] text-slate-400 hover:text-slate-600"
+        >
+          ปิด
+        </button>
+      </div>
+    );
+  }
+  if (p.base == null) return <span className="text-sm text-slate-400">-</span>;
+  const hasDiscount = p.net != null && p.net < p.base - 0.001;
+  return (
+    <div className={cn("text-right tabular-nums", expired && "text-amber-600 dark:text-amber-400")}>
+      {(hasDiscount || p.setBy) && (
+        <p className="text-[11px] leading-tight whitespace-nowrap text-slate-400">
+          {p.setBy && p.system != null && (
+            <span className="line-through">{formatBaht(p.system)}</span>
+          )}
+          {p.setBy && (
+            <span
+              className={cn(
+                "ml-1 font-semibold",
+                p.setBy === "เซลล์" ? "text-indigo-600 dark:text-indigo-300" : "text-amber-700 dark:text-amber-400"
+              )}
+            >
+              {p.setBy} {formatBaht(p.base)}
+            </span>
+          )}
+          {!p.setBy && hasDiscount && <span className="line-through">{formatBaht(p.base)}</span>}
+        </p>
+      )}
+      <p className="inline-flex items-center gap-1 text-sm font-semibold whitespace-nowrap text-slate-800 dark:text-slate-100">
+        {formatBaht(p.net ?? p.base)}
+        {onPriceChange && (
+          <button
+            type="button"
+            onClick={() => onEdit?.(true)}
+            className="rounded p-0.5 text-slate-300 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
+            title="แก้ราคา/หีบ"
+            aria-label={`แก้ราคา ${item.sku.code}`}
+          >
+            <Pencil className="h-3 w-3" />
+          </button>
+        )}
+      </p>
+    </div>
+  );
+}
+
 function PriceBlock({
   unitPrice,
   netUnitPrice,
@@ -342,6 +450,8 @@ export function OrderReviewTable({
   const [promoOnly, setPromoOnly] = useState(false);
   const [sectionFilter, setSectionFilter] = useState("");
   const [addItemOpen, setAddItemOpen] = useState(false);
+  /** แถวที่กำลังแก้ราคา — ช่องแก้ราคาโผล่เฉพาะตอนกดดินสอ ไม่ค้างทุกแถว */
+  const [editingPriceId, setEditingPriceId] = useState<string | null>(null);
   const [rejectPromptItem, setRejectPromptItem] = useState<ReviewOrderItem | null>(
     null
   );
@@ -392,35 +502,13 @@ export function OrderReviewTable({
   const stats = useMemo(() => {
     const totalQty = items.reduce((s, i) => s + i.finalQty, 0);
     let withPromo = 0;
-    let orderTotal = promoData?.orderTotal ?? 0;
-    if (!promoData?.orderTotal) {
-      orderTotal = 0;
-      for (const item of items) {
-        orderTotal += promoBySku.get(item.sku.code)?.lineTotal ?? 0;
-      }
-    }
     for (const item of items) {
       if (hasActivePromo(promoBySku.get(item.sku.code))) withPromo++;
     }
     const priceFlagged = items.filter((i) => i.priceFlagged).length;
-    // ร้านแก้ราคาบรรทัดไหน ยอดรวมต้องคิดจากราคาของร้าน ไม่ใช่ราคา master วันนี้
-    const hasOverride = items.some((i) => i.unitPriceOverride != null);
-    if (hasOverride) {
-      orderTotal = 0;
-      for (const item of items) {
-        if (item.unitPriceOverride != null) {
-          const net =
-            calcNetUnitPrice(
-              item.unitPriceOverride,
-              item.c4DiscountBaht,
-              item.c4DiscountPct
-            ) ?? item.unitPriceOverride;
-          orderTotal += net * item.finalQty;
-        } else {
-          orderTotal += promoBySku.get(item.sku.code)?.lineTotal ?? 0;
-        }
-      }
-    }
+    // ค่าที่แช่ไว้ = ยอดเดียวกับที่ออก PO (ดู linePrice)
+    let orderTotal = 0;
+    for (const item of items) orderTotal += linePrice(item).total ?? 0;
     return {
       totalQty,
       skuCount: items.length,
@@ -428,7 +516,7 @@ export function OrderReviewTable({
       priceFlagged,
       orderTotal: orderTotal > 0 ? orderTotal : null,
     };
-  }, [items, promoBySku, promoData?.orderTotal]);
+  }, [items, promoBySku]);
 
   const sections = useMemo(() => {
     const set = new Set<string>();
@@ -723,9 +811,9 @@ export function OrderReviewTable({
                             <span className="text-slate-400">...</span>
                           ) : (
                             <PriceBlock
-                              unitPrice={api?.unitPrice ?? null}
-                              netUnitPrice={api?.netUnitPrice ?? null}
-                              lineTotal={api?.lineTotal ?? null}
+                              unitPrice={linePrice(item).base}
+                              netUnitPrice={linePrice(item).net}
+                              lineTotal={linePrice(item).total}
                               expired={api?.priceExpired}
                               item={item}
                               qty={item.finalQty}
@@ -767,27 +855,28 @@ export function OrderReviewTable({
             )}
           </div>
 
-          <table className="vmi-data-table hidden w-full min-w-0 text-left xl:table">
+          {/* เดสก์ท็อป: คอลัมน์แยกชัด แถวเตี้ย — เดิมทุกอย่างกองในคอลัมน์ "สินค้า" แถวสูง ~115px
+              จอ 900px เห็นแค่ 2 รายการก่อนกดอนุมัติ */}
+          <table className="vmi-data-table vmi-review-table hidden w-full min-w-0 text-left xl:table">
             <thead>
-              <tr className="text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
-                <th className="w-9 px-2 py-2.5">#</th>
-                <th className="min-w-0 px-2 py-2.5">สินค้า · โปร</th>
-                <th className="w-[4.5rem] px-2 py-2.5 text-right">หีบ</th>
-                <th className="w-[7rem] py-2.5 pl-2 pr-4 text-right sm:w-[7.5rem]">
-                  มูลค่า
-                </th>
+              <tr className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                <th className="w-9 px-2 py-2">#</th>
+                <th className="min-w-0 px-2 py-2">สินค้า</th>
+                <th className="w-[13rem] px-2 py-2">โปร</th>
+                <th className="w-[6.5rem] px-2 py-2 text-right">หีบ</th>
+                <th className="w-[7rem] px-2 py-2 text-right whitespace-nowrap">ราคา/หีบ</th>
+                <th className="w-[7.5rem] px-2 py-2 text-right">มูลค่า</th>
+                {onRejectItem && <th className="w-10 px-1 py-2" aria-label="ปฏิเสธรายการ" />}
               </tr>
             </thead>
             <tbody>
               {!promoLoading && visibleItems.length === 0 && (
                 <tr>
                   <td
-                    colSpan={4}
+                    colSpan={onRejectItem ? 7 : 6}
                     className="px-4 py-10 text-center text-sm text-slate-500 dark:text-slate-400"
                   >
-                    {promoOnly
-                      ? "ไม่มีรายการที่ได้โปร"
-                      : "ไม่มีรายการสินค้า"}
+                    {promoOnly ? "ไม่มีรายการที่ได้โปร" : "ไม่มีรายการสินค้า"}
                   </td>
                 </tr>
               )}
@@ -797,116 +886,109 @@ export function OrderReviewTable({
                 const rowNum = promoOnly
                   ? index + 1
                   : items.findIndex((i) => i.id === item.id) + 1;
+                const selectedRow = selectedIds?.has(item.id) ?? false;
+                const zero = item.finalQty === 0;
+                const total = linePrice(item).total;
                 return (
                   <tr
                     key={item.id}
                     className={cn(
-                      "border-t border-slate-100 dark:border-slate-800",
+                      "border-t border-slate-100 even:bg-slate-50/50 dark:border-slate-800 dark:even:bg-slate-800/20",
                       promoGroupRowBgClass(item.promoGroupStripe ?? null),
-                      flag === "red" &&
-                        !item.promoGroupStripe &&
-                        "bg-red-50/40 dark:bg-red-950/20",
+                      flag === "red" && !item.promoGroupStripe && "bg-red-50/40 dark:bg-red-950/20",
                       flag !== "red" &&
                         (item.priceFlagged || item.discountFlagged) &&
                         !item.promoGroupStripe &&
-                        "bg-amber-50/40 dark:bg-amber-950/20"
+                        "bg-amber-50/40 dark:bg-amber-950/20",
+                      selectedRow && "!bg-teal-50 dark:!bg-teal-950/30",
+                      zero && "opacity-60"
                     )}
                   >
-                    <td className="px-2 py-2.5 align-top text-xs text-slate-400">
+                    <td className="px-2 py-2 align-top text-xs text-slate-400">
                       {onToggleSelect ? (
                         <Checkbox
-                          checked={selectedIds?.has(item.id) ?? false}
+                          checked={selectedRow}
                           onCheckedChange={() => onToggleSelect(item.id)}
+                          aria-label={`เลือก ${item.sku.code}`}
                         />
                       ) : (
                         rowNum
                       )}
                     </td>
-                    <td className="max-w-0 px-2 py-2.5 align-top">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="font-mono text-xs font-bold text-teal-700 dark:text-teal-400">
-                            {item.sku.code}
-                          </span>
-                          <FlagBadge flag={flag} />
-                          {showPoGroups && item.poGroup && (
-                            <PoGroupBadge groupKey={item.poGroup} />
+                    <td className="max-w-0 px-2 py-2 align-top">
+                      <p className="flex min-w-0 items-baseline gap-2">
+                        <span className="shrink-0 font-mono text-xs font-bold text-teal-700 dark:text-teal-400">
+                          {item.sku.code}
+                        </span>
+                        <span
+                          className={cn(
+                            "min-w-0 truncate text-sm font-medium text-slate-800 dark:text-slate-100",
+                            zero && "line-through"
                           )}
-                          {item.priceFlagged && (
-                            <PriceFlagBadge
-                              reason={item.priceFlagReason}
-                              title={priceFlagTitle(item)}
-                              compact
-                            />
-                          )}
-                          {item.discountFlagged && (
-                            <DiscountFlagBadge
-                              reason={item.discountFlagReason}
-                              title={discountFlagTitle(item)}
-                              compact
-                            />
-                          )}
-                          {item.hasTarget === false && <NoTargetBadge compact />}
-                          {item.qtyIncreasePendingConfirm && (
-                            <PendingQtyIncreaseBadge compact newItem={item.requestedQty === 0 && !item.agreedQty} />
-                          )}
-                          {item.rejectedAt ? (
-                            <span
-                              className="inline-flex items-center gap-0.5 rounded-full bg-red-100 px-1.5 py-0.5 text-[11px] font-semibold text-red-700 dark:bg-red-950/40 dark:text-red-300"
-                              title={item.rejectReason || undefined}
-                            >
-                              <XCircle className="h-3 w-3" />
-                              ปฏิเสธแล้ว
-                            </span>
-                          ) : (
-                            onRejectItem &&
-                            item.finalQty > 0 && (
-                              <button
-                                type="button"
-                                onClick={() => setRejectPromptItem(item)}
-                                className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] font-medium text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
-                                title="ปฏิเสธรายการนี้"
-                              >
-                                <XCircle className="h-3 w-3" />
-                                ปฏิเสธ
-                              </button>
-                            )
-                          )}
-                        </div>
-                        <p
-                          className="vmi-cell-text mt-0.5 line-clamp-2 text-sm font-medium leading-snug text-slate-800 dark:text-slate-100"
                           title={item.sku.name}
                         >
                           {item.sku.name}
-                        </p>
-                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        </span>
+                      </p>
+                      <div className="mt-1 flex flex-wrap items-center gap-1">
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400">
                           {formatNumber(item.packSize ?? 1, 0)} ชิ้น/หีบ
-                        </p>
-                        {!promoLoading && (
-                          <div className="mt-1.5 max-w-full">
-                            <PromoDetailCell
-                              variant="embedded"
-                              currentPromo={api?.currentPromo}
-                              currentKind={api?.currentKind}
-                              nextPromo={api?.nextPromo}
-                              qtyToNext={api?.qtyToNext}
-                              nextPromoQty={api?.nextPromoQty}
-                              nextKind={api?.nextKind}
-                              hasPromoLadder={api?.hasPromoLadder}
-                              freeGood={api?.freeGood}
-                              inspector={{
-                                skuCode: item.sku.code,
-                                storeCode,
-                                stagedQty: promoStagedQty,
-                                promoGroup: item.promoGroup,
-                                promoGroupMembers: item.promoGroupMembers,
-                              }}
-                            />
-                          </div>
+                        </span>
+                        <FlagBadge flag={flag} />
+                        {showPoGroups && item.poGroup && <PoGroupBadge groupKey={item.poGroup} />}
+                        {item.priceFlagged && (
+                          <PriceFlagBadge reason={item.priceFlagReason} title={priceFlagTitle(item)} compact />
+                        )}
+                        {item.discountFlagged && (
+                          <DiscountFlagBadge
+                            reason={item.discountFlagReason}
+                            title={discountFlagTitle(item)}
+                            compact
+                          />
+                        )}
+                        {item.hasTarget === false && <NoTargetBadge compact />}
+                        {item.qtyIncreasePendingConfirm && (
+                          <PendingQtyIncreaseBadge
+                            compact
+                            newItem={item.requestedQty === 0 && !item.agreedQty}
+                          />
+                        )}
+                        {item.rejectedAt && (
+                          <span
+                            className="inline-flex items-center gap-0.5 rounded-full bg-red-100 px-1.5 py-0.5 text-[11px] font-semibold text-red-700 dark:bg-red-950/40 dark:text-red-300"
+                            title={item.rejectReason || undefined}
+                          >
+                            <XCircle className="h-3 w-3" />
+                            ปฏิเสธแล้ว{item.rejectReason ? ` · ${item.rejectReason}` : ""}
+                          </span>
                         )}
                       </div>
                     </td>
-                    <td className="w-[4.5rem] px-2 py-2.5 align-top text-right">
+                    <td className="px-2 py-2 align-top">
+                      {promoLoading ? (
+                        <span className="text-xs text-slate-400">...</span>
+                      ) : (
+                        <PromoDetailCell
+                          variant="embedded"
+                          currentPromo={api?.currentPromo}
+                          currentKind={api?.currentKind}
+                          nextPromo={api?.nextPromo}
+                          qtyToNext={api?.qtyToNext}
+                          nextPromoQty={api?.nextPromoQty}
+                          nextKind={api?.nextKind}
+                          hasPromoLadder={api?.hasPromoLadder}
+                          freeGood={api?.freeGood}
+                          inspector={{
+                            skuCode: item.sku.code,
+                            storeCode,
+                            stagedQty: promoStagedQty,
+                            promoGroup: item.promoGroup,
+                            promoGroupMembers: item.promoGroupMembers,
+                          }}
+                        />
+                      )}
+                    </td>
+                    <td className="px-2 py-2 align-top text-right">
                       {onQtyChange ? (
                         <QtyStepper
                           value={item.finalQty}
@@ -915,35 +997,48 @@ export function OrderReviewTable({
                         />
                       ) : (
                         <p
-                          className="whitespace-nowrap text-base font-bold tabular-nums text-slate-900 dark:text-slate-100"
+                          className="text-base font-bold whitespace-nowrap tabular-nums text-slate-900 dark:text-slate-100"
                           title={`แนะนำ ${item.suggestedQty} · สั่ง ${item.finalQty}`}
                         >
                           {formatQtyPair(item.suggestedQty, item.finalQty)}
                         </p>
                       )}
                     </td>
-                    <td className="w-[7rem] py-2.5 pl-2 pr-4 align-top text-right sm:w-[7.5rem]">
+                    <td className="px-2 py-2 align-top text-right">
                       {promoLoading ? (
                         <span className="text-xs text-slate-400">...</span>
                       ) : (
-                        // ต้องส่ง item/qty ให้ตรงกับการ์ดมือถือ ไม่งั้น PriceBlock
-                        // ไม่เข้า branch "ระบบ → ร้าน" แล้วจอนี้จะโชว์ราคา C4 วันนี้
-                        // ขัดกับ badge ราคาแก้เองและยอดรวมที่คิด override ไว้แล้ว
-                        <PriceBlock
-                          unitPrice={api?.unitPrice ?? null}
-                          netUnitPrice={api?.netUnitPrice ?? null}
-                          lineTotal={api?.lineTotal ?? null}
-                          expired={api?.priceExpired}
+                        <UnitPriceCell
                           item={item}
-                          qty={item.finalQty}
+                          expired={api?.priceExpired}
+                          editing={editingPriceId === item.id}
+                          onEdit={(open) => setEditingPriceId(open ? item.id : null)}
                           onPriceChange={
-                            onPriceChange
-                              ? (v) => onPriceChange(item.id, v)
-                              : undefined
+                            onPriceChange ? (v) => onPriceChange(item.id, v) : undefined
                           }
                         />
                       )}
                     </td>
+                    <td className="px-2 py-2 align-top text-right">
+                      <span className="text-base font-bold whitespace-nowrap tabular-nums text-slate-900 dark:text-slate-50">
+                        {promoLoading ? "..." : total != null ? formatBaht(total) : "-"}
+                      </span>
+                    </td>
+                    {onRejectItem && (
+                      <td className="px-1 py-2 align-top text-center">
+                        {!item.rejectedAt && item.finalQty > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setRejectPromptItem(item)}
+                            className="rounded-md p-1 text-slate-300 hover:bg-red-50 hover:text-red-600 dark:text-slate-600 dark:hover:bg-red-950/30 dark:hover:text-red-400"
+                            title="ปฏิเสธรายการนี้"
+                            aria-label={`ปฏิเสธ ${item.sku.code}`}
+                          >
+                            <XCircle className="h-4 w-4" />
+                          </button>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 );
               })}
@@ -1042,7 +1137,9 @@ function QtyStepper({
           +
         </button>
       </div>
-      <span className="text-[10px] text-slate-400">แนะนำ {suggested}</span>
+      {suggested > 0 && suggested !== value && (
+        <span className="text-[10px] text-slate-400">แนะนำ {suggested}</span>
+      )}
     </div>
   );
 }

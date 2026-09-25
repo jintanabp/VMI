@@ -12,7 +12,7 @@ export async function GET() {
   // อีเมลอ้างอิงที่แอดมินกำหนด — ให้รหัสที่ไม่มีใน cross_salesman มีเจ้าของในตารางด้วย
   const manual = await prisma.salesmanEmailAssignment.findMany({
     where: { active: true },
-    select: { email: true, salesmanCode: true },
+    select: { id: true, email: true, salesmanCode: true },
   });
   return NextResponse.json(buildVdaSalesDirectory(manual));
 }

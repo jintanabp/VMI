@@ -3,6 +3,7 @@
 import { appPath } from "@/lib/paths";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AlertTriangle, Trash2 } from "lucide-react";
 import { useSalesSession } from "@/hooks/use-sales-session";
 import { useSalesPreview } from "@/hooks/use-sales-preview";
@@ -18,6 +19,7 @@ import {
   PoSplitPanel,
   poSplitCount,
   poSplitIssues,
+  toSplittable,
 } from "@/components/sales/po-split-panel";
 import { RejectOrderModal } from "@/components/sales/reject-order-modal";
 import { NotifyStoreCheckbox } from "@/components/sales/notify-store-checkbox";
@@ -106,6 +108,12 @@ export function SalesOrdersClient() {
   } | null>(null);
   /** เลข PO ที่ออกหลังอนุมัติ — เดิม route คืน poExportPath มาแล้วถูกทิ้ง */
   const { toast } = useToast();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  /** มาจากกดแจ้งเตือน — ?order=<id>&status=<สถานะตอนนี้> เปิดใบนั้นให้เลย */
+  const focusOrderId = searchParams.get("order");
+  const focusStatus = searchParams.get("status");
+  const [pendingFocus, setPendingFocus] = useState<string | null>(null);
   const [approveOpen, setApproveOpen] = useState(false);
   const [issuedPos, setIssuedPos] = useState<
     { poNumber: string; label: string; itemCount: number; totalQty: number }[]
@@ -185,6 +193,7 @@ export function SalesOrdersClient() {
   const {
     data: orders = [],
     isLoading,
+    isFetching,
     isError,
     refetch,
   } = useQuery<Order[]>({
@@ -369,6 +378,34 @@ export function SalesOrdersClient() {
 
   const selected = sorted.find((o) => o.id === selectedId) ?? sorted[0];
 
+  // กดแจ้งเตือนมา: สลับตัวกรองให้ใบนั้นอยู่ในลิสต์ (สถานะตามจริง ทุก VDA) แล้วรอลิสต์โหลดเสร็จค่อยเลือก
+  // ลบ ?order= ทิ้งทันที ไม่งั้นกดแจ้งเตือนเดิมซ้ำแล้วไม่มีอะไรเกิดขึ้น
+  useEffect(() => {
+    if (!focusOrderId) return;
+    setStatusFilter(focusStatus ?? "");
+    setVdaFilter("");
+    setSalesRepFilter("");
+    setPendingFocus(focusOrderId);
+    router.replace("/sales/orders", { scroll: false });
+  }, [focusOrderId, focusStatus, router]);
+
+  useEffect(() => {
+    if (!pendingFocus || showLoading) return;
+    if (orders.some((o) => o.id === pendingFocus)) {
+      setSelectedId(pendingFocus);
+      requestAnimationFrame(() =>
+        document
+          .getElementById(`sales-order-${pendingFocus}`)
+          ?.scrollIntoView({ block: "nearest", behavior: "smooth" })
+      );
+    } else if (!isFetching) {
+      toast({ title: "ไม่พบออเดอร์นี้แล้ว — อาจถูกลบหรือเคลียร์ไปแล้ว", tone: "warn" });
+    } else {
+      return; // ลิสต์ของตัวกรองใหม่ยังโหลดไม่เสร็จ รอรอบหน้า
+    }
+    setPendingFocus(null);
+  }, [pendingFocus, showLoading, isFetching, orders, toast]);
+
   // สลับออเดอร์แล้วต้องล้างการติ๊ก ไม่งั้น id ของใบเก่าจะค้างไปย้ายกลุ่มในใบใหม่
   useEffect(() => {
     setSelectedItemIds(new Set());
@@ -391,6 +428,15 @@ export function SalesOrdersClient() {
       ? selected.items.filter((i) => selectedItemIds.has(i.id))
       : null;
   const approveItems = partialItems ?? selected?.items ?? [];
+
+  /** ยอดที่กำลังจะออก PO — คิดแบบเดียวกับแผงแบ่ง PO (ราคาที่มีผล + ส่วนลด C4 ที่แช่ไว้) */
+  // คำนวณสดทุก render (เบา — ไม่กี่สิบบรรทัด) ไม่ต้อง memo
+  const approveLines = toSplittable(approveItems);
+  const approveTotals = {
+    count: approveLines.length,
+    qty: approveLines.reduce((s, l) => s + l.finalQty, 0),
+    amount: approveLines.reduce((s, l) => s + (l.effectiveUnitPrice ?? 0) * l.finalQty, 0),
+  };
 
   /** สมาชิกกลุ่มโปรที่รวมยอดกันต้องอยู่ด้วยกันเสมอ — ติ๊ก/เอาออกตัวเดียวก็ทั้งกลุ่ม */
   function promoSiblings(itemId: string): string[] {
@@ -918,6 +964,7 @@ export function SalesOrdersClient() {
               return (
               <div
                 key={order.id}
+                id={`sales-order-${order.id}`}
                 className={`relative w-full rounded-xl border p-3 text-left transition-all ${
                   selected?.id === order.id
                     ? "border-teal-300 bg-teal-50/50 shadow-sm dark:border-teal-600 dark:bg-teal-950/35"
@@ -1177,6 +1224,17 @@ export function SalesOrdersClient() {
                         อีก {selected.items.length - partialItems.length} รายการจะแยกเป็นออเดอร์ใหม่รออนุมัติ
                       </p>
                     )}
+                    {/* บอกให้เห็นก่อนกดว่าจะออก PO ยอดเท่าไร — ปุ่มเดิมไม่มีตัวเลขเลย */}
+                    <p className="w-full text-sm text-slate-600 xl:order-last xl:ml-auto xl:w-auto xl:self-center dark:text-slate-300">
+                      จะออก PO{" "}
+                      <span className="font-semibold text-slate-900 dark:text-slate-50">
+                        {approveTotals.count} รายการ · {approveTotals.qty.toLocaleString("th-TH")} หีบ
+                      </span>{" "}
+                      · มูลค่า{" "}
+                      <span className="text-base font-bold text-teal-700 dark:text-teal-400">
+                        {approveTotals.amount.toLocaleString("th-TH", { maximumFractionDigits: 2 })} บาท
+                      </span>
+                    </p>
                     <Button
                       variant="destructive"
                       className="max-xl:flex-1"

@@ -1,17 +1,13 @@
 import { AdminShell } from "@/components/admin/admin-shell";
-import { VdaSalesAccessPanel } from "@/components/admin/vda-sales-access-panel";
-import { SalesmanAssignmentPanel } from "@/components/admin/salesman-assignment-panel";
+import { SalesCodeDirectoryPanel } from "@/components/admin/sales-code-directory-panel";
 
 export default function AdminSystemVdaSalesPage() {
   return (
     <AdminShell
       title="สิทธิ์เซลล์-VDA"
-      description="เซลล์คนไหนดูแลคลังไหน — ปกติจับคู่อัตโนมัติจาก cross_target แอดมินกำหนดทับเองได้ด้านล่าง"
+      description="รหัสเซลล์แต่ละรหัสดูแลคลังไหน และอีเมลไหนเข้าใช้งานในฐานะรหัสนั้นได้ — กำหนดอีเมลอ้างอิงได้ในตารางเลย"
     >
-      <div className="space-y-4">
-        <SalesmanAssignmentPanel />
-        <VdaSalesAccessPanel />
-      </div>
+      <SalesCodeDirectoryPanel />
     </AdminShell>
   );
 }

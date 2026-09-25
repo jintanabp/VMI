@@ -44,8 +44,50 @@ export interface VdaSalesmanRow {
 
 /** อีเมลอ้างอิงที่แอดมินกำหนดให้รหัสเซลล์ (SalesmanEmailAssignment ที่ active) */
 export interface ManualEmailAssignment {
+  id?: string;
   email: string;
   salesmanCode: string;
+}
+
+/** หนึ่งแถวต่อรหัสเซลล์ — ใช้ในหน้าแอดมินที่รวม "กำหนดอีเมล" กับ "เซลล์ ↔ VDA" ไว้ด้วยกัน */
+export interface SalesCodeRow {
+  code: string;
+  name: string;
+  /** อีเมลจาก cross_salesman (null = ไม่มีในไฟล์) */
+  masterEmail: string | null;
+  /** อีเมลอ้างอิงที่แอดมินกำหนด */
+  manual: { id: string; email: string }[];
+  vdas: string[];
+}
+
+function buildCodeRows(
+  vdaReg: ReturnType<typeof getVdaAosBillRegistry>,
+  salesmanReg: ReturnType<typeof getSalesmanRegistry>,
+  manual: ManualEmailAssignment[]
+): SalesCodeRow[] {
+  const codes = new Set<string>();
+  for (const a of salesmanReg.listCurrentAssignments()) codes.add(a.code.trim().toUpperCase());
+  if (vdaReg.isLoaded) {
+    for (const vda of vdaReg.listVdaCodes()) {
+      for (const c of vdaReg.getSalesmanCodesForVda(vda)) codes.add(c.trim().toUpperCase());
+    }
+  }
+  for (const m of manual) codes.add(m.salesmanCode.trim().toUpperCase());
+
+  return [...codes]
+    .map((code) => {
+      const a = salesmanReg.getCurrentByCode(code);
+      return {
+        code,
+        name: a ? salesmanReg.getDisplayName(a) : "",
+        masterEmail: a?.email ? a.email.toLowerCase() : null,
+        manual: manual
+          .filter((m) => m.salesmanCode.trim().toUpperCase() === code)
+          .map((m) => ({ id: m.id ?? "", email: m.email.trim().toLowerCase() })),
+        vdas: [...vdaReg.getVdasForSalesman(code)].map((v) => v.toLowerCase()).sort(),
+      };
+    })
+    .sort((x, y) => x.code.localeCompare(y.code, undefined, { numeric: true }));
 }
 
 function manualEmailsByCode(manual: ManualEmailAssignment[]): Map<string, string[]> {
@@ -223,6 +265,7 @@ export function buildVdaSalesDirectory(manual: ManualEmailAssignment[] = []) {
       salesmanMaster: salesmanReg.isLoaded,
       vdaAosBill: vdaReg.isLoaded,
     },
+    codes: buildCodeRows(vdaReg, salesmanReg, manual),
     salesmen,
     salesmenWithVda,
     people,
