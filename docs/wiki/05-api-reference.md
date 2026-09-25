@@ -17,7 +17,7 @@
 | POST | `/api/orders` | ร้านส่งออเดอร์ใหม่ |
 | PATCH | `/api/orders` | เซลล์: `approve` · `reject` · `updateQty` · `updatePrice` · `rejectItem` · `addItem` · `assignPoGroup` |
 | DELETE | `/api/orders?orderId=` | เซลล์ลบออเดอร์ · `?orderIds=` ลบหลายใบ · `?withPo=1` ลบที่ออก PO แล้วได้ · `?notify=0` ไม่แจ้งร้าน |
-| DELETE | `/api/orders/clear-sku?skuCode=` | เคลียร์สิ้นเดือน: ลบบรรทัดของ SKU นี้จากทุกออเดอร์ `pending_approval` ที่ยังไม่มี PO ในขอบเขตสิทธิ์ · ใบที่ไม่เหลือบรรทัดถูกลบทั้งใบ · คืน `{ itemsRemoved, ordersRemoved }` |
+| DELETE | `/api/orders/clear-sku?skuCode=` | เคลียร์สิ้นเดือน: ลบบรรทัดของ SKU นี้จากทุกออเดอร์ `pending_approval` ที่ยังไม่มี PO ในขอบเขตสิทธิ์ · ใบที่ไม่เหลือบรรทัดถูกลบทั้งใบ · คิดโปรพี่น้องกลุ่มเดียวกันใหม่ · แจ้งร้าน `item_cleared` (`?notify=0` = ไม่แจ้ง) · คืน `{ itemsRemoved, ordersRemoved }` |
 
 > **`?storeId=` ถูกลบออกจาก `/api/stock` แล้ว** — ตัวตนร้านมาจาก `getAuthorizedStore()`
 > เท่านั้น มิฉะนั้นจะได้รับสถานะ 401 · เดิมพารามิเตอร์นี้ทำให้เรียกดูสต็อกของร้านอื่นได้
@@ -42,7 +42,7 @@ Server จะ lookup โปร/ราคา C4 แล้ว**แช่ค่า�
 { "orderId": "...", "action": "addItem", "skuCode": "311050", "finalQty": 2 }
 ```
 - `addItem` สร้างบรรทัดใหม่ `requestedQty=0` + `qtyIncreasePendingConfirm=true` เสมอ ·
-  SKU ที่มีในออเดอร์แล้ว → **409** · อยู่กลุ่มโปรเดียวกับของเดิม → คำนวณ pooled ใหม่ทั้งกลุ่ม
+  รหัสไม่มีในแคตตาล็อก → **400** · SKU ที่มีในออเดอร์แล้ว → **409** · อยู่กลุ่มโปรเดียวกับของเดิม → คำนวณ pooled ใหม่ทั้งกลุ่ม
   (ดู `lib/po/add-order-item.ts`) · แจ้งร้านด้วย kind `item_added_pending`
 - `rejectItem` staff เท่านั้น — ตั้ง `finalQty=0` + `rejectedAt`/`rejectReason` แจ้งร้าน `item_rejected`
 
@@ -50,6 +50,10 @@ Server จะ lookup โปร/ราคา C4 แล้ว**แช่ค่า�
 ```jsonc
 { "orderId": "...", "action": "approve", "poNumbers": { "A": "V2260731 01A" } }
 ```
+`itemIds` (ไม่บังคับ) = อนุมัติเฉพาะรายการเหล่านี้ — ที่เหลือย้ายไปออเดอร์ใหม่รออนุมัติ
+(`lib/po/approve-selected.ts`) · เลือกครึ่งกลุ่มโปรที่รวมยอด → **422** `issues` · ตอบกลับเพิ่ม
+`remainderOrderId` / `remainderCount` · นับรายการรอร้านยืนยันเฉพาะใน `itemIds`
+
 `poNumbers` ไม่ส่งก็ได้ ระบบ mint เลขให้เอง · อนุมัติได้เฉพาะสถานะ `pending_approval` (ไม่งั้น 409) ·
 มีบรรทัด `qtyIncreasePendingConfirm=true` ค้างอยู่ → **422** (หน้าจอปิดปุ่มไว้ก่อนแล้ว แต่ server ตรวจซ้ำเสมอ)
 
@@ -60,7 +64,7 @@ Server จะ lookup โปร/ราคา C4 แล้ว**แช่ค่า�
 | GET | `/api/store/order-history` | ประวัติออเดอร์ (`?summary=1&days=N` = สรุปราย SKU ไว้เตือนสั่งซ้ำ) |
 | GET | `/api/sales/daily` | ยอดขายรายวันของ SKU · `?sku=` `?days=` (≤90) `?fromDb=` — **ใช้ session ของร้าน** ไม่ใช่ของเซลส์ · คืน `firstDate` + `coverageDays` ไว้ให้ UI ปิดช่วงที่ข้อมูลไม่ถึง |
 | DELETE | `/api/store/orders?orderId=` | ร้านยกเลิกออเดอร์ตัวเอง (เฉพาะที่ยังไม่ถูกแตะ) |
-| PATCH | `/api/store/orders` | ร้านตอบรายการที่รอยืนยัน `{ orderId, itemId, action: "confirmQtyIncrease" \| "rejectQtyIncrease" }` · สินค้าที่พนักงานเพิ่มเอง (`requestedQty=0`) ถ้าปฏิเสธ = **ลบทั้งแถว** + คำนวณโปรพี่น้องใหม่ · ของเดิม = คืน `finalQty` เป็น `requestedQty` · คืน `{ success, staffAdded, removed }` |
+| PATCH | `/api/store/orders` | ร้านตอบรายการที่รอยืนยัน (ออเดอร์ต้องยังรออนุมัติ ไม่งั้น **409**) `{ orderId, itemId, action: "confirmQtyIncrease" \| "rejectQtyIncrease" }` · สินค้าที่พนักงานเพิ่มเอง (`requestedQty=0`) ถ้าปฏิเสธ = **ลบทั้งแถว** + คำนวณโปรพี่น้องใหม่ · ของเดิม = คืน `finalQty` เป็น `requestedQty` · คืน `{ success, staffAdded, removed }` |
 | GET·PATCH | `/api/store/notifications` | แจ้งเตือนจากพนักงาน · `?count=1` = เอาแค่จำนวน · `?since=` = เอาเฉพาะที่ใหม่กว่า |
 | GET·PATCH | `/api/store/thresholds` | MIN/MAX ระดับกลุ่ม |
 | GET·POST·DELETE | `/api/store/blocklist` | รายการหยุดสั่ง |
@@ -131,7 +135,7 @@ Server จะ lookup โปร/ราคา C4 แล้ว**แช่ค่า�
 | GET | `/api/admin/promo/explain` | เหตุผลที่ SKU ได้/ไม่ได้โปร (รายงานรายเดือนย้ายไป `/api/promo/month`) |
 | GET | `/api/admin/customers/search` · `/resolve` | ค้นหา/แปลงรหัสลูกค้า |
 | GET | `/api/admin/salesmen` · `/api/admin/vda-sales` · `/api/admin/badges` | ข้อมูลประกอบหน้า admin |
-| GET·POST·DELETE | `/api/admin/salesman-assignments` | กำหนดอีเมล ↔ รหัสเซลล์เอง (`SalesmanEmailAssignment`) · POST `{ email, salesmanCode }` · มีแถว active = ทับการจับคู่อัตโนมัติจาก cross_target ทั้งหมด · มีผลตอน login ครั้งถัดไป |
+| GET·POST·DELETE | `/api/admin/salesman-assignments` | กำหนดอีเมล ↔ รหัสเซลล์เอง (`SalesmanEmailAssignment`) · POST `{ salesmanCode, emails: string[] }` (หรือ `email` เดี่ยว — ยังรับ) · มีแถว active = ทับการจับคู่อัตโนมัติจาก cross_target ทั้งหมด · มีผลตอน login ครั้งถัดไป |
 
 ## ทั่วไป
 

@@ -44,7 +44,8 @@ erDiagram
 |---|---|---|
 | จำนวน | `suggestedQty` `finalQty` | เทียบได้ว่าร้าน/เซลล์แก้จากที่ระบบแนะนำไปเท่าไร |
 | จำนวนที่ร้านขอ | `requestedQty` | `finalQty` ตอนร้านส่ง แช่ไว้ไม่แก้อีก · `0` = พนักงานเพิ่มสินค้านี้เอง (ร้านไม่เคยสั่ง) · `null` = ออเดอร์เก่าก่อนมีฟีเจอร์ (ถือว่าไม่เคยแก้) · ใช้แยก PO-C/D และตัดสินว่าต้องรอร้านยืนยันไหม |
-| รอร้านยืนยัน | `qtyIncreasePendingConfirm` | `true` เมื่อพนักงานตั้ง `finalQty > requestedQty` (รวมสินค้าที่เพิ่มเอง) · ค้างอยู่ = **อนุมัติทั้งใบไม่ได้** (422) · ลดกลับ ≤ `requestedQty` ปลดเอง |
+| จำนวนที่ร้านตกลงล่าสุด | `agreedQty` | ตอนส่ง = `finalQty` · ร้านยืนยันการเพิ่ม = `finalQty` ณ ตอนนั้น · เป็นเส้นฐานของ "เพิ่มเกินต้องรอยืนยัน" และจำนวนที่คืนเมื่อร้านปฏิเสธ · `null` (แถวเก่า) → ใช้ `requestedQty` · สินค้าที่พนักงานเพิ่ม = `0` จนร้านยืนยัน |
+| รอร้านยืนยัน | `qtyIncreasePendingConfirm` | `true` เมื่อพนักงานตั้ง `finalQty > agreedQty` (รวมสินค้าที่เพิ่มเอง) · ค้างอยู่ = **อนุมัติทั้งใบไม่ได้** (422) · ลดกลับ ≤ `agreedQty` ปลดเอง · ปฏิเสธรายการ (`rejectItem`) ล้างธงนี้ด้วย |
 | ปฏิเสธรายการ | `rejectedAt` `rejectReason` | บันทึกย้อนหลังเท่านั้น — ตัวที่กันไม่ให้เข้า PO คือ `finalQty=0` ตามเดิม |
 | CVD | `cvdEstimate` `minDays` `maxDays` | ให้เซลล์เห็นสีธงตรงกับที่ร้านเห็น แม้ threshold จะถูกแก้ทีหลัง |
 | ราคาร้าน | `unitPriceOverride` | ราคาที่ร้านขอ |
@@ -82,13 +83,14 @@ erDiagram
 
 | ตาราง | ทิศทาง | kind |
 |---|---|---|
-| `StoreNotification` | พนักงาน → ร้าน | `approved` `rejected` `item_rejected` `deleted` `price_changed` `qty_changed` `qty_increase_pending` `item_added_pending` `po_issued` `po_cancelled` `po_received` |
+| `StoreNotification` | พนักงาน → ร้าน | `approved` `rejected` `item_rejected` `item_cleared` `order_split` `deleted` `price_changed` `qty_changed` `qty_increase_pending` `item_added_pending` `po_issued` `po_cancelled` `po_received` |
 | `SalesNotification` | ร้าน → พนักงาน | `order_created` `order_cancelled` `qty_increase_confirmed` `qty_increase_rejected` `item_added_confirmed` `item_added_rejected` |
 
 `kind` เป็น `String` — เพิ่มชนิดใหม่ไม่ต้อง migrate แต่ต้องเพิ่มใน union type
 (`lib/orders/store-notify.ts` / `sales-notify.ts`) และตารางป้าย (`store-notify-display.ts` /
 `sales-notifications-client.tsx`) ไม่งั้นชิปจะขึ้นเป็นชื่อ kind ดิบๆ
-`StoreNotification.orderId` ใช้พาไปเปิดออเดอร์จากกระดิ่ง (`/history?order=<id>`)
+`StoreNotification.orderId` ใช้พาไปเปิดออเดอร์จากกระดิ่ง (`/history?order=<id>`) ·
+`order_split` = อนุมัติบางรายการ `orderId` ชี้ไปใบใหม่ที่รออนุมัติ
 
 ทั้งคู่เก็บ**ข้อความเป็น snapshot** ไม่ผูก FK กับ `Order` เพราะออเดอร์ที่ถูกลบก็ยังต้องแจ้งให้รู้ว่าถูกลบ
 
@@ -150,5 +152,6 @@ SQLite ไม่สร้าง index ให้ FK อัตโนมัติ �
 | `20260924031934_order_item_reject` | `OrderItem.rejectedAt` / `rejectReason` |
 | `20260924032550_order_item_requested_qty` | `OrderItem.requestedQty` |
 | `20260924063722_order_item_qty_increase_pending` | `OrderItem.qtyIncreasePendingConfirm` |
+| `20260925030451_order_item_agreed_qty` | `OrderItem.agreedQty` |
 
 > ทุก migration ที่เพิ่มคอลัมน์เป็น **nullable หรือมีค่า default** เสมอ — ข้อมูลเดิมไม่พัง

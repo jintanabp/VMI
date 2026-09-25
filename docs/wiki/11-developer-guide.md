@@ -162,7 +162,8 @@ scripts/          sync, backup, verify, probe
 | รอร้านยืนยันเพิ่มจำนวน (D3) | `lib/repositories/prisma-repository.ts` → `updateOrderItemQty` / `confirmQtyIncrease` / `rejectQtyIncrease` · route `app/api/store/orders/route.ts` (PATCH) |
 | กันอนุมัติขณะรอร้านยืนยัน | server: `app/api/orders/route.ts` (action `approve`) · client: `pendingConfirmCount` ใน `components/sales/sales-orders-client.tsx` |
 | อีเมล ↔ รหัสเซลล์ที่แอดมินกำหนด | `lib/auth/manual-salesman-assignments.ts` + `buildSalesSessionWithAccess` ใน `lib/auth/sales-session.ts` |
-| เคลียร์ SKU สิ้นเดือน | `app/api/orders/clear-sku/route.ts` |
+| เคลียร์สิ้นเดือน (ทั้งใบ / เฉพาะสินค้า) | UI `components/sales/month-end-clear-modal.tsx` · API `DELETE /api/orders` + `app/api/orders/clear-sku/route.ts` |
+| อนุมัติเฉพาะบางรายการ | `lib/po/approve-selected.ts` · client `partialItems` / `promoSiblings` ใน `sales-orders-client.tsx` |
 | กระดิ่งร้าน → เปิดออเดอร์ | `components/layout/store-notification-bell.tsx` (`openOrder`) + `?order=` ใน `components/history/order-history-client.tsx` |
 
 ### โครงสร้างหน้าผู้ดูแลระบบ

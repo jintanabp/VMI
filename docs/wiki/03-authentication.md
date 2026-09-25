@@ -107,7 +107,14 @@ manager/supervisor จะได้ `scopeSalesmanCodes` และ `scopeEmails` 
   `scopeSalesmanCodes` ตรงๆ (รหัสที่ไม่ได้เป็นหัวหน้า/ลูกทีมกันก็ไม่หาย)
 - ไม่มีแถว → พฤติกรรมเดิมทุกประการ
 - รหัสที่กำหนดไม่อยู่ใน master `cross_salesman` → login ไม่ผ่าน พร้อมข้อความให้ตรวจรหัส
-- อ่านตอนสร้าง session → มีผลเมื่อ login ครั้งถัดไป ไม่ใช่ทันที
+- **มีผลทันที:** `getRawSalesSession()` เทียบรหัสที่กำหนดตอนนี้กับ `session.manualCodes` ที่ติดมาใน cookie
+  (query เดียวต่อ request) ต่างกัน → คำนวณสิทธิ์ใหม่ด้วย `buildSalesSessionWithAccess` สำหรับ request นั้น ·
+  คำนวณไม่ได้แล้ว (ไม่เหลือรหัสใน master) → คืน `null` ผู้ใช้ถูกพาไป login · DB อ่านไม่ได้ชั่วคราว → ใช้ session เดิม
+  (ไม่เขียน cookie ใหม่ตรงนั้นเพราะห้ามแก้ cookie ระหว่าง render — จึงคำนวณซ้ำทุก request จน login ใหม่)
+  เทส: `tests/sales-session-revalidate.test.ts`
+- **แทนที่ ไม่ใช่เพิ่ม:** ทุกจุดที่ดึง "รหัสทั้งหมดของคนนี้" (`getPersonSalesCodes` → ปุ่มดูทุก VDA ของฉัน,
+  ตัวสลับรหัส, `assertOrderAccess`, หน้า PO, แจ้งเตือน, ขอบเขตโปร) ส่ง `session.manualCodes` ไปด้วย
+  มีค่า = ใช้เฉพาะรหัสที่แอดมินกำหนด · สลับรหัส (`/api/sales/active-code`) ได้เฉพาะในชุดนี้
 - แอดมินที่มี `salesmanCode` จะถูกพาไป `/sales` จาก `/` (ดู `app/page.tsx`) แอดมินล้วนไป `/admin` ตามเดิม
 
 ## สิทธิ์เข้าถึงออเดอร์
