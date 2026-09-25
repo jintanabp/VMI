@@ -127,6 +127,20 @@ export function PoSplitPanel({
             ติ๊กไว้ {selectedCount} รายการ — ย้ายไปใบอื่นได้ที่นี่ หรือกด «อนุมัติเฉพาะที่เลือก» ด้านล่าง
           </span>
         )}
+        {groups.length > 1 && (
+          // รวมทุกบรรทัดกลับเป็นใบเดียวในคลิกเดียว — เดิมต้องติ๊กทุกแถวแล้วกด "รวมกลับ PO-A"
+          <Button
+            size="sm"
+            variant="outline"
+            className="ml-auto h-7 px-2.5 text-[11px] font-semibold"
+            disabled={pending}
+            title="ย้ายทุกรายการไปอยู่ PO-A ใบเดียว"
+            onClick={() => onAssign("A", items.map((i) => i.id))}
+          >
+            <Merge className="h-3.5 w-3.5" />
+            รวมเป็น PO เดียว
+          </Button>
+        )}
       </div>
 
       <div className="grid gap-2 sm:grid-cols-2">
@@ -223,6 +237,27 @@ export function PoSplitPanel({
 /** ใช้กั้นปุ่มอนุมัติจากฝั่ง client (เซิร์ฟเวอร์ตรวจซ้ำอีกชั้นเสมอ) */
 export function poSplitIssues(items: ReviewOrderItem[]): string[] {
   return validatePoSplit(toSplittable(items));
+}
+
+/**
+ * ย้ายบางรายการไปกลุ่มที่ระบุ แล้วแช่กลุ่มที่ระบบเสนอให้บรรทัดที่เหลือไปพร้อมกัน
+ *
+ * เดิมส่งแค่รายการที่ติ๊ก — พอมีบรรทัดหนึ่งมี poGroup แล้ว บรรทัดที่เหลือ (ยังเป็นแค่ข้อเสนอ)
+ * กลายเป็น "ยังไม่ได้จัดกลุ่ม" ใน validatePoSplit จนอนุมัติไม่ได้ ทั้งที่จอโชว์ว่าอยู่ PO-A
+ */
+export function assignmentsFor(
+  items: ReviewOrderItem[],
+  groupKey: string,
+  movedIds: string[]
+): { itemId: string; poGroup: string }[] {
+  const moved = new Set(movedIds);
+  const proposed = new Map<string, string>();
+  for (const g of proposePoSplit(toSplittable(items))) {
+    for (const id of g.itemIds) proposed.set(id, g.groupKey);
+  }
+  return items
+    .filter((i) => moved.has(i.id) || proposed.has(i.id))
+    .map((i) => ({ itemId: i.id, poGroup: moved.has(i.id) ? groupKey : proposed.get(i.id)! }));
 }
 
 /** จำนวน PO ที่จะออก — ใช้ทำข้อความบนปุ่มอนุมัติ */

@@ -20,6 +20,7 @@ import {
   poSplitCount,
   poSplitIssues,
   toSplittable,
+  assignmentsFor,
 } from "@/components/sales/po-split-panel";
 import { RejectOrderModal } from "@/components/sales/reject-order-modal";
 import { NotifyStoreCheckbox } from "@/components/sales/notify-store-checkbox";
@@ -1099,10 +1100,7 @@ export function SalesOrdersClient() {
                       actionMutation.mutate({
                         orderId: selected.id,
                         action: "assignPoGroup",
-                        assignments: itemIds.map((itemId) => ({
-                          itemId,
-                          poGroup: groupKey,
-                        })),
+                        assignments: assignmentsFor(selected.items, groupKey, itemIds),
                       })
                     }
                   />

@@ -683,7 +683,8 @@ export function OrderReviewTable({
         </p>
       )}
 
-      <div className="vmi-table-wrap flex min-h-0 min-w-0 flex-1 flex-col">
+      {/* รายการสินค้า = สิ่งที่ต้องตรวจก่อนกดอนุมัติ — กรอบเด่นกว่าแผงสรุปด้านบนโดยตั้งใจ */}
+      <div className="vmi-table-wrap flex min-h-0 min-w-0 flex-1 flex-col shadow-sm ring-1 ring-teal-200/70 dark:ring-teal-900/60">
         <div className="vmi-table-scroll vmi-sales-review-scroll min-h-0 flex-1 overflow-x-hidden xl:overflow-x-auto">
           {!promoLoading && visibleItems.length === 0 && (
             <p className="px-4 py-10 text-center text-sm text-slate-500 dark:text-slate-400 xl:hidden">
@@ -861,7 +862,12 @@ export function OrderReviewTable({
             <thead>
               <tr className="text-xs font-semibold text-slate-600 dark:text-slate-300">
                 <th className="w-9 px-2 py-2">#</th>
-                <th className="min-w-0 px-2 py-2">สินค้า</th>
+                <th className="min-w-0 px-2 py-2">
+                  <span className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                    รายการสินค้า
+                  </span>{" "}
+                  <span className="font-normal text-slate-400">({displayItems.length})</span>
+                </th>
                 <th className="w-[13rem] px-2 py-2">โปร</th>
                 <th className="w-[6.5rem] px-2 py-2 text-right">หีบ</th>
                 <th className="w-[7rem] px-2 py-2 text-right whitespace-nowrap">ราคา/หีบ</th>
@@ -915,24 +921,22 @@ export function OrderReviewTable({
                         rowNum
                       )}
                     </td>
-                    <td className="max-w-0 px-2 py-2 align-top">
-                      <p className="flex min-w-0 items-baseline gap-2">
-                        <span className="shrink-0 font-mono text-xs font-bold text-teal-700 dark:text-teal-400">
-                          {item.sku.code}
-                        </span>
-                        <span
-                          className={cn(
-                            "min-w-0 truncate text-sm font-medium text-slate-800 dark:text-slate-100",
-                            zero && "line-through"
-                          )}
-                          title={item.sku.name}
-                        >
-                          {item.sku.name}
-                        </span>
+                    <td className="max-w-0 px-2 py-3 align-top">
+                      <p
+                        className={cn(
+                          "min-w-0 truncate text-[15px] leading-snug font-semibold text-slate-900 dark:text-slate-50",
+                          zero && "line-through"
+                        )}
+                        title={item.sku.name}
+                      >
+                        {item.sku.name}
                       </p>
                       <div className="mt-1 flex flex-wrap items-center gap-1">
+                        <span className="font-mono text-xs font-semibold text-teal-700 dark:text-teal-400">
+                          {item.sku.code}
+                        </span>
                         <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                          {formatNumber(item.packSize ?? 1, 0)} ชิ้น/หีบ
+                          · {formatNumber(item.packSize ?? 1, 0)} ชิ้น/หีบ
                         </span>
                         <FlagBadge flag={flag} />
                         {showPoGroups && item.poGroup && <PoGroupBadge groupKey={item.poGroup} />}
@@ -1020,7 +1024,7 @@ export function OrderReviewTable({
                       )}
                     </td>
                     <td className="px-2 py-2 align-top text-right">
-                      <span className="text-base font-bold whitespace-nowrap tabular-nums text-slate-900 dark:text-slate-50">
+                      <span className="text-lg font-bold whitespace-nowrap tabular-nums text-slate-900 dark:text-slate-50">
                         {promoLoading ? "..." : total != null ? formatBaht(total) : "-"}
                       </span>
                     </td>
@@ -1121,7 +1125,7 @@ function QtyStepper({
             if (e.key === "Enter") e.currentTarget.blur();
           }}
           className={cn(
-            "w-10 border-x border-slate-200 bg-transparent py-0.5 text-center text-sm font-bold tabular-nums outline-none dark:border-slate-700",
+            "w-12 border-x border-slate-200 bg-transparent py-1 text-center text-base font-bold tabular-nums outline-none dark:border-slate-700",
             value === 0
               ? "text-red-600 dark:text-red-400"
               : "text-slate-900 dark:text-slate-100"

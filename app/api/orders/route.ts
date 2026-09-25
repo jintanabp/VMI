@@ -127,7 +127,8 @@ const patchOrderSchema = z.discriminatedUnion("action", [
         })
       )
       .min(1)
-      .max(500),
+      // "รวมเป็น PO เดียว" ส่งทุกบรรทัดของใบ — ออเดอร์จริงมีถึง ~400 SKU
+      .max(2000),
   }),
 ]);
 
