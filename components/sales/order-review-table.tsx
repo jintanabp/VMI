@@ -4,7 +4,16 @@ import { appPath } from "@/lib/paths";
 import { StorePriceInput } from "@/components/order/store-price-input";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Filter, PackagePlus, Pencil, Sparkles, XCircle } from "lucide-react";
+import {
+  AlertTriangle,
+  Filter,
+  Maximize2,
+  Minimize2,
+  PackagePlus,
+  Pencil,
+  Sparkles,
+  XCircle,
+} from "lucide-react";
 import { PromoDetailCell } from "@/components/promo/promo-detail-cell";
 import { RejectItemModal } from "@/components/sales/reject-item-modal";
 import { AddOrderItemModal } from "@/components/sales/add-order-item-modal";
@@ -138,6 +147,9 @@ interface OrderReviewTableProps {
   /** เพิ่มสินค้าใหม่ (SKU ที่ไม่เคยอยู่ในออเดอร์) — ไม่ส่งมา = ไม่แสดงปุ่ม */
   onAddItem?: (skuCode: string, finalQty: number) => void;
   addItemPending?: boolean;
+  /** โหมดขยายตาราง (ซ่อนรายการออเดอร์ทางซ้าย) — ไม่ส่ง = ไม่มีปุ่ม */
+  expanded?: boolean;
+  onToggleExpand?: () => void;
   /** true = แสดงคอลัมน์/ป้ายกลุ่ม PO */
   showPoGroups?: boolean;
 }
@@ -445,6 +457,8 @@ export function OrderReviewTable({
   onRejectItem,
   onAddItem,
   addItemPending,
+  expanded,
+  onToggleExpand,
   showPoGroups,
 }: OrderReviewTableProps) {
   const [promoOnly, setPromoOnly] = useState(false);
@@ -560,7 +574,8 @@ export function OrderReviewTable({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
       <div className="vmi-sales-review-toolbar flex shrink-0 flex-col gap-2">
-        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 py-1 text-xs dark:border-slate-700 dark:bg-slate-800/50">
+        {/* แถบสรุปซ้ำกับยอดในแถบปุ่มอนุมัติ — ซ่อนตอนขยายตาราง (vmi-review-summary) */}
+        <div className="vmi-review-summary flex flex-wrap items-center gap-x-2.5 gap-y-0.5 rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 py-1 text-xs dark:border-slate-700 dark:bg-slate-800/50">
         <CompactStat label="รายการ" value={`${stats.skuCount} SKU`} />
         <span aria-hidden className="text-slate-300 dark:text-slate-600">
           ·
@@ -664,16 +679,34 @@ export function OrderReviewTable({
           </button>
         )}
 
-        {onAddItem && (
-          <button
-            type="button"
-            onClick={() => setAddItemOpen(true)}
-            className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-lg bg-teal-600 px-3 text-xs font-semibold text-white shadow-sm hover:bg-teal-700 dark:bg-teal-700 dark:hover:bg-teal-600"
-          >
-            <PackagePlus className="h-4 w-4" />
-            เพิ่มสินค้า
-          </button>
-        )}
+        <div className="ml-auto flex items-center gap-2">
+          {onToggleExpand && (
+            // เฉพาะจอกว้าง — จอแคบเป็นการ์ดเต็มความกว้างอยู่แล้ว
+            <button
+              type="button"
+              onClick={onToggleExpand}
+              className="hidden h-8 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 xl:inline-flex dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+              title={
+                expanded
+                  ? "แสดงรายการออเดอร์ทางซ้ายกลับมา"
+                  : "ซ่อนรายการออเดอร์ทางซ้าย ให้ตารางสินค้ากว้างและสูงเต็มจอ"
+              }
+            >
+              {expanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+              {expanded ? "ย่อตาราง" : "ขยายตาราง"}
+            </button>
+          )}
+          {onAddItem && (
+            <button
+              type="button"
+              onClick={() => setAddItemOpen(true)}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-teal-600 px-3 text-xs font-semibold text-white shadow-sm hover:bg-teal-700 dark:bg-teal-700 dark:hover:bg-teal-600"
+            >
+              <PackagePlus className="h-4 w-4" />
+              เพิ่มสินค้า
+            </button>
+          )}
+        </div>
       </div>
       </div>
 

@@ -34,6 +34,7 @@ import {
 import { formatStoreLabel } from "@/lib/format-store-label";
 import { getCvdFlag } from "@/lib/calculations";
 import { apiFetch } from "@/lib/api-fetch";
+import { cn } from "@/lib/utils";
 import { friendlyError } from "@/lib/error-message";
 
 // ใช้ type เดียวกับตารางรีวิว เพื่อไม่ให้ฟิลด์สองที่หลุดกัน
@@ -115,6 +116,25 @@ export function SalesOrdersClient() {
   const focusOrderId = searchParams.get("order");
   const focusStatus = searchParams.get("status");
   const [pendingFocus, setPendingFocus] = useState<string | null>(null);
+  /** ขยายตารางสินค้าเต็มจอ (ซ่อนรายการออเดอร์ซ้าย) — จำไว้ในเครื่อง ความชอบของแต่ละคน */
+  const [tableExpanded, setTableExpanded] = useState(false);
+  useEffect(() => {
+    try {
+      setTableExpanded(window.localStorage.getItem("vmi-sales-table-expanded") === "1");
+    } catch {
+      // storage ถูกบล็อก — ใช้ค่าเริ่มต้น
+    }
+  }, []);
+  function toggleTableExpanded() {
+    setTableExpanded((v) => {
+      try {
+        window.localStorage.setItem("vmi-sales-table-expanded", v ? "0" : "1");
+      } catch {
+        // ไม่จำก็ได้
+      }
+      return !v;
+    });
+  }
   const [approveOpen, setApproveOpen] = useState(false);
   const [issuedPos, setIssuedPos] = useState<
     { poNumber: string; label: string; itemCount: number; totalQty: number }[]
@@ -647,7 +667,12 @@ export function SalesOrdersClient() {
   });
 
   return (
-    <PageShell className="vmi-sales-orders-page overflow-x-hidden">
+    <PageShell
+      className={cn(
+        "vmi-sales-orders-page overflow-x-hidden",
+        tableExpanded && "vmi-sales-orders-page--expanded"
+      )}
+    >
       <AppHeader
         compact
         wide
@@ -664,8 +689,13 @@ export function SalesOrdersClient() {
 
       <main className="vmi-sales-orders-main mx-auto w-full min-w-0 max-w-[min(100%,96rem)] px-2 py-2 sm:px-3 sm:py-2 xl:px-6 xl:py-3">
         <SalesNav />
-        {/* งานระดับทั้งหน้า ไม่ผูกกับใบที่เปิดดู — วางนอกแถบซ้ายให้เห็นทันที */}
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        {/* งานระดับทั้งหน้า ไม่ผูกกับใบที่เปิดดู — วางนอกแถบซ้ายให้เห็นทันที · ซ่อนตอนขยายตาราง */}
+        <div
+          className={cn(
+            "mb-2 flex flex-wrap items-center justify-between gap-2",
+            tableExpanded && "xl:hidden"
+          )}
+        >
           <p className="text-sm text-slate-600 dark:text-slate-300">
             {statusFilter === "pending_approval" ? (
               <>
@@ -709,7 +739,8 @@ export function SalesOrdersClient() {
           </div>
         )}
 
-        <div className="vmi-sales-orders-grid">
+        <div className={cn("vmi-sales-orders-grid", tableExpanded && "vmi-sales-orders-grid--wide")}>
+        {/* ซ่อนตอนขยายตารางด้วย CSS (.vmi-sales-orders-grid--wide) — เฉพาะจอกว้าง */}
         <aside className="vmi-sales-orders-sidebar vmi-card min-w-0 p-2 sm:p-3">
           <div className="shrink-0 space-y-2">
           <div className="grid grid-cols-2 gap-1.5">
@@ -1186,6 +1217,8 @@ export function SalesOrdersClient() {
                     : undefined
                 }
                 addItemPending={actionMutation.isPending}
+                expanded={tableExpanded}
+                onToggleExpand={toggleTableExpanded}
               />
 
               {actionError && (

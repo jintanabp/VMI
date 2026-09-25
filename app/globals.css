@@ -513,6 +513,55 @@ body {
   }
 }
 
+/* ขยายตาราง: ซ่อนรายการออเดอร์ซ้าย ให้ตารางสินค้ากินเต็มความกว้าง (ต้องชนะทั้ง 1280/1536 ข้างบน) */
+@media (min-width: 1280px) {
+  .vmi-sales-orders-grid.vmi-sales-orders-grid--wide {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* .vmi-sales-orders-sidebar ตั้ง display:flex ไว้หลัง utility — xl:hidden บน aside เลยไม่มีผล */
+  .vmi-sales-orders-grid--wide > .vmi-sales-orders-sidebar {
+    display: none;
+  }
+
+  /* โหมดขยาย: ปลดล็อกความสูงเท่าจอ — ตารางยาวเต็มทุกรายการ เลื่อนทั้งหน้าแทนเลื่อนในกล่องเล็ก
+     แถบปุ่มอนุมัติ/ยอดรวมติดขอบล่างจอตลอด */
+  .vmi-sales-orders-page--expanded {
+    height: auto;
+    overflow: visible;
+  }
+  .vmi-sales-orders-page--expanded .vmi-sales-orders-main,
+  .vmi-sales-orders-page--expanded .vmi-sales-orders-grid,
+  .vmi-sales-orders-page--expanded .vmi-sales-orders-detail {
+    overflow: visible;
+  }
+  .vmi-sales-orders-page--expanded .vmi-table-scroll,
+  .vmi-sales-orders-page--expanded .vmi-sales-review-scroll {
+    max-height: none;
+    overflow: visible;
+  }
+  .vmi-sales-orders-page--expanded .vmi-review-summary {
+    display: none;
+  }
+  /* .vmi-table-wrap เป็น overflow:hidden — sticky ของหัวตารางจะยึดกับกรอบนี้แทนจอ (หัวลอยทับแถว
+     และหายไปตอนเลื่อน) · clip ตัดขอบมนได้เหมือนเดิมแต่ไม่นับเป็นกล่องเลื่อน */
+  .vmi-sales-orders-page--expanded .vmi-table-wrap {
+    overflow: clip;
+  }
+  /* หัวตารางติดใต้ AppHeader ที่ sticky อยู่ (สูง ~6.5rem บนจอกว้าง) ไม่งั้นจมหลัง header */
+  .vmi-sales-orders-page--expanded .vmi-sales-review-scroll thead th {
+    top: 6.5rem;
+  }
+  .vmi-sales-orders-page--expanded .vmi-sales-action-bar {
+    position: sticky;
+    bottom: 0;
+    z-index: 30;
+    margin-inline: -1rem;
+    padding: 0.75rem 1rem;
+    box-shadow: 0 -4px 20px rgb(0 0 0 / 0.06);
+  }
+}
+
 .vmi-stock-main,
 .vmi-order-main {
   display: flex;
