@@ -455,27 +455,31 @@ body {
   }
 }
 
+/* หน้าตรวจออเดอร์บนจอกว้าง — เลื่อนทั้งหน้า ไม่ล็อกความสูงเท่าจอ
+ *
+ * เดิม height:100dvh + overflow:hidden ทุกชั้น ตารางสินค้าได้แค่ช่องที่เหลือจากแผงด้านบน
+ * (~400px บนจอ 900px ≈ 6 แถว) แล้วต้องเลื่อนในกล่องเล็ก ผู้ใช้บอก "แคบ ต้องเลื่อนขึ้นลงเยอะ"
+ * ตอนนี้: ตารางยาวครบทุกรายการ · หัวตารางติดใต้ AppHeader · แถบปุ่มอนุมัติติดขอบล่างจอ ·
+ * รายการออเดอร์ซ้ายติดอยู่กับที่ (sticky) เลื่อนในตัวเอง */
 @media (min-width: 1280px) {
-  .vmi-sales-orders-page {
-    height: 100dvh;
-    overflow: hidden;
-  }
-
-  .vmi-sales-orders-main {
-    min-height: 0;
-    overflow: hidden;
+  /* ห้ามเป็นกล่องเลื่อน (overflow auto/hidden) ไม่งั้น sticky ของหัวตาราง/แถบปุ่ม/แถบซ้ายยึดกับกล่องนี้
+     ซึ่งไม่ได้เลื่อน · clip แนวนอนกันหน้าล้นข้างโดยไม่สร้างกล่องเลื่อน */
+  .vmi-sales-orders-page.vmi-sales-orders-page {
+    overflow: visible;
+    overflow-x: clip;
   }
 
   .vmi-sales-orders-grid {
     display: grid;
-    min-height: 0;
-    flex: 1;
     grid-template-columns: minmax(0, 260px) minmax(0, 1fr);
     gap: 1rem;
-    overflow: hidden;
+    align-items: start;
   }
 
   .vmi-sales-orders-sidebar {
+    position: sticky;
+    top: 7rem;
+    max-height: calc(100dvh - 8rem);
     min-height: 0;
     overflow: hidden;
   }
@@ -487,22 +491,33 @@ body {
   }
 
   .vmi-sales-orders-detail {
-    min-height: 0;
-    flex: 1;
-    overflow: hidden;
+    min-height: calc(100dvh - 8rem);
   }
 
-  .vmi-sales-orders-page .vmi-table-scroll {
-    max-height: min(76vh, calc(100dvh - 11rem));
-    overflow: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-
+  .vmi-sales-orders-page .vmi-table-scroll,
   .vmi-sales-review-scroll {
-    min-height: 0;
-    flex: 1;
-    overflow: auto;
-    -webkit-overflow-scrolling: touch;
+    max-height: none;
+    overflow: visible;
+  }
+
+  /* .vmi-table-wrap เป็น overflow:hidden — sticky ของหัวตารางจะยึดกับกรอบนี้แทนจอ (หัวลอยทับแถว
+     และหายไปตอนเลื่อน) · clip ตัดขอบมนได้เหมือนเดิมแต่ไม่นับเป็นกล่องเลื่อน */
+  .vmi-sales-orders-page .vmi-table-wrap {
+    overflow: clip;
+  }
+
+  /* หัวตารางติดใต้ AppHeader ที่ sticky อยู่ (สูง ~6.5rem บนจอกว้าง) ไม่งั้นจมหลัง header */
+  .vmi-sales-review-scroll thead th {
+    top: 6.5rem;
+  }
+
+  .vmi-sales-orders-page .vmi-sales-action-bar {
+    position: sticky;
+    bottom: 0;
+    z-index: 30;
+    margin-inline: -1rem;
+    padding: 0.75rem 1rem;
+    box-shadow: 0 -4px 20px rgb(0 0 0 / 0.06);
   }
 }
 
@@ -524,41 +539,8 @@ body {
     display: none;
   }
 
-  /* โหมดขยาย: ปลดล็อกความสูงเท่าจอ — ตารางยาวเต็มทุกรายการ เลื่อนทั้งหน้าแทนเลื่อนในกล่องเล็ก
-     แถบปุ่มอนุมัติ/ยอดรวมติดขอบล่างจอตลอด */
-  .vmi-sales-orders-page--expanded {
-    height: auto;
-    overflow: visible;
-  }
-  .vmi-sales-orders-page--expanded .vmi-sales-orders-main,
-  .vmi-sales-orders-page--expanded .vmi-sales-orders-grid,
-  .vmi-sales-orders-page--expanded .vmi-sales-orders-detail {
-    overflow: visible;
-  }
-  .vmi-sales-orders-page--expanded .vmi-table-scroll,
-  .vmi-sales-orders-page--expanded .vmi-sales-review-scroll {
-    max-height: none;
-    overflow: visible;
-  }
   .vmi-sales-orders-page--expanded .vmi-review-summary {
     display: none;
-  }
-  /* .vmi-table-wrap เป็น overflow:hidden — sticky ของหัวตารางจะยึดกับกรอบนี้แทนจอ (หัวลอยทับแถว
-     และหายไปตอนเลื่อน) · clip ตัดขอบมนได้เหมือนเดิมแต่ไม่นับเป็นกล่องเลื่อน */
-  .vmi-sales-orders-page--expanded .vmi-table-wrap {
-    overflow: clip;
-  }
-  /* หัวตารางติดใต้ AppHeader ที่ sticky อยู่ (สูง ~6.5rem บนจอกว้าง) ไม่งั้นจมหลัง header */
-  .vmi-sales-orders-page--expanded .vmi-sales-review-scroll thead th {
-    top: 6.5rem;
-  }
-  .vmi-sales-orders-page--expanded .vmi-sales-action-bar {
-    position: sticky;
-    bottom: 0;
-    z-index: 30;
-    margin-inline: -1rem;
-    padding: 0.75rem 1rem;
-    box-shadow: 0 -4px 20px rgb(0 0 0 / 0.06);
   }
 }
 
