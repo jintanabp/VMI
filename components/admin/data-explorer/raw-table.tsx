@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
 import { SortableTh, type SortState } from "@/components/ui/sortable-th";
 import {
   MobileRow,
@@ -23,6 +24,44 @@ export interface RawRow {
   cells: RawCell[];
 }
 
+/** ความกว้างที่ผู้ใช้ตั้ง ต่อชื่อคอลัมน์ — ตัวเลข = px · "fit" = กว้างพอดีข้อความ ไม่ตกบรรทัด */
+type ColWidth = number | "fit";
+const MIN_COL = 56;
+/** padding ซ้าย+ขวาของเซลล์ (0.5rem × 2) — ความกว้างเนื้อหา = ความกว้างคอลัมน์ − ค่านี้ */
+const CELL_PAD = 16;
+
+function loadWidths(key: string): Record<string, ColWidth> {
+  try {
+    const raw = window.localStorage.getItem(`vmi-raw-widths:${key}`);
+    return raw ? (JSON.parse(raw) as Record<string, ColWidth>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveWidths(key: string, widths: Record<string, ColWidth>) {
+  try {
+    if (Object.keys(widths).length === 0) {
+      window.localStorage.removeItem(`vmi-raw-widths:${key}`);
+    } else {
+      window.localStorage.setItem(`vmi-raw-widths:${key}`, JSON.stringify(widths));
+    }
+  } catch {
+    // โหมดส่วนตัว/บล็อก storage — ปรับได้แต่ไม่จำ
+  }
+}
+
+function cellStyle(w: ColWidth | undefined): CSSProperties | undefined {
+  if (w === undefined) return undefined;
+  if (w === "fit") return { maxWidth: "none", whiteSpace: "pre" };
+  return { maxWidth: Math.max(w - CELL_PAD, 24) };
+}
+
+function thStyle(w: ColWidth | undefined): CSSProperties | undefined {
+  if (typeof w !== "number") return undefined;
+  return { width: w, minWidth: w, maxWidth: w, overflow: "hidden" };
+}
+
 export function formatCell(v: RawCell): string {
   if (v === null || v === undefined) return "";
   if (typeof v === "boolean") return v ? "ใช่" : "ไม่ใช่";
@@ -38,6 +77,8 @@ export function formatCell(v: RawCell): string {
  *  2. ค่าที่ยาวต้องตกบรรทัด "ในคอลัมน์ตัวเอง" — .vmi-raw-cell คุมด้วย max-width +
  *     overflow-wrap: anywhere ไม่ใช่ ellipsis ที่ซ่อนตัวอักษรทิ้ง
  *  3. โหมดย่อต้องกดเอง และยังมี … + title + คลิกดูเต็มได้เสมอ
+ *  4. ปรับความกว้างเองได้ — ลากขอบขวาของหัวคอลัมน์ · ดับเบิลคลิก = กว้างพอดีข้อความ (ไม่ตกบรรทัด)
+ *     จำไว้ในเครื่องต่อแหล่งข้อมูล (`widthKey`) ตามชื่อคอลัมน์ ซ่อน/แสดงคอลัมน์แล้วค่าไม่เพี้ยน
  */
 export function RawTable({
   columns,
@@ -48,6 +89,7 @@ export function RawTable({
   onSort,
   onRowClick,
   emptyText,
+  widthKey,
 }: {
   columns: RawColumn[];
   rows: RawRow[];
@@ -58,8 +100,67 @@ export function RawTable({
   onSort?: (key: string) => void;
   onRowClick: (row: RawRow) => void;
   emptyText: string;
+  /** แหล่งข้อมูลที่เปิดอยู่ — ใช้จำความกว้างคอลัมน์แยกตามตาราง */
+  widthKey: string;
 }) {
   const shown = visible ?? columns.map((_, i) => i);
+  const [widths, setWidths] = useState<Record<string, ColWidth>>({});
+  const drag = useRef<{ label: string; startX: number; startW: number } | null>(null);
+
+  useEffect(() => {
+    setWidths(loadWidths(widthKey));
+  }, [widthKey]);
+
+  function update(next: Record<string, ColWidth>) {
+    setWidths(next);
+    saveWidths(widthKey, next);
+  }
+
+  function startDrag(e: PointerEvent<HTMLSpanElement>, label: string) {
+    e.preventDefault();
+    e.stopPropagation();
+    const th = (e.currentTarget as HTMLElement).closest("th");
+    drag.current = { label, startX: e.clientX, startW: th?.getBoundingClientRect().width ?? 120 };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  }
+  function onDrag(e: PointerEvent<HTMLSpanElement>) {
+    const d = drag.current;
+    if (!d) return;
+    const w = Math.max(MIN_COL, Math.round(d.startW + e.clientX - d.startX));
+    setWidths((prev) => ({ ...prev, [d.label]: w }));
+  }
+  function endDrag() {
+    if (!drag.current) return;
+    drag.current = null;
+    setWidths((prev) => {
+      saveWidths(widthKey, prev);
+      return prev;
+    });
+  }
+
+  const handle = (label: string) => (
+    <span
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={`ปรับความกว้างคอลัมน์ ${label}`}
+      title="ลากเพื่อปรับความกว้าง · ดับเบิลคลิก = กว้างพอดีข้อความ"
+      onPointerDown={(e) => startDrag(e, label)}
+      onPointerMove={onDrag}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        // สลับ: พอดีข้อความ ↔ ค่าเดิม (ลบออก)
+        const next = { ...widths };
+        if (next[label] === "fit") delete next[label];
+        else next[label] = "fit";
+        update(next);
+      }}
+      className="absolute top-0 right-0 z-10 h-full w-2 cursor-col-resize touch-none select-none hover:bg-teal-400/40 active:bg-teal-500/50"
+    />
+  );
+  const hasCustom = Object.keys(widths).length > 0;
 
   if (rows.length === 0) {
     return (
@@ -72,6 +173,18 @@ export function RawTable({
   return (
     <>
       {/* เดสก์ท็อป */}
+      <p className="mb-1 hidden items-center gap-2 text-[11px] text-slate-400 lg:flex">
+        ลากขอบขวาของหัวคอลัมน์เพื่อขยาย/หด · ดับเบิลคลิกที่ขอบ = กว้างพอดีข้อความไม่ตกบรรทัด
+        {hasCustom && (
+          <button
+            type="button"
+            onClick={() => update({})}
+            className="rounded px-1.5 py-0.5 font-medium text-teal-700 hover:bg-teal-50 dark:text-teal-400 dark:hover:bg-teal-950/40"
+          >
+            คืนความกว้างเดิม
+          </button>
+        )}
+      </p>
       <div className="vmi-table-wrap hidden lg:block">
         <div className="vmi-table-scroll vmi-scroll">
           <table className="vmi-raw-table w-max min-w-full text-left text-xs">
@@ -90,11 +203,20 @@ export function RawTable({
                         sortKey={col.sortKey}
                         sort={sort}
                         onSort={(k) => onSort(k)}
-                      />
+                        className="relative"
+                        style={thStyle(widths[col.label])}
+                      >
+                        {handle(col.label)}
+                      </SortableTh>
                     );
                   }
                   return (
-                    <th key={ci} className="px-2 py-2 leading-tight" title={col.label}>
+                    <th
+                      key={ci}
+                      className="relative px-2 py-2 leading-tight"
+                      title={col.label}
+                      style={thStyle(widths[col.label])}
+                    >
                       <span className="whitespace-nowrap">{col.label}</span>
                       {col.sub && (
                         <>
@@ -104,6 +226,7 @@ export function RawTable({
                           </span>
                         </>
                       )}
+                      {handle(col.label)}
                     </th>
                   );
                 })}
@@ -123,6 +246,7 @@ export function RawTable({
                   {shown.map((ci) => {
                     const raw = row.cells[ci] ?? null;
                     const text = formatCell(raw);
+                    const w = widths[columns[ci]?.label ?? ""];
                     return (
                       <td key={ci} className="px-2 py-1.5">
                         {raw === null ? (
@@ -133,6 +257,7 @@ export function RawTable({
                               compact ? "vmi-raw-cell--compact" : "vmi-raw-cell"
                             )}
                             title={compact ? text : undefined}
+                            style={cellStyle(w)}
                           >
                             {text}
                           </span>

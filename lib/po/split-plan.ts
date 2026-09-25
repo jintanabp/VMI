@@ -75,6 +75,33 @@ function classifyKey(item: SplittableItem): string {
   return item.priceFlagged ? "B" : "A";
 }
 
+/**
+ * กลุ่มที่เสนอให้ทุกบรรทัด — สมาชิกโปรกลุ่มที่รวมยอด (>1 สมาชิก) ต้องไปใบเดียวกันเสมอ
+ * (ส่วนลดคิดจากยอดรวมทั้งกลุ่ม) จึงรวมธงของทั้งกลุ่ม: มีตัวไหนแก้ราคา/แก้จำนวน = ทั้งกลุ่มไปใบนั้น
+ * ไม่งั้นแก้จำนวนตัวเดียวในกลุ่ม ระบบเสนอแยกเองแล้ว validatePoSplit บล็อกตัวเองทันที
+ */
+function proposedKeys(items: SplittableItem[]): Map<string, string> {
+  const groupFlags = new Map<string, { price: boolean; qty: boolean }>();
+  for (const i of items) {
+    const g = i.promoGroup?.trim();
+    if (!g || (i.promoGroupMembers ?? 0) <= 1) continue;
+    const f = groupFlags.get(g) ?? { price: false, qty: false };
+    f.price ||= !!i.priceFlagged;
+    f.qty ||= !!i.qtyEdited;
+    groupFlags.set(g, f);
+  }
+  const out = new Map<string, string>();
+  for (const i of items) {
+    const g = i.promoGroup?.trim();
+    const f = g && (i.promoGroupMembers ?? 0) > 1 ? groupFlags.get(g) : undefined;
+    out.set(
+      i.id,
+      f ? classifyKey({ ...i, priceFlagged: f.price, qtyEdited: f.qty }) : classifyKey(i)
+    );
+  }
+  return out;
+}
+
 /** สรุปกลุ่มจากรายการที่ถูกจัดไว้แล้ว (map groupKey → items) */
 export function summarizeGroups(
   assignment: Map<string, SplittableItem[]>
@@ -112,11 +139,12 @@ export function proposePoSplit(items: SplittableItem[]): PoSplitGroup[] {
 
   const alreadyAssigned = items.some((i) => i.poGroup);
   const assignment = new Map<string, SplittableItem[]>();
+  const proposed = proposedKeys(items);
 
   if (alreadyAssigned) {
     for (const item of items) {
       // บรรทัดที่ยังไม่ถูกจัด ให้ไปกองที่กลุ่มตามเกณฑ์ราคา/จำนวน เพื่อไม่ให้หลุดหาย
-      const key = item.poGroup ?? classifyKey(item);
+      const key = item.poGroup ?? proposed.get(item.id)!;
       const list = assignment.get(key) ?? [];
       list.push(item);
       assignment.set(key, list);
@@ -125,7 +153,7 @@ export function proposePoSplit(items: SplittableItem[]): PoSplitGroup[] {
   }
 
   for (const item of items) {
-    const key = classifyKey(item);
+    const key = proposed.get(item.id)!;
     const list = assignment.get(key) ?? [];
     list.push(item);
     assignment.set(key, list);

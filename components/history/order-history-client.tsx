@@ -947,7 +947,7 @@ export function OrderHistoryClient({
                                           ปุ่มยืนยัน/ปฏิเสธจะไปอยู่ขวาสุดนอกจอ ร้านกดไม่ได้ */}
                                       <div className="sticky left-3 flex max-w-[calc(100vw-4rem)] flex-wrap items-center justify-between gap-2">
                                         <p className="text-xs font-medium text-amber-800 dark:text-amber-300">
-                                          {item.requestedQty === 0 ? (
+                                          {item.requestedQty === 0 && !item.agreedQty ? (
                                             <>
                                               พนักงานเพิ่มสินค้าใหม่ {item.skuCode}{" "}
                                               {formatNumber(item.finalQty, 0)} หีบ เข้าออเดอร์นี้ —

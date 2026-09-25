@@ -66,6 +66,47 @@ describe.skipIf(!hasPrisma)("approveWithPoSplit — ชนกันระหว�
     await prisma.poSequence.deleteMany();
   });
 
+  it("พนักงานย้ายสินค้ากลุ่มโปรเดียวกันแยกคนละใบ → อนุมัติไม่ได้ (SPLIT_INVALID) ไม่ออกเลข PO", async () => {
+    const { orderId, itemIds } = await seedPendingOrder(prisma, { qtys: [5, 5] });
+    await prisma.orderItem.update({
+      where: { id: itemIds[0]! },
+      data: { c4PromoGroup: "G1", c4PromoGroupMembers: 2, poGroup: "A" },
+    });
+    await prisma.orderItem.update({
+      where: { id: itemIds[1]! },
+      data: { c4PromoGroup: "G1", c4PromoGroupMembers: 2, poGroup: "B" },
+    });
+
+    await expect(approveWithPoSplit(orderId, "a@x.com", {})).rejects.toThrow("SPLIT_INVALID");
+    const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+    expect(order.status).toBe("pending_approval");
+    expect(await prisma.purchaseOrder.count()).toBe(0);
+  });
+
+  it("มีรายการรอร้านยืนยันแทรกเข้ามา ณ ตอนจอง → ไม่อนุมัติ ออเดอร์ยังรออนุมัติ ไม่ออกเลข PO", async () => {
+    const { orderId, itemIds } = await seedPendingOrder(prisma, { qtys: [10, 20] });
+    await prisma.orderItem.update({
+      where: { id: itemIds[0]! },
+      data: { qtyIncreasePendingConfirm: true },
+    });
+
+    await expect(approveWithPoSplit(orderId, "a@x.com", {})).rejects.toThrow("PENDING_STORE_CONFIRM");
+    const order = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+    expect(order.status).toBe("pending_approval");
+    expect(await prisma.purchaseOrder.count()).toBe(0);
+  });
+
+  it("ปฏิเสธรายการเดียว (0 หีบ, มี requestedQty) แล้วยังอนุมัติทั้งใบได้ ออก PO ใบเดียว", async () => {
+    const { orderId, itemIds } = await seedPendingOrder(prisma, { qtys: [10, 20] });
+    // ออเดอร์ใหม่จริงมี requestedQty ทุกบรรทัด — seed เดิมไม่มี จึงไม่เคยเจอบั๊กนี้
+    await prisma.orderItem.updateMany({ where: { orderId }, data: { requestedQty: 10 } });
+    await prisma.orderItem.update({ where: { id: itemIds[1]! }, data: { requestedQty: 20, finalQty: 0 } });
+
+    const res = await approveWithPoSplit(orderId, "a@x.com", {});
+    expect(res.purchaseOrders).toHaveLength(1);
+    expect(res.purchaseOrders[0]!.itemCount).toBe(1);
+  });
+
   it("**วันรับของที่ร้านเลือกไหลถึงเอกสาร PO และ payload ของ ERP**", async () => {
     // 17:00Z = เที่ยงคืนของวันที่ 15 ก.ย. เวลาไทย — เก็บแบบเดียวกับที่ createOrder เขียน
     const { orderId } = await seedPendingOrder(prisma, {

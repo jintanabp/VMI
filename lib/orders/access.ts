@@ -27,8 +27,9 @@ function salesmanCanAccessVda(
   }
 
   if (options?.allPersonCodes && session.role === "sales") {
-    for (const a of getSalesmanRegistry().getAssignmentsByEmail(session.email)) {
-      codes.add(normSalesman(a.code));
+    // รหัสที่แอดมินกำหนดแทนที่รหัสอัตโนมัติ — ไม่งั้นเอาอีเมลออกจากรหัสเดิมแล้วยังเห็นออเดอร์รหัสนั้นอยู่
+    for (const c of getPersonSalesCodes(session.email, session.manualCodes)) {
+      codes.add(normSalesman(c.code));
     }
   }
 
@@ -114,9 +115,13 @@ export function resolveVdaCodesForSalesmanCodes(
   return [...vdas];
 }
 
-export function resolveAllPersonVdaCodes(email: string): string[] {
+export function resolveAllPersonVdaCodes(
+  email: string,
+  /** session.manualCodes — มี = ใช้เฉพาะรหัสที่แอดมินกำหนด */
+  manualCodes?: string[]
+): string[] {
   const vdas = new Set<string>();
-  for (const c of getPersonSalesCodes(email)) {
+  for (const c of getPersonSalesCodes(email, manualCodes)) {
     for (const vda of c.vdas) {
       vdas.add(vda.toLowerCase());
     }
@@ -144,7 +149,7 @@ export function resolveOrderStoreScope(
   const salesmanCodes = resolveSalesmanCodesForFilter(session);
   let vdas = resolveVdaCodesForSalesmanCodes(salesmanCodes);
   if (vdas.length === 0 && session.role === "sales") {
-    vdas = resolveAllPersonVdaCodes(email);
+    vdas = resolveAllPersonVdaCodes(email, session.manualCodes);
   }
 
   if (vdas.length > 0) return { code: { in: vdas } };

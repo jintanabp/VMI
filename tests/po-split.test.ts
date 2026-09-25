@@ -21,6 +21,33 @@ function item(over: Partial<SplittableItem> & { id: string }): SplittableItem {
 }
 
 describe("proposePoSplit", () => {
+  it("แก้จำนวนตัวเดียวในโปรกลุ่ม → ทั้งกลุ่มไปใบ C ด้วยกัน ไม่แตกจากพี่น้อง", () => {
+    const groups = proposePoSplit([
+      item({ id: "1", promoGroup: "G", promoGroupMembers: 2, qtyEdited: true }),
+      item({ id: "2", promoGroup: "G", promoGroupMembers: 2 }),
+      item({ id: "3" }),
+    ]);
+    const keyOf = (id: string) => groups.find((g) => g.itemIds.includes(id))!.groupKey;
+    expect(keyOf("1")).toBe("C");
+    expect(keyOf("2")).toBe("C");
+    expect(keyOf("3")).toBe("A");
+    // ข้อเสนอของระบบเองต้องผ่านด่านของตัวเอง
+    const assigned = [
+      item({ id: "1", promoGroup: "G", promoGroupMembers: 2, poGroup: keyOf("1") }),
+      item({ id: "2", promoGroup: "G", promoGroupMembers: 2, poGroup: keyOf("2") }),
+      item({ id: "3", poGroup: keyOf("3") }),
+    ];
+    expect(validatePoSplit(assigned)).toEqual([]);
+  });
+
+  it("โปรกลุ่มที่มีสมาชิกเดียวใน C4 (members=1) → แยกตามธงของตัวเองได้ตามปกติ", () => {
+    const groups = proposePoSplit([
+      item({ id: "1", promoGroup: "G", promoGroupMembers: 1, qtyEdited: true }),
+      item({ id: "2", promoGroup: "G", promoGroupMembers: 1 }),
+    ]);
+    expect(groups.map((g) => g.groupKey).sort()).toEqual(["A", "C"]);
+  });
+
   it("ราคาตรง C4 ทั้งหมด → PO ใบเดียว กลุ่ม A", () => {
     const groups = proposePoSplit([item({ id: "1" }), item({ id: "2" })]);
     expect(groups).toHaveLength(1);

@@ -633,6 +633,7 @@ export function DataExplorerPanel() {
           ) : view ? (
             <>
               <RawTable
+                widthKey={selection.kind === "csv" ? `csv:${selection.id}` : `db:${selection.model}`}
                 columns={view.columns}
                 rows={view.rows}
                 visible={visible}

@@ -22,6 +22,11 @@ export interface SalesSession {
   managerCode?: string;
   scopeSalesmanCodes?: string[];
   scopeEmails?: string[];
+  /**
+   * รหัสที่แอดมินกำหนดให้อีเมลนี้ ณ ตอนออก session (เรียงแล้ว) — ใช้ตรวจว่าแอดมินแก้ไปแล้วหรือยัง
+   * ถ้าไม่ตรงกับในตารางตอนนี้ ระบบคำนวณสิทธิ์ใหม่ทันที ไม่รอให้ login ใหม่ (ดู getRawSalesSession)
+   */
+  manualCodes?: string[];
 }
 
 interface SessionPayload extends SalesSession {
@@ -87,6 +92,7 @@ export function verifySalesSessionToken(
       managerCode: payload.managerCode,
       scopeSalesmanCodes: payload.scopeSalesmanCodes,
       scopeEmails: payload.scopeEmails,
+      manualCodes: payload.manualCodes,
     };
   } catch {
     return null;
@@ -146,6 +152,7 @@ export async function buildSalesSessionWithAccess(
       superCode: assignment?.superCode,
       managerCode: assignment?.managerCode,
       scopeSalesmanCodes: manualCodes.length > 0 ? manualCodes : undefined,
+      manualCodes: [...manualCodes].sort(),
     };
   }
 
@@ -218,6 +225,7 @@ export async function buildSalesSessionWithAccess(
     managerCode: assignment.managerCode,
     scopeSalesmanCodes: [...scope],
     scopeEmails: [...scopeEmails],
+    manualCodes: [...manualCodes].sort(),
   };
 }
 
@@ -228,7 +236,39 @@ export async function buildSalesSessionWithAccess(
  */
 export async function getRawSalesSession(): Promise<SalesSession | null> {
   const cookieStore = await cookies();
-  return verifySalesSessionToken(cookieStore.get(SALES_SESSION_COOKIE)?.value);
+  const session = verifySalesSessionToken(cookieStore.get(SALES_SESSION_COOKIE)?.value);
+  if (!session) return null;
+  return revalidateManualCodes(session);
+}
+
+/**
+ * สิทธิ์ถูกคำนวณครั้งเดียวตอน login แล้วแช่ใน cookie 7 วัน — แอดมินเอาอีเมลออกจากรหัสเซลล์
+ * แล้วคนที่ login ค้างอยู่ยังเห็นออเดอร์ของรหัสนั้นต่อได้ทั้งสัปดาห์ (พบจาก review 25 ก.ย. 69)
+ *
+ * เทียบรหัสที่แอดมินกำหนดตอนนี้กับที่ติดมาใน session (query เดียว มี index ที่ email) —
+ * ตรงกัน = ใช้ session เดิม · ไม่ตรง = คำนวณสิทธิ์ใหม่สำหรับ request นี้ · คำนวณไม่ได้แล้ว
+ * (ไม่มีรหัสเหลือใน master) = ถือว่าไม่มี session ผู้ใช้จะถูกพาไปหน้า login
+ *
+ * ไม่เขียน cookie ใหม่ตรงนี้ (ห้ามแก้ cookie ระหว่าง render — ดูคอมเมนต์ด้านบน) จึงคำนวณซ้ำทุก
+ * request จนกว่าจะ login ใหม่ ซึ่งเบา (อ่าน master ใน memory)
+ */
+export async function revalidateManualCodes(session: SalesSession): Promise<SalesSession | null> {
+  let current: string[];
+  try {
+    current = [...(await getManualSalesmanCodes(session.email))].sort();
+  } catch {
+    // DB อ่านไม่ได้ชั่วคราว — อย่าเตะทุกคนออก ใช้สิทธิ์เดิมไปก่อน
+    return session;
+  }
+  const before = session.manualCodes ?? [];
+  if (current.length === before.length && current.every((c, i) => c === before[i])) {
+    return session;
+  }
+  try {
+    return await buildSalesSessionWithAccess(session.email, session.name);
+  } catch {
+    return null;
+  }
 }
 
 export async function getSalesSession(): Promise<SalesSession | null> {

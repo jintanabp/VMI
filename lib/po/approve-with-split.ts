@@ -40,6 +40,18 @@ export interface ApproveWithSplitResult {
   }[];
 }
 
+/** แก้จำนวนต่างจากที่ร้านขอ — ใช้แยก PO-C/D · ใช้ชุดเดียวกันทั้ง server และหน้าจอ */
+export function isQtyEdited(item: {
+  finalQty: number;
+  requestedQty?: number | null;
+}): boolean {
+  return (
+    item.requestedQty != null &&
+    item.finalQty > 0 &&
+    item.finalQty !== item.requestedQty
+  );
+}
+
 export async function approveWithPoSplit(
   orderId: string,
   actorEmail: string,
@@ -55,7 +67,17 @@ export async function approveWithPoSplit(
   if (!order) throw new Error("ไม่พบออเดอร์");
   if (order.items.length === 0) throw new Error("ออเดอร์นี้ไม่มีรายการสินค้า");
 
-  const splittable: SplittableItem[] = order.items.map((item) => {
+  // บรรทัด 0 หีบที่ไม่อยู่โปรกลุ่มไม่ขึ้นเอกสาร PO อยู่แล้ว (ดู includedItems ข้างล่าง) — ตัดออกตั้งแต่
+  // ก่อนแบ่งกลุ่ม ไม่งั้นบรรทัดที่พนักงานปฏิเสธ/ตั้ง 0 ถูกจัดเป็นกลุ่ม C ของตัวเอง แล้วกลุ่มนั้นว่าง
+  // จนอนุมัติทั้งใบไม่ได้ (พบจาก review 25 ก.ย. 69)
+  const issuable = order.items.filter((i) => i.finalQty > 0 || i.c4PromoGroup);
+  if (issuable.length === 0) {
+    throw new Error(
+      "ทุกรายการจำนวนเป็น 0 — ถ้าไม่ต้องการสั่งให้ปฏิเสธออเดอร์แทนการอนุมัติ"
+    );
+  }
+
+  const splittable: SplittableItem[] = issuable.map((item) => {
     const { unitPrice } = resolveOrderLinePrice({
       salesPriceOverride: item.salesPriceOverride,
       unitPriceOverride: item.unitPriceOverride,
@@ -68,8 +90,11 @@ export async function approveWithPoSplit(
       finalQty: item.finalQty,
       priceFlagged: item.priceFlagged,
       // requestedQty null = ออเดอร์เก่าก่อนมีฟีเจอร์นี้ — ไม่รู้ค่าดั้งเดิม ถือว่ายังไม่แก้
-      qtyEdited:
-        item.requestedQty != null && item.finalQty !== item.requestedQty,
+      // 0 หีบ (บรรทัดโปรกลุ่มที่ถูกตัด) ไม่นับว่าแก้ — ต้องอยู่ใบเดียวกับพี่น้องในกลุ่ม
+      qtyEdited: isQtyEdited(item),
+      // เดิมไม่ได้ส่ง ด่าน "กลุ่มโปรห้ามแยกหลาย PO" ใน validatePoSplit จึงไม่เคยทำงาน
+      promoGroup: item.c4PromoGroup,
+      promoGroupMembers: item.c4PromoGroupMembers,
       // ส่วนลด C4 คิดทับบน "ราคาที่มีผล" — ห้ามใช้ c4NetUnitPrice ตรง ๆ
       // เพราะนั่นคิดจากราคาแคตตาล็อก ทำให้ราคาที่ร้าน/เซลส์ตั้งไว้หายไป
       effectiveUnitPrice:
@@ -100,8 +125,14 @@ export async function approveWithPoSplit(
    * updateMany ที่ where status=pending_approval สำเร็จได้คนเดียว (count=1) คนที่เหลือ
    * ได้ count=0 แล้วหยุดตั้งแต่ตรงนี้ — ก่อน mint/เขียนไฟล์ทั้งหมด
    */
+  // ห้ามมีรายการรอร้านยืนยันค้าง ณ วินาทีที่จอง — route เช็คก่อนแล้ว แต่พนักงานอีกคนอาจเพิ่มจำนวน
+  // ระหว่างนั้น (เช็คกับเขียนเป็นคนละคำสั่ง) จึงใส่เงื่อนไขซ้ำในคำสั่งจองเลย
   const claimed = await prisma.order.updateMany({
-    where: { id: orderId, status: "pending_approval" },
+    where: {
+      id: orderId,
+      status: "pending_approval",
+      items: { none: { qtyIncreasePendingConfirm: true } },
+    },
     data: {
       status: "approved",
       approvedAt: now,
@@ -109,7 +140,12 @@ export async function approveWithPoSplit(
       decidedBy: actorEmail,
     },
   });
-  if (claimed.count === 0) throw new Error("ORDER_ALREADY_DECIDED");
+  if (claimed.count === 0) {
+    const stillPending = await prisma.orderItem.count({
+      where: { orderId, qtyIncreasePendingConfirm: true, order: { status: "pending_approval" } },
+    });
+    throw new Error(stillPending > 0 ? "PENDING_STORE_CONFIRM" : "ORDER_ALREADY_DECIDED");
+  }
 
   const storeCode = order.store.code;
   const storeName = resolveVdaStoreName(storeCode) || order.store.name;

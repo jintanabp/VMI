@@ -78,7 +78,11 @@ describe.skipIf(!hasPrisma)("updateOrderItemQty — รอร้านยืน�
 
   it("ออเดอร์เก่าที่ไม่มี requestedQty (null) → เพิ่มจำนวนไม่ต้องรอ เพราะไม่รู้เส้นฐาน", async () => {
     const { orderId, itemId } = await newOrderItem(5);
-    await prisma.orderItem.update({ where: { id: itemId }, data: { requestedQty: null } });
+    // แถวเก่าจริงไม่มีทั้งสองคอลัมน์
+    await prisma.orderItem.update({
+      where: { id: itemId },
+      data: { requestedQty: null, agreedQty: null },
+    });
 
     const result = await repo.updateOrderItemQty(orderId, itemId, 20);
     expect(result.pendingConfirm).toBe(false);
@@ -105,6 +109,66 @@ describe.skipIf(!hasPrisma)("updateOrderItemQty — รอร้านยืน�
     const item = await prisma.orderItem.findUniqueOrThrow({ where: { id: itemId } });
     expect(item.qtyIncreasePendingConfirm).toBe(false);
     expect(item.finalQty).toBe(5);
+  });
+
+  it("ร้านยืนยันแล้ว พนักงานลดลงแต่ยังเกินที่ร้านขอตอนแรก → ไม่ต้องรอยืนยันใหม่", async () => {
+    const { orderId, itemId } = await newOrderItem(10);
+    await repo.updateOrderItemQty(orderId, itemId, 15);
+    await repo.confirmQtyIncrease(orderId, itemId);
+
+    const result = await repo.updateOrderItemQty(orderId, itemId, 12);
+    expect(result.pendingConfirm).toBe(false);
+
+    const item = await prisma.orderItem.findUniqueOrThrow({ where: { id: itemId } });
+    expect(item.agreedQty).toBe(15);
+    expect(item.requestedQty).toBe(10); // ยังแช่ของเดิมไว้แยก PO-C
+  });
+
+  it("ร้านยืนยัน 15 แล้วพนักงานขอเพิ่มเป็น 20 แล้วร้านปฏิเสธ → กลับไป 15 ไม่ใช่ 10", async () => {
+    const { orderId, itemId } = await newOrderItem(10);
+    await repo.updateOrderItemQty(orderId, itemId, 15);
+    await repo.confirmQtyIncrease(orderId, itemId);
+    const r = await repo.updateOrderItemQty(orderId, itemId, 20);
+    expect(r.pendingConfirm).toBe(true);
+
+    await repo.rejectQtyIncrease(orderId, itemId);
+    const item = await prisma.orderItem.findUniqueOrThrow({ where: { id: itemId } });
+    expect(item.finalQty).toBe(15);
+    expect(item.qtyIncreasePendingConfirm).toBe(false);
+  });
+
+  it("ปฏิเสธรายการที่กำลังรอร้านยืนยัน → ล้างธงรอยืนยันด้วย (ร้านดึงกลับเข้า PO ไม่ได้)", async () => {
+    const { orderId, itemId } = await newOrderItem(10);
+    await repo.updateOrderItemQty(orderId, itemId, 15);
+    await repo.rejectOrderItem(orderId, itemId, "ของขาด");
+
+    const item = await prisma.orderItem.findUniqueOrThrow({ where: { id: itemId } });
+    expect(item.finalQty).toBe(0);
+    expect(item.qtyIncreasePendingConfirm).toBe(false);
+    await expect(repo.rejectQtyIncrease(orderId, itemId)).rejects.toThrow("ORDER_ITEM_NOT_FOUND");
+  });
+
+  it("ตั้งจำนวนรายการที่ปฏิเสธไปแล้วกลับขึ้นมา → ล้างสถานะปฏิเสธ", async () => {
+    const { orderId, itemId } = await newOrderItem(10);
+    await repo.rejectOrderItem(orderId, itemId, "ของขาด");
+    await repo.updateOrderItemQty(orderId, itemId, 4);
+
+    const item = await prisma.orderItem.findUniqueOrThrow({ where: { id: itemId } });
+    expect(item.rejectedAt).toBeNull();
+    expect(item.rejectReason).toBeNull();
+    expect(item.qtyIncreasePendingConfirm).toBe(false); // 4 ≤ 10 ที่ร้านตกลง
+  });
+
+  it("แก้จำนวน/ร้านตอบ ในออเดอร์ที่ไม่ได้รออนุมัติแล้ว → ไม่แตะแถว", async () => {
+    const { orderId, itemId } = await newOrderItem(10);
+    await repo.updateOrderItemQty(orderId, itemId, 15);
+    await prisma.order.update({ where: { id: orderId }, data: { status: "rejected" } });
+
+    await expect(repo.updateOrderItemQty(orderId, itemId, 30)).rejects.toThrow("ORDER_ITEM_NOT_FOUND");
+    await expect(repo.rejectQtyIncrease(orderId, itemId)).rejects.toThrow("ORDER_ITEM_NOT_FOUND");
+    await expect(repo.confirmQtyIncrease(orderId, itemId)).rejects.toThrow("ORDER_ITEM_NOT_FOUND");
+    const item = await prisma.orderItem.findUniqueOrThrow({ where: { id: itemId } });
+    expect(item.finalQty).toBe(15);
   });
 
   it("confirmQtyIncrease บนรายการที่ไม่ได้ pending อยู่ → โยน ORDER_ITEM_NOT_FOUND", async () => {

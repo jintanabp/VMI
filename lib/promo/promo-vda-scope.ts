@@ -57,5 +57,7 @@ export function ownedVdaCodesForSession(session: SalesSession): string[] {
   );
   if (codes.length > 0) return codes;
   // เซลล์ที่ถือหลายรหัส — ครอบทุก VDA ของคนนั้น เหมือนปุ่ม "ทุก VDA ของฉัน"
-  return session.role === "sales" ? resolveAllPersonVdaCodes(session.email) : [];
+  return session.role === "sales"
+    ? resolveAllPersonVdaCodes(session.email, session.manualCodes)
+    : [];
 }

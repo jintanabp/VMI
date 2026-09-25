@@ -55,6 +55,7 @@ export interface OrderHistoryItem {
   qtyIncreasePendingConfirm: boolean;
   /** finalQty ที่ร้านส่งมาตอนแรก — 0 = พนักงานเพิ่มสินค้านี้เข้ามาเอง ร้านไม่เคยขอเลย */
   requestedQty: number | null;
+  agreedQty: number | null;
 }
 
 export interface OrderHistoryEntry {
@@ -227,6 +228,7 @@ export async function GET(request: Request) {
           : null,
         qtyIncreasePendingConfirm: i.qtyIncreasePendingConfirm,
         requestedQty: i.requestedQty,
+        agreedQty: i.agreedQty,
       };
     });
     const withPrice = items.filter((i) => i.lineTotal != null);

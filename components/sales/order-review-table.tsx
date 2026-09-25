@@ -51,6 +51,8 @@ export interface ReviewOrderItem {
   /// finalQty ที่ร้านส่งมาตอนแรก (null = ออเดอร์เก่าก่อนมีฟีเจอร์นี้) — ใช้เทียบว่าพนักงาน
   /// แก้จำนวนไปจากที่ร้านขอไหม สำหรับเสนอแยก PO อัตโนมัติ
   requestedQty?: number | null;
+  /** จำนวนล่าสุดที่ร้านตกลงแล้ว (ดู schema) */
+  agreedQty?: number | null;
   cvdEstimate: number | null;
   minDays?: number | null;
   maxDays?: number | null;
@@ -83,6 +85,9 @@ export interface ReviewOrderItem {
   rejectReason?: string | null;
   /** พนักงานเพิ่มจำนวนเกินที่ร้านขอ รอร้านยืนยัน — ห้ามอนุมัติทั้งใบจนกว่าจะครบ */
   qtyIncreasePendingConfirm?: boolean;
+  /** กลุ่มโปรที่แช่ไว้ตอนส่ง — ใช้บังคับ "เลือกทั้งกลุ่ม" ตอนอนุมัติบางรายการ */
+  c4PromoGroup?: string | null;
+  c4PromoGroupMembers?: number | null;
 }
 
 /** ข้อความอธิบายธงราคา — สร้างจากค่าที่แช่ไว้ตอนส่ง ไม่ใช่ราคาสดวันนี้ */
@@ -510,46 +515,47 @@ export function OrderReviewTable({
         )}
       </div>
 
-      <div
-        role="group"
-        aria-label="กรองรายการตามโปร"
-        className="flex shrink-0 rounded-lg border border-slate-200 bg-slate-100/80 p-0.5 dark:border-slate-700 dark:bg-slate-800/60"
-      >
-        <button
-          type="button"
-          onClick={() => setPromoOnly(false)}
-          className={cn(
-            "flex-1 rounded-md px-2 py-1 text-[11px] font-semibold transition-colors sm:text-xs",
-            !promoOnly
-              ? "bg-white text-slate-900 shadow-sm dark:bg-slate-900 dark:text-slate-100"
-              : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
-          )}
+      {/* แถวเครื่องมือเดียว: ตัวกรองซ้าย · ปุ่มเพิ่มสินค้าขวา — เดิมแยก 3 แถวซ้อนกันจนตารางถูกดันลง */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div
+          role="group"
+          aria-label="กรองรายการตามโปร"
+          className="flex shrink-0 rounded-lg border border-slate-200 bg-slate-100/80 p-0.5 dark:border-slate-700 dark:bg-slate-800/60"
         >
-          ทุกรายการ ({stats.skuCount})
-        </button>
-        <button
-          type="button"
-          onClick={() => setPromoOnly(true)}
-          className={cn(
-            "flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold transition-colors sm:text-xs",
-            promoOnly
-              ? "bg-violet-600 text-white shadow-sm dark:bg-violet-600"
-              : "text-slate-600 hover:bg-white/60 hover:text-violet-700 dark:text-slate-400 dark:hover:bg-slate-900/50 dark:hover:text-violet-300"
-          )}
-        >
-          <Filter className="h-3 w-3 shrink-0" />
-          เฉพาะได้โปร ({stats.withPromo})
-        </button>
-      </div>
+          <button
+            type="button"
+            onClick={() => setPromoOnly(false)}
+            className={cn(
+              "rounded-md px-3 py-1.5 text-xs font-semibold transition-colors",
+              !promoOnly
+                ? "bg-white text-slate-900 shadow-sm dark:bg-slate-900 dark:text-slate-100"
+                : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
+            )}
+          >
+            ทุกรายการ ({stats.skuCount})
+          </button>
+          <button
+            type="button"
+            onClick={() => setPromoOnly(true)}
+            className={cn(
+              "flex items-center justify-center gap-1 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors",
+              promoOnly
+                ? "bg-violet-600 text-white shadow-sm dark:bg-violet-600"
+                : "text-slate-600 hover:bg-white/60 hover:text-violet-700 dark:text-slate-400 dark:hover:bg-slate-900/50 dark:hover:text-violet-300"
+            )}
+          >
+            <Filter className="h-3 w-3 shrink-0" />
+            เฉพาะได้โปร ({stats.withPromo})
+          </button>
+        </div>
 
-      {sections.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
+        {sections.length > 0 && (
           <label className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
             กลุ่มสินค้า
             <select
               value={sectionFilter}
               onChange={(e) => setSectionFilter(e.target.value)}
-              className="h-7 rounded-md border border-slate-300 bg-white px-1.5 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+              className="h-8 max-w-[12rem] rounded-md border border-slate-300 bg-white px-1.5 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
             >
               <option value="">ทั้งหมด</option>
               {sections.map((s) => (
@@ -559,31 +565,28 @@ export function OrderReviewTable({
               ))}
             </select>
           </label>
-          {onSelectMany && sectionFilter && visibleItems.length > 0 && (
-            <button
-              type="button"
-              onClick={() =>
-                onSelectMany(visibleItems.map((item) => item.id))
-              }
-              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-            >
-              เลือกทั้งหมดที่กรองอยู่ ({visibleItems.length})
-            </button>
-          )}
-        </div>
-      )}
+        )}
+        {onSelectMany && sectionFilter && visibleItems.length > 0 && (
+          <button
+            type="button"
+            onClick={() => onSelectMany(visibleItems.map((item) => item.id))}
+            className="h-8 rounded-md border border-slate-300 bg-white px-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+          >
+            เลือกทั้งหมดที่กรองอยู่ ({visibleItems.length})
+          </button>
+        )}
 
-      {onAddItem && (
-        <div className="flex flex-wrap items-center gap-2">
+        {onAddItem && (
           <button
             type="button"
             onClick={() => setAddItemOpen(true)}
-            className="inline-flex items-center gap-1 rounded-md border border-teal-300 bg-teal-50 px-2 py-1 text-xs font-semibold text-teal-700 hover:bg-teal-100 dark:border-teal-800 dark:bg-teal-950/40 dark:text-teal-300 dark:hover:bg-teal-900/40"
+            className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-lg bg-teal-600 px-3 text-xs font-semibold text-white shadow-sm hover:bg-teal-700 dark:bg-teal-700 dark:hover:bg-teal-600"
           >
-            <PackagePlus className="h-3.5 w-3.5" />+ เพิ่มสินค้า
+            <PackagePlus className="h-4 w-4" />
+            เพิ่มสินค้า
           </button>
-        </div>
-      )}
+        )}
+      </div>
       </div>
 
       {promoLoading && (
@@ -672,7 +675,7 @@ export function OrderReviewTable({
                               <NoTargetBadge compact />
                             )}
                             {item.qtyIncreasePendingConfirm && (
-                              <PendingQtyIncreaseBadge compact newItem={item.requestedQty === 0} />
+                              <PendingQtyIncreaseBadge compact newItem={item.requestedQty === 0 && !item.agreedQty} />
                             )}
                             {item.rejectedAt ? (
                               <span
@@ -845,7 +848,7 @@ export function OrderReviewTable({
                           )}
                           {item.hasTarget === false && <NoTargetBadge compact />}
                           {item.qtyIncreasePendingConfirm && (
-                            <PendingQtyIncreaseBadge compact newItem={item.requestedQty === 0} />
+                            <PendingQtyIncreaseBadge compact newItem={item.requestedQty === 0 && !item.agreedQty} />
                           )}
                           {item.rejectedAt ? (
                             <span

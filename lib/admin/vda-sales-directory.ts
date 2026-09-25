@@ -247,9 +247,27 @@ export function pickAssignmentForCodes(codes: string[]) {
   )[0];
 }
 
-export function getPersonSalesCodes(email: string) {
+/**
+ * รหัสเซลล์ทั้งหมดของคนนี้ — แอดมินกำหนดไว้ (`manualCodes` ไม่ว่าง) = ใช้เฉพาะรหัสที่กำหนด
+ * แทนการจับคู่อัตโนมัติทั้งหมด ไม่ใช่เพิ่มเข้าไป (ตรงกับ buildSalesSessionWithAccess)
+ */
+export function getPersonSalesCodes(email: string, manualCodes?: string[]) {
   const salesmanReg = getSalesmanRegistry();
   const vdaReg = getVdaAosBillRegistry();
+
+  if (manualCodes && manualCodes.length > 0) {
+    return manualCodes.map((raw) => {
+      const code = raw.trim().toUpperCase();
+      const a = salesmanReg.getCurrentByCode(code);
+      const vdas = vdaReg.getVdasForSalesman(code);
+      return {
+        code,
+        name: a ? salesmanReg.getDisplayName(a) : `รหัส ${code}`,
+        vdas: [...vdas].sort(),
+        hasVdaAccess: vdas.length > 0,
+      };
+    });
+  }
 
   return salesmanReg.getAssignmentsByEmail(email).map((a) => {
     const vdas = vdaReg.getVdasForSalesman(a.code);
@@ -267,6 +285,7 @@ export function getSalesVdaAccessForSession(input: {
   salesmanCode?: string;
   scopeSalesmanCodes?: string[];
   role?: "sales" | "supervisor" | "manager" | "admin";
+  manualCodes?: string[];
 }) {
   const vdaReg = getVdaAosBillRegistry();
   const salesmanReg = getSalesmanRegistry();
@@ -295,7 +314,7 @@ export function getSalesVdaAccessForSession(input: {
     ? salesmanReg.getCurrentByCode(input.salesmanCode)
     : salesmanReg.getCurrentByEmail(input.email);
 
-  const personCodes = getPersonSalesCodes(input.email);
+  const personCodes = getPersonSalesCodes(input.email, input.manualCodes);
 
   return {
     email: input.email,

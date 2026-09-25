@@ -63,8 +63,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const assignments = registry.getAssignmentsByEmail(rawSession.email);
-  const picked = assignments.find((a) => normCode(a.code) === targetCode);
+  // แอดมินกำหนดรหัสไว้ = สลับได้เฉพาะในชุดที่กำหนด (แทนที่รหัสอัตโนมัติ ไม่ใช่เพิ่ม)
+  const manual = (rawSession.manualCodes ?? []).map(normCode);
+  const picked =
+    manual.length > 0
+      ? manual.includes(targetCode)
+        ? registry.getCurrentByCode(targetCode)
+        : undefined
+      : registry
+          .getAssignmentsByEmail(rawSession.email)
+          .find((a) => normCode(a.code) === targetCode);
   if (!picked) {
     return NextResponse.json(
       { error: "รหัสเซลล์นี้ไม่ตรงกับบัญชีของคุณ" },

@@ -97,7 +97,8 @@ describe.skipIf(!hasPrisma)("addOrderItem — เพิ่มสินค้า�
       fabricSkuMasterReady: () => true,
       getPromotionCreditDirectory: () => promo,
       getSkuMasterDirectory: () => ({
-        nameForSku: (code: string) => `สินค้า ${code}`,
+        // GHOST = รหัสที่ไม่มีในแคตตาล็อก
+        nameForSku: (code: string) => (code === "GHOST" ? "" : `สินค้า ${code}`),
         packSizeForSku: () => 1,
         getLookupPrice: () => ({ price: 999, expired: false }),
       }),
@@ -251,6 +252,66 @@ describe.skipIf(!hasPrisma)("addOrderItem — เพิ่มสินค้า�
     expect(sibling.finalQty).toBe(3);
   });
 
+  it("siblingRepriceAfterRemoval (เคลียร์ SKU สิ้นเดือน) — พี่น้องที่เหลือกลับเป็นขั้นตามยอดของตัวเอง", async () => {
+    const { storeId, orderId, skuAItemId } = await seedOrderWithSiblingInGroup();
+    await addOrderItem(orderId, storeId, SKU_B, 3);
+    const skuB = await prisma.sku.findUniqueOrThrow({ where: { code: SKU_B } });
+    const b = await prisma.orderItem.findFirstOrThrow({ where: { orderId, skuId: skuB.id } });
+
+    const { siblingRepriceAfterRemoval } = await import("@/lib/po/add-order-item");
+    const updates = await siblingRepriceAfterRemoval(orderId, "vda1", GROUP, [b.id], "test");
+    expect(updates.map((u) => u.id)).toEqual([skuAItemId]);
+    expect(updates[0]!.data.c4PooledQty).toBe(3);
+    expect(updates[0]!.data.c4DiscountBaht).toBe(20);
+    // ห้ามคืนฟิลด์ราคา — หลักฐานราคา ณ ตอนร้านส่ง
+    expect(updates[0]!.data).not.toHaveProperty("c4UnitPrice");
+  });
+
+  it("รหัสที่ไม่มีในแคตตาล็อก → ปฏิเสธ ไม่สร้างแถว Sku/บรรทัดใหม่", async () => {
+    const { storeId, orderId } = await seedOrderWithSiblingInGroup();
+    await expect(addOrderItem(orderId, storeId, "GHOST", 1)).rejects.toThrow("SKU_NOT_IN_MASTER");
+    expect(await prisma.sku.count({ where: { code: "GHOST" } })).toBe(0);
+    expect(await prisma.orderItem.count({ where: { orderId } })).toBe(1);
+  });
+
+  it("repricePooledGroupOf — แก้จำนวนในกลุ่มแล้ว snapshot pooled ของทั้งกลุ่มตามยอดจริง", async () => {
+    const { storeId, orderId, skuAItemId } = await seedOrderWithSiblingInGroup();
+    await addOrderItem(orderId, storeId, SKU_B, 3); // รวม 6 → ขั้น 5+ ลด 50
+    const skuB = await prisma.sku.findUniqueOrThrow({ where: { code: SKU_B } });
+    const b = await prisma.orderItem.findFirstOrThrow({ where: { orderId, skuId: skuB.id } });
+    await prisma.orderItem.update({ where: { id: b.id }, data: { finalQty: 1 } }); // รวม 4
+
+    const { repricePooledGroupOf } = await import("@/lib/po/add-order-item");
+    await repricePooledGroupOf(orderId, b.id);
+
+    for (const id of [skuAItemId, b.id]) {
+      const row = await prisma.orderItem.findUniqueOrThrow({ where: { id } });
+      expect(row.c4PooledQty).toBe(4);
+      expect(row.c4DiscountBaht).toBe(20);
+    }
+    const a = await prisma.orderItem.findUniqueOrThrow({ where: { id: skuAItemId } });
+    expect(a.c4UnitPrice).toBe(999); // ไม่แตะราคา
+  });
+
+  it("repricePooledGroupOf ไม่เขียนทับออเดอร์ที่ไม่ได้รออนุมัติแล้ว", async () => {
+    const { storeId, orderId, skuAItemId } = await seedOrderWithSiblingInGroup();
+    await addOrderItem(orderId, storeId, SKU_B, 3);
+    await prisma.order.update({ where: { id: orderId }, data: { status: "approved" } });
+    await prisma.orderItem.update({ where: { id: skuAItemId }, data: { finalQty: 1 } });
+
+    const { repricePooledGroupOf } = await import("@/lib/po/add-order-item");
+    await repricePooledGroupOf(orderId, skuAItemId);
+    const a = await prisma.orderItem.findUniqueOrThrow({ where: { id: skuAItemId } });
+    expect(a.c4PooledQty).toBe(6);
+  });
+
+  it("เพิ่มสินค้าในออเดอร์ที่ถูกอนุมัติไปแล้ว → ปฏิเสธ ไม่สร้างแถว", async () => {
+    const { storeId, orderId } = await seedOrderWithSiblingInGroup();
+    await prisma.order.update({ where: { id: orderId }, data: { status: "approved" } });
+    await expect(addOrderItem(orderId, storeId, NO_GROUP_SKU, 1)).rejects.toThrow("ORDER_ALREADY_DECIDED");
+    expect(await prisma.orderItem.count({ where: { orderId } })).toBe(1);
+  });
+
   it("ร้านปฏิเสธสินค้าที่ไม่มีกลุ่มโปร — ลบแถวได้ ไม่แตะรายการอื่น", async () => {
     const { storeId, orderId, skuAItemId } = await seedOrderWithSiblingInGroup();
     await addOrderItem(orderId, storeId, NO_GROUP_SKU, 2);
@@ -263,6 +324,25 @@ describe.skipIf(!hasPrisma)("addOrderItem — เพิ่มสินค้า�
 
     const left = await prisma.orderItem.findMany({ where: { orderId } });
     expect(left.map((i) => i.id)).toEqual([skuAItemId]);
+  });
+
+  it("สินค้าที่พนักงานเพิ่ม ร้านยืนยันแล้ว ต่อมาขอเพิ่มอีกแล้วร้านปฏิเสธ → คืนจำนวน ไม่ลบแถว", async () => {
+    const { storeId, orderId } = await seedOrderWithSiblingInGroup();
+    await addOrderItem(orderId, storeId, NO_GROUP_SKU, 2);
+    const sku = await prisma.sku.findUniqueOrThrow({ where: { code: NO_GROUP_SKU } });
+    const added = await prisma.orderItem.findFirstOrThrow({ where: { orderId, skuId: sku.id } });
+    expect(added.agreedQty).toBe(0);
+
+    const { prismaOrderRepository: repo } = await import("@/lib/repositories/prisma-repository");
+    await repo.confirmQtyIncrease(orderId, added.id);
+    const r = await repo.updateOrderItemQty(orderId, added.id, 5);
+    expect(r.pendingConfirm).toBe(true);
+
+    // ร้านเคยยืนยันแล้ว — ห้ามลบ ต้องคืนเป็น 2 ที่ตกลงไว้
+    await expect(removeRejectedAddedItem(orderId, added.id)).rejects.toThrow("ORDER_ITEM_NOT_FOUND");
+    await repo.rejectQtyIncrease(orderId, added.id);
+    const after = await prisma.orderItem.findUniqueOrThrow({ where: { id: added.id } });
+    expect(after.finalQty).toBe(2);
   });
 
   it("removeRejectedAddedItem ห้ามลบสินค้าที่ร้านสั่งเอง (requestedQty > 0) แม้รอยืนยันอยู่", async () => {

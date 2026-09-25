@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { getSkuMasterDirectory } from "@/lib/fabric";
+import { fabricSkuMasterReady, getSkuMasterDirectory } from "@/lib/fabric";
 import {
   evaluatePooledDiscountConsistency,
   evaluatePriceOverride,
@@ -30,7 +30,11 @@ export async function addOrderItem(
 ): Promise<{ skuName: string }> {
   // สินค้านี้อาจไม่เคยมีแถวในฐานข้อมูลเลยถ้าไม่เคยอยู่ในสต็อกร้านไหนมาก่อน — upsert กันชน
   // เมื่อพนักงานสองคนเพิ่มสินค้าใหม่ตัวเดียวกันพร้อมกัน
-  const skuName = getSkuMasterDirectory().nameForSku(skuCode) || skuCode;
+  // รหัสต้องมีในแคตตาล็อกจริง — เดิมรับอะไรก็ได้แล้ว upsert แถว Sku ใหม่ ทำให้พิมพ์ผิดรหัสเดียว
+  // ได้บรรทัดสินค้าที่ไม่มีอยู่จริงเข้า PO (ช่องค้นหาในหน้าจอกันไว้ แต่ API ต้องกันเองด้วย)
+  if (!fabricSkuMasterReady()) throw new Error("SKU_MASTER_NOT_READY");
+  const skuName = getSkuMasterDirectory().nameForSku(skuCode);
+  if (!skuName) throw new Error("SKU_NOT_IN_MASTER");
   const sku = await prisma.sku.upsert({
     where: { code: skuCode },
     create: { code: skuCode, name: skuName },
@@ -81,6 +85,8 @@ export async function addOrderItem(
     // ร้านไม่เคยขอสินค้าตัวนี้เลย — requestedQty=0 ทำให้เข้าเงื่อนไข "เพิ่มจำนวน" ของเดิม
     // โดยอัตโนมัติ (finalQty ที่พนักงานคีย์ > 0 เสมอ) ต้องรอร้านยืนยันก่อนเข้า PO ได้เหมือนกัน
     requestedQty: 0,
+    // ร้านยังไม่เคยตกลงอะไรกับสินค้าตัวนี้ — ยืนยันแล้วจะกลายเป็น finalQty
+    agreedQty: 0,
     qtyIncreasePendingConfirm: true,
     cvdEstimate: null as number | null,
     minDays: null as number | null,
@@ -140,12 +146,18 @@ export async function addOrderItem(
     }
   }
 
-  await prisma.$transaction([
-    prisma.orderItem.create({ data: newItemData }),
-    ...siblingUpdates.map((u) =>
-      prisma.orderItem.update({ where: { id: u.id }, data: u.data })
-    ),
-  ]);
+  // เช็คสถานะซ้ำใน transaction — อีกคนอาจอนุมัติไประหว่างที่คำนวณโปรอยู่ (ไม่งั้นบรรทัดใหม่
+  // โผล่ในใบที่ออก PO แล้ว)
+  await prisma.$transaction(async (tx) => {
+    const still = await tx.order.count({
+      where: { id: orderId, status: "pending_approval", purchaseOrders: { none: {} } },
+    });
+    if (still === 0) throw new Error("ORDER_ALREADY_DECIDED");
+    await tx.orderItem.create({ data: newItemData });
+    for (const u of siblingUpdates) {
+      await tx.orderItem.update({ where: { id: u.id }, data: u.data });
+    }
+  });
 
   return { skuName };
 }
@@ -165,7 +177,7 @@ export async function removeRejectedAddedItem(
   itemId: string
 ): Promise<void> {
   const item = await prisma.orderItem.findFirst({
-    where: { id: itemId, orderId, qtyIncreasePendingConfirm: true, requestedQty: 0 },
+    where: { id: itemId, orderId, qtyIncreasePendingConfirm: true, requestedQty: 0, OR: [{ agreedQty: 0 }, { agreedQty: null }] },
     select: {
       c4PromoGroup: true,
       order: { select: { store: { select: { code: true } } } },
@@ -173,44 +185,108 @@ export async function removeRejectedAddedItem(
   });
   if (!item) throw new Error("ORDER_ITEM_NOT_FOUND");
 
-  let siblingUpdates: { id: string; data: Record<string, unknown> }[] = [];
-  if (item.c4PromoGroup) {
-    const siblings = await prisma.orderItem.findMany({
-      where: { orderId, c4PromoGroup: item.c4PromoGroup, NOT: { id: itemId } },
-      include: { sku: { select: { code: true } } },
-    });
-    if (siblings.length > 0) {
-      const pooled = computePooledGroup(item.order.store.code, item.c4PromoGroup, [
-        ...siblings.map((s) => ({
-          skuCode: s.sku.code,
-          finalQty: s.finalQty,
-          fallbackPooledQty: s.c4PooledQty,
-        })),
-      ]);
-      siblingUpdates = siblings.map((s, idx) => ({
-        id: s.id,
-        // โปรยังไม่โหลด คำนวณใหม่ไม่ได้ — ยังลบได้ (ร้านปฏิเสธแล้ว ห้ามค้าง) แต่ปักธงให้พนักงาน
-        // ตรวจขั้นโปรก่อนอนุมัติ เพราะส่วนลดที่ค้างอยู่นับรวมสินค้าที่ถูกลบไปแล้ว
-        data: pooled
-          ? { ...pooled[idx].promo, ...pooled[idx].flag }
-          : {
-              discountFlagged: true,
-              discountFlagReason:
-                "ร้านปฏิเสธสินค้าในกลุ่มโปรเดียวกัน แต่คำนวณโปรใหม่ไม่ได้ (โปรยังไม่โหลด) — ตรวจขั้นโปรก่อนอนุมัติ",
-            },
-      }));
-    }
-  }
+  const siblingUpdates = item.c4PromoGroup
+    ? await siblingRepriceAfterRemoval(
+        orderId,
+        item.order.store.code,
+        item.c4PromoGroup,
+        [itemId],
+        "ร้านปฏิเสธสินค้าในกลุ่มโปรเดียวกัน"
+      )
+    : [];
 
   await prisma.$transaction([
     // เงื่อนไขซ้ำใน where กันร้านกดซ้อน/พนักงานแก้จำนวนระหว่างทาง
     prisma.orderItem.deleteMany({
-      where: { id: itemId, orderId, qtyIncreasePendingConfirm: true, requestedQty: 0 },
+      where: { id: itemId, orderId, qtyIncreasePendingConfirm: true, requestedQty: 0, OR: [{ agreedQty: 0 }, { agreedQty: null }] },
     }),
     ...siblingUpdates.map((u) =>
       prisma.orderItem.update({ where: { id: u.id }, data: u.data })
     ),
   ]);
+}
+
+/**
+ * คิดโปรของพี่น้องกลุ่มเดียวกันใหม่ หลังเอาบางบรรทัดออกจากออเดอร์ (ยังไม่ได้ลบจริง — ผู้เรียกลบ
+ * ใน transaction เดียวกับการอัปเดตที่คืนไป) · ไม่งั้นพี่น้องค้างส่วนลดขั้นที่นับรวมบรรทัดที่หายไปแล้ว
+ *
+ * โปรยังไม่โหลด คำนวณใหม่ไม่ได้ — ยังลบได้ แต่ปักธงให้พนักงานตรวจขั้นโปรก่อนอนุมัติ
+ */
+export async function siblingRepriceAfterRemoval(
+  orderId: string,
+  storeCode: string,
+  promoGroup: string,
+  removedIds: string[],
+  why: string
+): Promise<{ id: string; data: Record<string, unknown> }[]> {
+  const siblings = await prisma.orderItem.findMany({
+    where: { orderId, c4PromoGroup: promoGroup, NOT: { id: { in: removedIds } } },
+    include: { sku: { select: { code: true } } },
+  });
+  if (siblings.length === 0) return [];
+  const pooled = computePooledGroup(
+    storeCode,
+    promoGroup,
+    siblings.map((s) => ({
+      skuCode: s.sku.code,
+      finalQty: s.finalQty,
+      fallbackPooledQty: s.c4PooledQty,
+    }))
+  );
+  return siblings.map((s, idx) => ({
+    id: s.id,
+    data: pooled
+      ? { ...pooled[idx].promo, ...pooled[idx].flag }
+      : {
+          discountFlagged: true,
+          discountFlagReason: `${why} แต่คำนวณโปรใหม่ไม่ได้ (โปรยังไม่โหลด) — ตรวจขั้นโปรก่อนอนุมัติ`,
+        },
+  }));
+}
+
+/**
+ * คิดโปรของทั้งกลุ่มใหม่ตามจำนวนปัจจุบัน หลังจำนวนของบรรทัดในกลุ่มเปลี่ยน (แก้จำนวน ปฏิเสธรายการ
+ * ร้านปฏิเสธการเพิ่ม) — เดิมแก้จำนวนแล้ว snapshot pooled ที่แช่ไว้ไม่ขยับ หน้าตรวจคิดสดจึงเห็นถูก
+ * แต่ค่าใน DB (ที่ใช้ออกเอกสาร PO) ค้างยอดเก่า
+ *
+ * แตะเฉพาะฟิลด์ที่ผูกกับ pooled เหมือน addOrderItem ห้ามแตะราคา · บรรทัดไม่อยู่กลุ่มที่รวมยอด = ไม่ทำอะไร
+ * แก้ได้เฉพาะออเดอร์ที่ยังรออนุมัติ (ใบที่ออก PO แล้วคือหลักฐาน ห้ามเขียนทับ)
+ */
+export async function repricePooledGroupOf(orderId: string, itemId: string): Promise<void> {
+  const item = await prisma.orderItem.findFirst({
+    where: { id: itemId, orderId, order: { status: "pending_approval" } },
+    select: {
+      c4PromoGroup: true,
+      c4PromoGroupMembers: true,
+      order: { select: { store: { select: { code: true } } } },
+    },
+  });
+  const group = item?.c4PromoGroup?.trim();
+  if (!item || !group || (item.c4PromoGroupMembers ?? 0) <= 1) return;
+
+  const lines = await prisma.orderItem.findMany({
+    where: { orderId, c4PromoGroup: item.c4PromoGroup },
+    include: { sku: { select: { code: true } } },
+  });
+  const pooled = computePooledGroup(
+    item.order.store.code,
+    item.c4PromoGroup!,
+    lines.map((l) => ({ skuCode: l.sku.code, finalQty: l.finalQty, fallbackPooledQty: l.c4PooledQty }))
+  );
+  await prisma.$transaction(
+    lines.map((l, idx) =>
+      prisma.orderItem.updateMany({
+        where: { id: l.id, order: { status: "pending_approval" } },
+        data: pooled
+          ? { ...pooled[idx].promo, ...pooled[idx].flag }
+          : {
+              discountFlagged: true,
+              discountFlagReason:
+                "จำนวนในกลุ่มโปรเปลี่ยน แต่คำนวณโปรใหม่ไม่ได้ (โปรยังไม่โหลด) — ตรวจขั้นโปรก่อนอนุมัติ",
+            },
+      })
+    )
+  );
 }
 
 /**

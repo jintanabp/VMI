@@ -196,7 +196,7 @@ export interface OrderRepository {
   ): Promise<void>;
   /** ร้านยืนยันจำนวนที่พนักงานเพิ่มให้ */
   confirmQtyIncrease(orderId: string, itemId: string): Promise<void>;
-  /** ร้านปฏิเสธจำนวนที่เพิ่ม — finalQty กลับไปเท่า requestedQty */
+  /** ร้านปฏิเสธจำนวนที่เพิ่ม — finalQty กลับไปเท่า agreedQty (จำนวนล่าสุดที่ร้านตกลง) */
   rejectQtyIncrease(orderId: string, itemId: string): Promise<void>;
   /** ราคาที่พนักงานตั้ง — flag คำนวณใหม่ฝั่งเซิร์ฟเวอร์ ไม่รับจาก client */
   updateOrderItemPrice(

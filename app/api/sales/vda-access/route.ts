@@ -30,9 +30,10 @@ export async function GET() {
     salesmanCode: session.salesmanCode,
     scopeSalesmanCodes: resolveSalesmanCodesForFilter(session),
     role: session.role,
+    manualCodes: session.manualCodes,
   });
 
-  const allPersonVdas = resolveAllPersonVdaCodes(session.email);
+  const allPersonVdas = resolveAllPersonVdaCodes(session.email, session.manualCodes);
 
   return NextResponse.json({
     ...access,

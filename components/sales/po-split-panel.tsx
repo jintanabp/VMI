@@ -27,7 +27,8 @@ import type { ReviewOrderItem } from "./order-review-table";
  * ยังไม่เขียน DB จนกว่าจะย้ายจริงหรือกดอนุมัติ — เปิดดูเฉย ๆ ไม่ทำให้ข้อมูลเปลี่ยน
  */
 export function toSplittable(items: ReviewOrderItem[]): SplittableItem[] {
-  return items.map((item) => {
+  // ตรงกับ approve-with-split.ts: บรรทัด 0 หีบนอกโปรกลุ่มไม่ขึ้น PO จึงไม่นับในการแบ่งใบ
+  return items.filter((i) => i.finalQty > 0 || i.c4PromoGroup).map((item) => {
     const { unitPrice } = resolveOrderLinePrice({
       salesPriceOverride: item.salesPriceOverride,
       unitPriceOverride: item.unitPriceOverride,
@@ -40,7 +41,12 @@ export function toSplittable(items: ReviewOrderItem[]): SplittableItem[] {
       finalQty: item.finalQty,
       priceFlagged: item.priceFlagged,
       qtyEdited:
-        item.requestedQty != null && item.finalQty !== item.requestedQty,
+        item.requestedQty != null &&
+        item.finalQty > 0 &&
+        item.finalQty !== item.requestedQty,
+      // ตรงกับ approve-with-split.ts — ให้ด่านกลุ่มโปรห้ามแยก PO ทำงานบนจอด้วย
+      promoGroup: item.c4PromoGroup ?? null,
+      promoGroupMembers: item.c4PromoGroupMembers ?? null,
       // ส่วนลด C4 คิดทับบนราคาที่มีผล ไม่ใช่ใช้ c4NetUnitPrice ที่คิดจากราคาแคตตาล็อก
       effectiveUnitPrice:
         calcNetUnitPrice(unitPrice, item.c4DiscountBaht, item.c4DiscountPct) ??
@@ -83,6 +89,27 @@ export function PoSplitPanel({
 
   if (groups.length === 0) return null;
 
+  // ใบเดียวและยังไม่ได้ติ๊กอะไร = ไม่มีอะไรให้ตัดสินใจ — ย่อเหลือบรรทัดเดียว ไม่ดันตารางลง
+  if (groups.length === 1 && selectedCount === 0 && issues.length === 0) {
+    const g = groups[0]!;
+    return (
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-slate-200 bg-slate-50/70 px-2.5 py-1.5 text-[11px] dark:border-slate-700 dark:bg-slate-900/40">
+        <FileText className="h-3.5 w-3.5 text-slate-500" />
+        <span className="font-bold text-slate-700 dark:text-slate-200">ออก PO ใบเดียว</span>
+        <span
+          className={cn(
+            "inline-flex items-center rounded-md px-1.5 py-0.5 font-bold ring-1",
+            promoGroupBadgeClass(poGroupStripe(g.groupKey))
+          )}
+        >
+          PO-{g.groupKey}
+        </span>
+        <span className="text-slate-600 dark:text-slate-300">{g.label}</span>
+        <span className="text-slate-400">· ติ๊กรายการเพื่อแยกใบ หรืออนุมัติเฉพาะที่เลือก</span>
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-2.5 dark:border-slate-700 dark:bg-slate-900/40">
       <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -95,9 +122,9 @@ export function PoSplitPanel({
             ระบบเสนอ — ปรับได้ก่อนอนุมัติ
           </span>
         )}
-        {groups.length === 1 && (
+        {selectedCount > 0 && (
           <span className="text-[11px] text-slate-500 dark:text-slate-400">
-            ราคาตรง C4 ทั้งใบ · ออก PO เดียว
+            ติ๊กไว้ {selectedCount} รายการ — ย้ายไปใบอื่นได้ที่นี่ หรือกด «อนุมัติเฉพาะที่เลือก» ด้านล่าง
           </span>
         )}
       </div>

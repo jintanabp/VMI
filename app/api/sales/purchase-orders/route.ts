@@ -115,13 +115,13 @@ export async function GET(request: Request) {
       allowed = [
         ...new Set([
           ...resolveVdaCodesForSalesmanCodes(codes),
-          ...resolveAllPersonVdaCodes(session.email),
+          ...resolveAllPersonVdaCodes(session.email, session.manualCodes),
         ]),
       ];
     } else {
       allowed = resolveVdaCodesForSalesmanCodes(codes);
       if (allowed.length === 0 && session.role === "sales") {
-        allowed = resolveAllPersonVdaCodes(session.email);
+        allowed = resolveAllPersonVdaCodes(session.email, session.manualCodes);
       }
     }
     if (allowed.length === 0) {

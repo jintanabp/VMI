@@ -1,5 +1,6 @@
 "use client";
 
+import type { CSSProperties, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -25,6 +26,8 @@ export function SortableTh<TKey extends string>({
   firstDir = "asc",
   title,
   className,
+  style,
+  children,
 }: {
   label: string;
   sub?: string;
@@ -35,6 +38,9 @@ export function SortableTh<TKey extends string>({
   firstDir?: "asc" | "desc";
   title?: string;
   className?: string;
+  style?: CSSProperties;
+  /** ต่อท้ายใน th — เช่นที่จับลากปรับความกว้างคอลัมน์ */
+  children?: ReactNode;
 }) {
   const active = sort.key === sortKey;
   return (
@@ -46,6 +52,7 @@ export function SortableTh<TKey extends string>({
         className
       )}
       aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
+      style={style}
     >
       <button
         type="button"
@@ -73,6 +80,7 @@ export function SortableTh<TKey extends string>({
           {active ? (sort.dir === "asc" ? "▲" : "▼") : "▲"}
         </span>
       </button>
+      {children}
     </th>
   );
 }

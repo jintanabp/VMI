@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getRepositories } from "@/lib/repositories";
 import { approveWithPoSplit } from "@/lib/po/approve-with-split";
-import { addOrderItem } from "@/lib/po/add-order-item";
+import { approveSelectedItems, PartialSelectionError } from "@/lib/po/approve-selected";
+import { addOrderItem, repricePooledGroupOf } from "@/lib/po/add-order-item";
 import { notifyStore } from "@/lib/orders/store-notify";
 import { notifySales } from "@/lib/orders/sales-notify";
 import {
@@ -77,6 +78,8 @@ const patchOrderSchema = z.discriminatedUnion("action", [
     action: z.literal("approve"),
     /** เลข PO ที่พนักงานพิมพ์ทับต่อกลุ่ม (ไม่ส่ง = ให้ระบบ mint เอง) */
     poNumbers: z.record(z.string(), z.string().trim().max(12)).optional(),
+    /** อนุมัติเฉพาะรายการเหล่านี้ ที่เหลือแยกเป็นออเดอร์ใหม่รออนุมัติ (ไม่ส่ง = ทั้งใบ) */
+    itemIds: z.array(z.string().min(1)).min(1).max(2000).optional(),
   }),
   z.object({
     orderId: z.string().min(1),
@@ -195,7 +198,7 @@ export async function GET(request: Request) {
     const salesmanCodes = resolveSalesmanCodesForFilter(salesSession);
     const allowedVdas =
       allPersonVdas && role === "sales"
-        ? resolveAllPersonVdaCodes(email)
+        ? resolveAllPersonVdaCodes(email, salesSession.manualCodes)
         : resolveVdaCodesForSalesmanCodes(salesmanCodes);
     const requestedVda = vdaCode?.trim().toLowerCase();
 
@@ -464,8 +467,13 @@ export async function PATCH(request: Request) {
   if (action === "approve") {
     // มีรายการที่พนักงานเพิ่มจำนวนเกินที่ร้านขอ รอร้านยืนยันอยู่ — ห้ามอนุมัติทั้งใบ
     // จนกว่าร้านจะตอบ (ยืนยัน/ปฏิเสธ) ให้ครบทุกรายการก่อน
+    // อนุมัติบางรายการ: นับเฉพาะที่เลือก — ที่รอยืนยันแต่ไม่ได้เลือกจะย้ายไปรอในใบใหม่
     const pendingCount = await prisma.orderItem.count({
-      where: { orderId, qtyIncreasePendingConfirm: true },
+      where: {
+        orderId,
+        qtyIncreasePendingConfirm: true,
+        ...(body.itemIds ? { id: { in: body.itemIds } } : {}),
+      },
     });
     if (pendingCount > 0) {
       return NextResponse.json(
@@ -476,11 +484,25 @@ export async function PATCH(request: Request) {
       );
     }
     try {
-      const result = await approveWithPoSplit(
-        orderId,
-        salesSession.email,
-        body.poNumbers ?? {}
-      );
+      let remainderOrderId: string | null = null;
+      let remainderCount = 0;
+      let result: Awaited<ReturnType<typeof approveWithPoSplit>>;
+      if (body.itemIds) {
+        const partial = await approveSelectedItems(
+          orderId,
+          salesSession.email,
+          body.itemIds,
+          body.poNumbers ?? {}
+        );
+        ({ remainderOrderId, remainderCount } = partial);
+        result = partial;
+      } else {
+        result = await approveWithPoSplit(
+          orderId,
+          salesSession.email,
+          body.poNumbers ?? {}
+        );
+      }
       const pos = result.purchaseOrders;
       const totalQty = pos.reduce((s, po) => s + po.totalQty, 0);
       const totalItems = pos.reduce((s, po) => s + po.itemCount, 0);
@@ -510,13 +532,42 @@ export async function PATCH(request: Request) {
         orderId,
         actorEmail: salesSession.email,
       });
-      return NextResponse.json(result);
+      if (remainderOrderId) {
+        // ร้านต้องรู้ว่าของที่เหลือไม่ได้หาย แต่ยังรออนุมัติอยู่ในอีกใบ
+        await notifyStore({
+          storeId: order.storeId,
+          kind: "order_split",
+          title: "อนุมัติบางส่วน — ที่เหลือแยกเป็นอีกใบรออนุมัติ",
+          detail: `${remainderCount} รายการที่ยังไม่อนุมัติ ย้ายไปคำสั่งซื้อใบใหม่`,
+          orderId: remainderOrderId,
+          actorEmail: salesSession.email,
+        });
+      }
+      return NextResponse.json({ ...result, remainderOrderId, remainderCount });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "อนุมัติไม่สำเร็จ";
       // อีกคนชิงตัดสินไปก่อน (approve/reject พร้อมกัน) — compare-and-set กันไว้แล้ว
       if (msg === "ORDER_ALREADY_DECIDED") {
         return NextResponse.json(
           { error: "ออเดอร์นี้ถูกตัดสินไปแล้วโดยคนอื่น", status: "decided" },
+          { status: 409 }
+        );
+      }
+      if (msg === "PENDING_STORE_CONFIRM") {
+        return NextResponse.json(
+          { error: "มีรายการที่รอร้านค้ายืนยันเพิ่งเข้ามา — อนุมัติไม่ได้จนกว่าร้านจะตอบ" },
+          { status: 422 }
+        );
+      }
+      if (err instanceof PartialSelectionError) {
+        return NextResponse.json(
+          { error: "เลือกรายการไม่ถูกต้อง", issues: msg.split("\n") },
+          { status: 422 }
+        );
+      }
+      if (msg === "ORDER_CHANGED") {
+        return NextResponse.json(
+          { error: "ออเดอร์ถูกแก้ระหว่างทาง — รีเฟรชแล้วลองใหม่" },
           { status: 409 }
         );
       }
@@ -611,6 +662,8 @@ export async function PATCH(request: Request) {
     const before = await snapshotOrderItem(orderId, body.itemId);
     try {
       await orders.rejectOrderItem(orderId, body.itemId, body.reason);
+      // ตั้งเป็น 0 แล้วยอดกลุ่มโปรลด — คิดส่วนลดของพี่น้องใหม่ให้ตรงยอดจริง
+      await repricePooledGroupOf(orderId, body.itemId);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "";
       if (msg === "ORDER_ITEM_NOT_FOUND") {
@@ -647,6 +700,24 @@ export async function PATCH(request: Request) {
       skuName = result.skuName;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "";
+      if (msg === "ORDER_ALREADY_DECIDED") {
+        return NextResponse.json(
+          { error: "ออเดอร์นี้ถูกตัดสินไปแล้วโดยคนอื่น" },
+          { status: 409 }
+        );
+      }
+      if (msg === "SKU_NOT_IN_MASTER") {
+        return NextResponse.json(
+          { error: `ไม่พบรหัสสินค้า ${skuCode} ในระบบ — เลือกจากช่องค้นหาสินค้า` },
+          { status: 400 }
+        );
+      }
+      if (msg === "SKU_MASTER_NOT_READY") {
+        return NextResponse.json(
+          { error: "ข้อมูลสินค้ายังไม่พร้อม — ลองใหม่อีกครั้งในอีกสักครู่" },
+          { status: 503 }
+        );
+      }
       if (msg.startsWith("SKU_ALREADY_IN_ORDER:")) {
         return NextResponse.json(
           { error: msg.slice("SKU_ALREADY_IN_ORDER:".length) },
@@ -676,6 +747,7 @@ export async function PATCH(request: Request) {
         body.finalQty
       );
       pendingConfirm = result.pendingConfirm;
+      await repricePooledGroupOf(orderId, body.itemId);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "";
       if (msg === "ORDER_ITEM_NOT_FOUND") {

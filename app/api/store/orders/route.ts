@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getAuthorizedStoreId } from "@/lib/auth/store-context";
 import { getRepositories } from "@/lib/repositories";
 import { notifySales } from "@/lib/orders/sales-notify";
-import { removeRejectedAddedItem } from "@/lib/po/add-order-item";
+import { removeRejectedAddedItem, repricePooledGroupOf } from "@/lib/po/add-order-item";
 
 export const dynamic = "force-dynamic";
 
@@ -37,10 +37,16 @@ export async function PATCH(request: Request) {
     where: { id: orderId },
     select: {
       storeId: true,
+      status: true,
       store: { select: { code: true } },
       items: {
         where: { id: itemId },
-        select: { finalQty: true, requestedQty: true, sku: { select: { code: true, name: true } } },
+        select: {
+          finalQty: true,
+          requestedQty: true,
+          agreedQty: true,
+          sku: { select: { code: true, name: true } },
+        },
       },
     },
   });
@@ -50,13 +56,22 @@ export async function PATCH(request: Request) {
   if (order.storeId !== storeId) {
     return NextResponse.json({ error: "ไม่มีสิทธิ์จัดการออเดอร์นี้" }, { status: 403 });
   }
+  // ออเดอร์ที่ถูกปฏิเสธ/อนุมัติไปแล้วห้ามแตะ — เดิมร้านยังกดปฏิเสธแล้วลบแถว/แก้จำนวนในใบที่
+  // พนักงานปฏิเสธทั้งใบไปแล้วได้
+  if (order.status !== "pending_approval") {
+    return NextResponse.json(
+      { error: "คำสั่งซื้อนี้ถูกดำเนินการไปแล้ว — ไม่ต้องยืนยันรายการอีก" },
+      { status: 409 }
+    );
+  }
   const item = order.items[0];
   if (!item) {
     return NextResponse.json({ error: "ไม่พบรายการนี้ในออเดอร์" }, { status: 404 });
   }
 
   // requestedQty=0 = พนักงานเพิ่มสินค้าตัวนี้เข้ามาเอง ร้านไม่เคยสั่ง — ปฏิเสธแล้วลบทั้งแถว
-  const isStaffAdded = item.requestedQty === 0;
+  // ร้านยืนยันไปแล้วรอบหนึ่ง (agreedQty > 0) = ไม่ใช่ "สินค้าใหม่" แล้ว ปฏิเสธรอบหลังแค่คืนจำนวน
+  const isStaffAdded = item.requestedQty === 0 && !item.agreedQty;
   const { orders } = getRepositories();
   try {
     if (action === "confirmQtyIncrease") {
@@ -65,6 +80,8 @@ export async function PATCH(request: Request) {
       await removeRejectedAddedItem(orderId, itemId);
     } else {
       await orders.rejectQtyIncrease(orderId, itemId);
+      // จำนวนกลับลง — ยอดกลุ่มโปรเปลี่ยน คิดส่วนลดทั้งกลุ่มใหม่
+      await repricePooledGroupOf(orderId, itemId);
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : "";
@@ -100,7 +117,7 @@ export async function PATCH(request: Request) {
         ? ` · ${item.finalQty} หีบ`
         : isStaffAdded
           ? " · เอาออกจากออเดอร์แล้ว"
-          : ` · กลับไปเป็น ${item.requestedQty ?? item.finalQty} หีบ`),
+          : ` · กลับไปเป็น ${item.agreedQty ?? item.requestedQty ?? item.finalQty} หีบ`),
     orderId,
   });
 

@@ -42,6 +42,14 @@ export const NOTIF_META: Record<string, { label: string; className: string }> = 
     className:
       "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200",
   },
+  item_cleared: {
+    label: "เคลียร์รายการ",
+    className: "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-200",
+  },
+  order_split: {
+    label: "แยกออเดอร์",
+    className: "bg-sky-100 text-sky-800 dark:bg-sky-500/15 dark:text-sky-200",
+  },
   po_issued: {
     label: "ออก PO",
     className:
@@ -86,7 +94,8 @@ export function notifTone(kind: string): "success" | "warn" | "info" {
     kind === "deleted" ||
     kind === "po_cancelled" ||
     kind === "qty_increase_pending" ||
-    kind === "item_added_pending"
+    kind === "item_added_pending" ||
+    kind === "item_cleared"
   ) {
     return "warn";
   }

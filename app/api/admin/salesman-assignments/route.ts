@@ -19,10 +19,14 @@ export const dynamic = "force-dynamic";
  * lib/auth/manual-salesman-assignments.ts และ buildSalesSessionWithAccess()
  */
 
-const createSchema = z.object({
-  email: z.string().trim().email().max(120),
-  salesmanCode: z.string().trim().min(1).max(20),
-});
+/** รหัสเดียวใส่ได้หลายอีเมล (`emails`) — `email` เดี่ยวยังรับอยู่เพื่อความเข้ากันได้ */
+const createSchema = z
+  .object({
+    email: z.string().trim().email().max(120).optional(),
+    emails: z.array(z.string().trim().email().max(120)).min(1).max(50).optional(),
+    salesmanCode: z.string().trim().min(1).max(20),
+  })
+  .refine((v) => v.email || v.emails, { message: "ต้องมีอีเมลอย่างน้อย 1 รายการ" });
 
 async function enrichRows() {
   const rows = await prisma.salesmanEmailAssignment.findMany({
@@ -72,15 +76,25 @@ export async function POST(request: Request) {
     );
   }
 
-  const email = normalizeEmail(parsed.data.email);
   const salesmanCode = normalizeSalesmanCode(parsed.data.salesmanCode);
+  const emails = [
+    ...new Set(
+      [...(parsed.data.emails ?? []), ...(parsed.data.email ? [parsed.data.email] : [])].map(
+        normalizeEmail
+      )
+    ),
+  ];
 
   try {
-    await prisma.salesmanEmailAssignment.upsert({
-      where: { email_salesmanCode: { email, salesmanCode } },
-      create: { email, salesmanCode, active: true, createdBy: session.email },
-      update: { active: true, createdBy: session.email },
-    });
+    await prisma.$transaction(
+      emails.map((email) =>
+        prisma.salesmanEmailAssignment.upsert({
+          where: { email_salesmanCode: { email, salesmanCode } },
+          create: { email, salesmanCode, active: true, createdBy: session.email },
+          update: { active: true, createdBy: session.email },
+        })
+      )
+    );
   } catch {
     return NextResponse.json({ error: "บันทึกไม่สำเร็จ" }, { status: 500 });
   }

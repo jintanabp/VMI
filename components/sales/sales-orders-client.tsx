@@ -13,7 +13,6 @@ import { SalesNav } from "./sales-nav";
 import { StatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
 import { SalesRepFilter } from "@/components/sales/sales-rep-filter";
 import {
   PoSplitPanel,
@@ -22,6 +21,7 @@ import {
 } from "@/components/sales/po-split-panel";
 import { RejectOrderModal } from "@/components/sales/reject-order-modal";
 import { NotifyStoreCheckbox } from "@/components/sales/notify-store-checkbox";
+import { MonthEndClearModal } from "@/components/sales/month-end-clear-modal";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import {
@@ -91,9 +91,6 @@ export function SalesOrdersClient() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [monthEndClearOpen, setMonthEndClearOpen] = useState(false);
-  const [clearSkuInput, setClearSkuInput] = useState("");
-  const [clearSkuConfirmOpen, setClearSkuConfirmOpen] = useState(false);
-  const [clearSkuResult, setClearSkuResult] = useState<string | null>(null);
   /** แจ้งร้านว่าถูกลบหรือไม่ — ลบทีละใบระหว่างทำงานปกติควรแจ้ง จึงตั้งต้นเป็น true */
   const [notifyStores, setNotifyStores] = useState(true);
   /** ออเดอร์ที่ติ๊กไว้เพื่ออนุมัติ/ลบรวดเดียว (คนละชุดกับ selectedItemIds ที่ใช้ย้ายกลุ่ม PO) */
@@ -383,11 +380,34 @@ export function SalesOrdersClient() {
     selected?.items?.filter((i) => i.priceFlagged).length ?? 0;
   const approveNeedsConfirm = selectedPriceFlagged > 0;
 
+  /**
+   * ติ๊กบางรายการ = อนุมัติเฉพาะที่ติ๊ก ที่เหลือแยกเป็นออเดอร์ใหม่รออนุมัติ (ติ๊กครบ/ไม่ติ๊ก = ทั้งใบ)
+   * การติ๊กชุดเดียวกันนี้ยังใช้ "ย้ายมา PO-X" ในแผงแบ่ง PO ได้เหมือนเดิม
+   */
+  const partialItems =
+    selected &&
+    selectedItemIds.size > 0 &&
+    selectedItemIds.size < selected.items.length
+      ? selected.items.filter((i) => selectedItemIds.has(i.id))
+      : null;
+  const approveItems = partialItems ?? selected?.items ?? [];
+
+  /** สมาชิกกลุ่มโปรที่รวมยอดกันต้องอยู่ด้วยกันเสมอ — ติ๊ก/เอาออกตัวเดียวก็ทั้งกลุ่ม */
+  function promoSiblings(itemId: string): string[] {
+    const item = selected?.items.find((i) => i.id === itemId);
+    const g = item?.c4PromoGroup?.trim();
+    if (!item || !g || (item.c4PromoGroupMembers ?? 0) <= 1) return [itemId];
+    return selected!.items
+      .filter((i) => i.c4PromoGroup?.trim() === g)
+      .map((i) => i.id);
+  }
+
   function toggleItemSelect(itemId: string) {
     setSelectedItemIds((prev) => {
       const next = new Set(prev);
-      if (next.has(itemId)) next.delete(itemId);
-      else next.add(itemId);
+      const ids = promoSiblings(itemId);
+      if (next.has(itemId)) ids.forEach((id) => next.delete(id));
+      else ids.forEach((id) => next.add(id));
       return next;
     });
   }
@@ -396,7 +416,7 @@ export function SalesOrdersClient() {
   function selectManyItems(itemIds: string[]) {
     setSelectedItemIds((prev) => {
       const next = new Set(prev);
-      for (const id of itemIds) next.add(id);
+      for (const id of itemIds) promoSiblings(id).forEach((x) => next.add(x));
       return next;
     });
   }
@@ -470,9 +490,9 @@ export function SalesOrdersClient() {
    * กับใบที่ติ๊กเลือกไว้เท่านั้น
    */
   const clearSkuMutation = useMutation({
-    mutationFn: async (skuCode: string) => {
+    mutationFn: async ({ skuCode, notify }: { skuCode: string; notify: boolean }) => {
       const res = await apiFetch(
-        `${appPath("/api/orders/clear-sku")}?skuCode=${encodeURIComponent(skuCode)}`,
+        `${appPath("/api/orders/clear-sku")}?skuCode=${encodeURIComponent(skuCode)}${notify ? "" : "&notify=0"}`,
         { method: "DELETE" }
       );
       const body = (await res.json().catch(() => null)) as {
@@ -486,15 +506,26 @@ export function SalesOrdersClient() {
       return body!;
     },
     onSuccess: (data) => {
-      setClearSkuResult(
-        `เคลียร์ SKU แล้ว ${data.itemsRemoved ?? 0} บรรทัด (ลบทั้งใบไปด้วย ${data.ordersRemoved ?? 0} ใบ)`
-      );
-      setClearSkuInput("");
+      toast({
+        title:
+          (data.itemsRemoved ?? 0) > 0
+            ? `เคลียร์สินค้าแล้ว ${data.itemsRemoved} บรรทัด`
+            : "ไม่พบสินค้านี้ในออเดอร์รออนุมัติ",
+        detail:
+          (data.ordersRemoved ?? 0) > 0
+            ? `ลบทั้งใบไปด้วย ${data.ordersRemoved} ใบ (ไม่เหลือรายการ)`
+            : undefined,
+        tone: (data.itemsRemoved ?? 0) > 0 ? "success" : "info",
+      });
       queryClient.invalidateQueries({ queryKey: ["orders"] });
       queryClient.invalidateQueries({ queryKey: ["sales-pending-count"] });
     },
     onError: (err) => {
-      setClearSkuResult(err instanceof Error ? err.message : "เคลียร์ไม่สำเร็จ");
+      toast({
+        title: "เคลียร์ไม่สำเร็จ",
+        detail: err instanceof Error ? err.message : undefined,
+        tone: "error",
+      });
     },
   });
 
@@ -508,6 +539,7 @@ export function SalesOrdersClient() {
       finalQty?: number;
       skuCode?: string;
       assignments?: { itemId: string; poGroup: string }[];
+      itemIds?: string[];
     }) => {
       const res = await apiFetch(appPath("/api/orders"), {
         method: "PATCH",
@@ -541,6 +573,14 @@ export function SalesOrdersClient() {
           title: `ออก PO แล้ว ${pos.length} ใบ`,
           detail: pos.map((po) => po.poNumber).join(" · "),
           tone: "success",
+        });
+      }
+      const rest = (data as { remainderCount?: number } | null)?.remainderCount ?? 0;
+      if (rest > 0) {
+        toast({
+          title: `อีก ${rest} รายการแยกเป็นออเดอร์ใหม่ รออนุมัติ`,
+          detail: "อยู่ในรายการออเดอร์ทางซ้าย ร้านได้รับแจ้งแล้ว",
+          tone: "info",
         });
       }
       setSelectedItemIds(new Set());
@@ -577,6 +617,39 @@ export function SalesOrdersClient() {
 
       <main className="vmi-sales-orders-main mx-auto w-full min-w-0 max-w-[min(100%,96rem)] px-2 py-2 sm:px-3 sm:py-2 xl:px-6 xl:py-3">
         <SalesNav />
+        {/* งานระดับทั้งหน้า ไม่ผูกกับใบที่เปิดดู — วางนอกแถบซ้ายให้เห็นทันที */}
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            {statusFilter === "pending_approval" ? (
+              <>
+                รออนุมัติ{" "}
+                <span className="font-bold text-slate-900 dark:text-slate-50">
+                  {sorted.length} ใบ
+                </span>
+              </>
+            ) : (
+              <>
+                แสดง{" "}
+                <span className="font-bold text-slate-900 dark:text-slate-50">
+                  {sorted.length} ใบ
+                </span>
+              </>
+            )}
+          </p>
+          <Button
+            variant="outline"
+            className="h-10 border-red-300 px-4 text-sm font-semibold text-red-700 hover:bg-red-50 hover:text-red-800 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-950/40"
+            onClick={() => {
+              // เคลียร์ได้เฉพาะใบที่รออนุมัติ — สลับตัวกรองให้ ลิสต์ในกล่องจะได้ตรงกับที่เห็น
+              if (statusFilter !== "pending_approval") setStatusFilter("pending_approval");
+              setMonthEndClearOpen(true);
+            }}
+            disabled={deleteMutation.isPending || clearSkuMutation.isPending}
+          >
+            <Trash2 className="h-4 w-4" />
+            เคลียร์สิ้นเดือน
+          </Button>
+        </div>
         {noVdaAccess && (
           <div className="mb-2 shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800/50 dark:bg-amber-950/30 dark:text-amber-200">
             <p className="font-semibold">รหัสนี้ไม่มี VDA ที่ดูแล</p>
@@ -602,7 +675,7 @@ export function SalesOrdersClient() {
               <button
                 key={f.value}
                 onClick={() => setStatusFilter(f.value)}
-                className={`rounded-xl px-3 py-2 text-xs font-semibold transition-all sm:px-3.5 ${
+                className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-all sm:px-3.5 ${
                   statusFilter === f.value
                     ? "bg-[#0f4c75] text-white dark:bg-[#1a6b9a]"
                     : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
@@ -663,28 +736,39 @@ export function SalesOrdersClient() {
             </button>
           )}
 
-          {availableVdas.length > 0 && !allPersonVdas && (
-            <div>
+          <div className="grid grid-cols-2 gap-2">
+            {availableVdas.length > 0 && !allPersonVdas && (
               <label className="text-xs text-slate-500 dark:text-slate-400">
                 VDA
+                <select
+                  value={vdaFilter}
+                  onChange={(e) => setVdaFilter(e.target.value)}
+                  className="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                >
+                  {!isAdmin && availableVdas.length > 1 && (
+                    <option value="">ทุก VDA ที่ดูแล</option>
+                  )}
+                  {isAdmin && <option value="">ทุก VDA</option>}
+                  {availableVdas.map((vda) => (
+                    <option key={vda} value={vda}>
+                      {vda.toUpperCase()}
+                    </option>
+                  ))}
+                </select>
               </label>
+            )}
+            <label className="text-xs text-slate-500 dark:text-slate-400">
+              เรียงตาม
               <select
-                value={vdaFilter}
-                onChange={(e) => setVdaFilter(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as "date" | "store")}
+                className="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
               >
-                {!isAdmin && availableVdas.length > 1 && (
-                  <option value="">ทุก VDA ที่ดูแล</option>
-                )}
-                {isAdmin && <option value="">ทุก VDA</option>}
-                {availableVdas.map((vda) => (
-                  <option key={vda} value={vda}>
-                    {vda.toUpperCase()}
-                  </option>
-                ))}
+                <option value="date">วันที่</option>
+                <option value="store">ร้าน</option>
               </select>
-            </div>
-          )}
+            </label>
+          </div>
 
           {isAdmin && (
             <SalesRepFilter
@@ -693,46 +777,6 @@ export function SalesOrdersClient() {
               onChange={setSalesRepFilter}
             />
           )}
-
-          <div>
-            <label className="text-xs text-slate-500 dark:text-slate-400">เรียงตาม</label>
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as "date" | "store")}
-              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-            >
-              <option value="date">วันที่</option>
-              <option value="store">ร้าน</option>
-            </select>
-          </div>
-          </div>
-
-          {/* เคลียร์เฉพาะ SKU ข้ามทุกออเดอร์ที่รออนุมัติ (สิ้นเดือน) — ไม่ผูกกับใบที่ติ๊กเลือกไว้
-              ข้ามคลัง/ร้านทั้งหมดที่ session นี้เห็น และข้ามใบที่ออก PO แล้วเสมอ */}
-          <div className="mt-2 flex flex-wrap items-end gap-2 border-t border-slate-100 pt-2 dark:border-slate-800">
-            <label className="text-xs text-slate-500 dark:text-slate-400">
-              เคลียร์เฉพาะ SKU (ทุกออเดอร์ที่รออนุมัติ)
-              <Input
-                value={clearSkuInput}
-                onChange={(e) => setClearSkuInput(e.target.value)}
-                placeholder="เช่น 429001"
-                className="mt-1 w-40"
-              />
-            </label>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-9"
-              disabled={!clearSkuInput.trim() || clearSkuMutation.isPending}
-              onClick={() => setClearSkuConfirmOpen(true)}
-            >
-              เคลียร์ SKU
-            </Button>
-            {clearSkuResult && (
-              <span className="text-xs text-slate-500 dark:text-slate-400">
-                {clearSkuResult}
-              </span>
-            )}
           </div>
 
           {/* จัดการหลายใบรวดเดียว — อนุมัติได้เฉพาะใบที่รออนุมัติ ส่วนลบได้ทุกสถานะ */}
@@ -786,17 +830,6 @@ export function SalesOrdersClient() {
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                       ลบ {deleteSelectedOrders.length} ใบ
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 text-xs"
-                      onClick={() => setMonthEndClearOpen(true)}
-                      disabled={bulkProgress != null || deleteMutation.isPending}
-                      title="เคลียร์ออเดอร์ที่เลือก — ข้ามใบที่ออก PO ไปแล้วโดยอัตโนมัติ"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      เคลียร์สิ้นเดือน
                     </Button>
                   </>
                 )}
@@ -1131,10 +1164,17 @@ export function SalesOrdersClient() {
                   />
                   <div className="vmi-sales-action-bar flex flex-wrap gap-2 max-xl:fixed max-xl:inset-x-0 max-xl:bottom-0 max-xl:z-50 max-xl:border-t max-xl:border-slate-200 max-xl:p-3 max-xl:pb-[max(0.75rem,env(safe-area-inset-bottom))] max-xl:shadow-[0_-4px_20px_rgb(0_0_0/0.06)] dark:max-xl:border-slate-700 xl:mt-2 xl:flex-wrap xl:border-t xl:border-slate-200 xl:pt-2 dark:xl:border-slate-700">
                     {/* อยู่ในแถบปุ่มเลย — บนมือถือแถบนี้ลอยแยกจากเนื้อหา ถ้าวางไว้ข้างบนจะเห็นแต่ปุ่มจาง */}
-                    {pendingConfirmCount(selected.items) > 0 && (
+                    {pendingConfirmCount(approveItems) > 0 && (
                       <p className="w-full rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
-                        มี {pendingConfirmCount(selected.items)} รายการที่รอร้านยืนยัน —
+                        มี {pendingConfirmCount(approveItems)} รายการที่รอร้านยืนยัน —
                         อนุมัติได้เมื่อร้านตอบครบแล้ว
+                        {partialItems && " (หรือเอาติ๊กรายการนั้นออก)"}
+                      </p>
+                    )}
+                    {partialItems && pendingConfirmCount(approveItems) === 0 && (
+                      <p className="w-full rounded-lg bg-sky-50 px-3 py-2 text-sm text-sky-800 dark:bg-sky-950/30 dark:text-sky-300">
+                        เลือกไว้ {partialItems.length} จาก {selected.items.length} รายการ —
+                        อีก {selected.items.length - partialItems.length} รายการจะแยกเป็นออเดอร์ใหม่รออนุมัติ
                       </p>
                     )}
                     <Button
@@ -1152,7 +1192,8 @@ export function SalesOrdersClient() {
                         // ออเดอร์ที่ร้านตั้งราคาเองต้องยืนยันอีกชั้น — ฝั่งร้านยังต้อง
                         // ยืนยันสองรอบกว่าจะส่งได้ แต่เดิมฝั่งเซลส์อนุมัติจบด้วยคลิกเดียว
                         // ทั้งที่เป็นขั้นที่ออกเลข PO จริงและย้อนกลับไม่ได้
-                        if (approveNeedsConfirm) setApproveOpen(true);
+                        // อนุมัติบางรายการต้องยืนยันเสมอ — แยกใบแล้วพนักงานรวมกลับเองไม่ได้
+                        if (approveNeedsConfirm || partialItems) setApproveOpen(true);
                         else
                           actionMutation.mutate({
                             orderId: selected.id,
@@ -1162,13 +1203,15 @@ export function SalesOrdersClient() {
                       // กั้นจากฝั่ง client ด้วย — เซิร์ฟเวอร์ยังตรวจซ้ำเสมอ
                       disabled={
                         actionMutation.isPending ||
-                        poSplitIssues(selected.items).length > 0 ||
-                        pendingConfirmCount(selected.items) > 0
+                        poSplitIssues(approveItems).length > 0 ||
+                        pendingConfirmCount(approveItems) > 0
                       }
                     >
-                      {poSplitCount(selected.items) > 1
-                        ? `อนุมัติ → ออก ${poSplitCount(selected.items)} PO`
-                        : "อนุมัติ → ออก PO"}
+                      {partialItems
+                        ? `อนุมัติเฉพาะที่เลือก (${partialItems.length}) → ออก PO`
+                        : poSplitCount(selected.items) > 1
+                          ? `อนุมัติ → ออก ${poSplitCount(selected.items)} PO`
+                          : "อนุมัติ → ออก PO"}
                     </Button>
                   </div>
                 </>
@@ -1256,24 +1299,44 @@ export function SalesOrdersClient() {
       <ConfirmDialog
         open={approveOpen}
         tone="default"
-        title="อนุมัติออเดอร์ที่ราคาไม่ตรงระบบ?"
+        title={
+          partialItems
+            ? `อนุมัติเฉพาะ ${partialItems.length} รายการที่เลือก?`
+            : "อนุมัติออเดอร์ที่ราคาไม่ตรงระบบ?"
+        }
         confirmLabel="อนุมัติและออก PO"
         body={
           <>
-            ออเดอร์นี้มี{" "}
-            <span className="font-semibold text-amber-700 dark:text-amber-400">
-              {selectedPriceFlagged} รายการที่ราคาต่างจากระบบ
-            </span>{" "}
-            — ราคาที่แสดงอยู่ตอนนี้จะถูกใช้บนเอกสาร PO ที่ส่งฝ่ายจัดซื้อ
-            <br />
-            กรุณาตรวจราคาอีกครั้งก่อนยืนยัน เพราะเมื่อออกเลข PO แล้วย้อนกลับไม่ได้
+            {partialItems && selected && (
+              <p className="mb-2">
+                ออก PO ให้ {partialItems.length} รายการที่เลือก · อีก{" "}
+                <span className="font-semibold">
+                  {selected.items.length - partialItems.length} รายการ
+                </span>{" "}
+                จะแยกเป็นออเดอร์ใหม่ของร้านเดิม สถานะรออนุมัติ และร้านจะได้รับแจ้ง
+              </p>
+            )}
+            {approveItems.some((i) => i.priceFlagged) && (
+              <p>
+                มี{" "}
+                <span className="font-semibold text-amber-700 dark:text-amber-400">
+                  {approveItems.filter((i) => i.priceFlagged).length} รายการที่ราคาต่างจากระบบ
+                </span>{" "}
+                — ราคาที่แสดงอยู่ตอนนี้จะถูกใช้บนเอกสาร PO ที่ส่งฝ่ายจัดซื้อ กรุณาตรวจราคาอีกครั้ง
+              </p>
+            )}
+            <p className="mt-2 text-slate-500">เมื่อออกเลข PO แล้วย้อนกลับไม่ได้</p>
           </>
         }
         onClose={() => setApproveOpen(false)}
         onConfirm={() => {
           setApproveOpen(false);
           if (selected) {
-            actionMutation.mutate({ orderId: selected.id, action: "approve" });
+            actionMutation.mutate({
+              orderId: selected.id,
+              action: "approve",
+              ...(partialItems ? { itemIds: partialItems.map((i) => i.id) } : {}),
+            });
           }
         }}
       />
@@ -1342,56 +1405,25 @@ export function SalesOrdersClient() {
         onClose={() => setBulkDeleteOpen(false)}
       />
 
-      <ConfirmDialog
+      <MonthEndClearModal
         open={monthEndClearOpen}
-        title={`เคลียร์ออเดอร์สิ้นเดือน — ${deleteSelectedOrders.length} ใบที่เลือก`}
-        body={
-          <>
-            <p>
-              ออเดอร์ที่เลือกจะถูกลบออกจากระบบถาวร (พร้อมรายการสินค้าและประวัติที่ร้านเห็น)
-            </p>
-            <p className="mt-1.5 font-semibold text-teal-700 dark:text-teal-400">
-              ใบที่ออก PO ไปแล้วจะถูกข้ามไปโดยอัตโนมัติ — ไม่ถูกลบ
-            </p>
-            <p className="mt-1.5">ย้อนกลับไม่ได้</p>
-            <NotifyStoreCheckbox
-              checked={notifyStores}
-              onChange={setNotifyStores}
-            />
-          </>
-        }
-        confirmLabel="เคลียร์ตามนี้"
-        onConfirm={async () => {
-          await deleteMutation.mutateAsync({
-            orderIds: deleteSelectedOrders.map((o) => o.id),
-            notify: notifyStores,
-            allowIssuedPo: false,
-          });
-        }}
         onClose={() => setMonthEndClearOpen(false)}
-      />
-
-      <ConfirmDialog
-        open={clearSkuConfirmOpen}
-        tone="danger"
-        title={`เคลียร์ SKU ${clearSkuInput.trim()}?`}
-        body={
-          <>
-            <p>
-              ลบบรรทัด SKU นี้ออกจากทุกออเดอร์ที่ยังรออนุมัติ (ทุกคลัง/ร้านที่ดูแลอยู่)
-              — ถ้าออเดอร์ใบไหนไม่เหลือบรรทัดเลย จะลบทั้งใบไปด้วย
-            </p>
-            <p className="mt-1.5 font-semibold text-teal-700 dark:text-teal-400">
-              ใบที่ออก PO ไปแล้วจะถูกข้ามไปโดยอัตโนมัติ — ไม่ถูกลบ
-            </p>
-            <p className="mt-1.5">ย้อนกลับไม่ได้</p>
-          </>
-        }
-        confirmLabel="เคลียร์ SKU นี้"
-        onConfirm={async () => {
-          await clearSkuMutation.mutateAsync(clearSkuInput.trim());
+        busy={deleteMutation.isPending || clearSkuMutation.isPending}
+        orders={sorted
+          .filter((o) => o.status === "pending_approval")
+          .map((o) => ({
+            id: o.id,
+            label: formatStoreLabel(o.store.code, o.store.name),
+            createdAt: o.createdAt,
+            skuCodes: o.items.map((i) => i.sku.code),
+          }))}
+        onClearOrders={async (orderIds, notify) => {
+          await deleteMutation.mutateAsync({ orderIds, notify, allowIssuedPo: false });
+          toast({ title: `เคลียร์สิ้นเดือนแล้ว ${orderIds.length} ใบ`, tone: "success" });
         }}
-        onClose={() => setClearSkuConfirmOpen(false)}
+        onClearSku={async (skuCode, notify) => {
+          await clearSkuMutation.mutateAsync({ skuCode, notify });
+        }}
       />
     </PageShell>
   );

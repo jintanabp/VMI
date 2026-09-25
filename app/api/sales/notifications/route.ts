@@ -22,7 +22,7 @@ function storeScopeWhere(
       ? [
           ...new Set([
             ...resolveVdaCodesForSalesmanCodes(salesmanCodes),
-            ...resolveAllPersonVdaCodes(email),
+            ...resolveAllPersonVdaCodes(email, session.manualCodes),
           ]),
         ]
       : resolveVdaCodesForSalesmanCodes(salesmanCodes);
