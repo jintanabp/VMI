@@ -202,8 +202,8 @@ export function SalesPreviewPanel() {
                           {rep.name}
                         </p>
                         {rep.unmapped && (
-                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-950/50 dark:text-amber-300">
-                            ไม่พบใน cross_salesman
+                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                            ยังไม่กำหนดอีเมล
                           </span>
                         )}
                         {rep.multipleCodes && (
@@ -214,7 +214,7 @@ export function SalesPreviewPanel() {
                       </div>
                       <p className="text-xs text-slate-500">
                         {rep.unmapped
-                          ? "ทดสอบด้วยรหัสเท่านั้น — ยังไม่มีอีเมลใน cross_salesman"
+                          ? "ทดสอบด้วยรหัสเท่านั้น — ยังไม่กำหนดอีเมลให้รหัสนี้"
                           : rep.email}
                       </p>
 

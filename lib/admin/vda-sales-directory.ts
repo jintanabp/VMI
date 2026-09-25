@@ -22,7 +22,7 @@ export interface PersonVdaRow {
   allVdas: string[];
   multipleCodes: boolean;
   hasVdaAccess: boolean;
-  /** รหัสมีในทะเบียน VDA แต่ไม่พบอีเมลใน cross_salesman */
+  /** รหัสมีในทะเบียน VDA แต่ยังไม่มีอีเมลใดผูกไว้ (ไม่มีทั้งใน cross_salesman และที่แอดมินกำหนด) */
   unmapped?: boolean;
 }
 
@@ -42,10 +42,26 @@ export interface VdaSalesmanRow {
   }>;
 }
 
+/** อีเมลอ้างอิงที่แอดมินกำหนดให้รหัสเซลล์ (SalesmanEmailAssignment ที่ active) */
+export interface ManualEmailAssignment {
+  email: string;
+  salesmanCode: string;
+}
+
+function manualEmailsByCode(manual: ManualEmailAssignment[]): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const m of manual) {
+    const code = m.salesmanCode.trim().toUpperCase();
+    out.set(code, [...(out.get(code) ?? []), m.email.trim().toLowerCase()]);
+  }
+  return out;
+}
+
 function buildPeopleRows(
   salesmen: SalesmanVdaRow[],
   vdaReg: ReturnType<typeof getVdaAosBillRegistry>,
-  salesmanReg: ReturnType<typeof getSalesmanRegistry>
+  salesmanReg: ReturnType<typeof getSalesmanRegistry>,
+  manualByCode: Map<string, string[]>
 ): PersonVdaRow[] {
   const byEmail = new Map<string, PersonVdaRow>();
 
@@ -86,16 +102,27 @@ function buildPeopleRows(
     for (const vda of vdaReg.listVdaCodes()) {
       for (const code of vdaReg.getSalesmanCodesForVda(vda)) {
         const assignment = salesmanReg.getCurrentByCode(code);
-        const email = assignment?.email?.toLowerCase() ?? `__unmapped__:${code}`;
-        const name = assignment
-          ? salesmanReg.getDisplayName(assignment)
-          : `รหัส ${code}`;
-        const person = ensurePerson(email, name);
-        if (!assignment?.email) {
-          person.unmapped = true;
-          person.name = `รหัส ${code} — ไม่พบใน cross_salesman`;
+        const codeVdas = vdaReg.getVdasForSalesman(code);
+        const manualEmails = manualByCode.get(code.trim().toUpperCase()) ?? [];
+        // อีเมลที่แอดมินกำหนด = อีเมลอ้างอิงของรหัสนี้ (ใช้แทน cross_salesman ได้)
+        for (const email of manualEmails) {
+          const person = ensurePerson(
+            email,
+            byEmail.get(email)?.name || (assignment ? salesmanReg.getDisplayName(assignment) : email)
+          );
+          upsertCode(person, code, codeVdas);
         }
-        upsertCode(person, code, vdaReg.getVdasForSalesman(code));
+        if (assignment?.email) {
+          const person = ensurePerson(
+            assignment.email.toLowerCase(),
+            salesmanReg.getDisplayName(assignment)
+          );
+          upsertCode(person, code, codeVdas);
+        } else if (manualEmails.length === 0) {
+          const person = ensurePerson(`__unmapped__:${code}`, `รหัส ${code}`);
+          person.unmapped = true;
+          upsertCode(person, code, codeVdas);
+        }
       }
     }
   }
@@ -138,7 +165,8 @@ function groupVdaPeople(
   );
 }
 
-export function buildVdaSalesDirectory() {
+export function buildVdaSalesDirectory(manual: ManualEmailAssignment[] = []) {
+  const manualByCode = manualEmailsByCode(manual);
   const salesmanReg = getSalesmanRegistry();
   const vdaReg = getVdaAosBillRegistry();
   const assignments = salesmanReg.listCurrentAssignments();
@@ -163,17 +191,20 @@ export function buildVdaSalesDirectory() {
 
   const vdas: VdaSalesmanRow[] = vdaKeys.map((vda) => {
     const codes = vdaReg.getSalesmanCodesForVda(vda);
-    const salesmenForVda = codes
-      .map((code) => {
-        const a = salesmanReg.getCurrentByCode(code);
-        if (!a) return null;
-        return {
-          code: a.code,
-          name: salesmanReg.getDisplayName(a),
-          email: a.email,
-        };
-      })
-      .filter((x): x is NonNullable<typeof x> => x != null);
+    const salesmenForVda = codes.flatMap((code) => {
+      const a = salesmanReg.getCurrentByCode(code);
+      const rows: { code: string; name: string; email: string }[] = [];
+      for (const email of manualByCode.get(code.trim().toUpperCase()) ?? []) {
+        rows.push({
+          code: code.trim().toUpperCase(),
+          name: a ? salesmanReg.getDisplayName(a) : email,
+          email,
+        });
+      }
+      // แถวใน master ที่ไม่มีอีเมล — ข้าม (ไม่งั้นจัดกลุ่มตามอีเมลพัง)
+      if (a?.email) rows.push({ code: a.code, name: salesmanReg.getDisplayName(a), email: a.email });
+      return rows;
+    });
 
     return {
       vda,
@@ -184,7 +215,7 @@ export function buildVdaSalesDirectory() {
   });
 
   const vdasWithSalesman = vdas.filter((v) => v.salesmanCodes.length > 0);
-  const people = buildPeopleRows(salesmen, vdaReg, salesmanReg);
+  const people = buildPeopleRows(salesmen, vdaReg, salesmanReg, manualByCode);
   const peopleWithVda = people.filter((p) => p.hasVdaAccess);
 
   return {

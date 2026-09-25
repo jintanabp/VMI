@@ -313,15 +313,18 @@ export function VdaSalesAccessPanel() {
                         <p className="font-medium text-slate-800 dark:text-slate-200">
                           {p.name}
                         </p>
-                        <p className="mt-0.5 text-xs text-slate-500">{p.email}</p>
+                        {/* อีเมลอ้างอิงที่ไม่มีชื่อใน master ใช้อีเมลเป็นชื่อ — ไม่ต้องแสดงซ้ำ */}
+                        {!p.unmapped && p.name !== p.email && (
+                          <p className="mt-0.5 text-xs text-slate-500">{p.email}</p>
+                        )}
                         {p.multipleCodes && (
                           <span className="mt-1.5 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
                             หลายรหัสเซลล์ ({p.codes.length})
                           </span>
                         )}
                         {p.unmapped && (
-                          <span className="mt-1.5 ml-1 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
-                            ไม่พบใน cross_salesman
+                          <span className="mt-1.5 ml-1 inline-block rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                            ยังไม่กำหนดอีเมล
                           </span>
                         )}
                       </td>
@@ -407,7 +410,7 @@ export function VdaSalesAccessPanel() {
                           </ul>
                         ) : (
                           <span className="text-slate-400">
-                            ไม่พบอีเมลใน cross_salesman
+                            ยังไม่กำหนดอีเมล — กำหนดได้ในกล่องด้านบน
                           </span>
                         )}
                       </td>

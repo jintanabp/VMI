@@ -244,9 +244,9 @@ export function SalesmanAssignmentPanel() {
                 {g.salesmanName && (
                   <span className="text-sm text-slate-700 dark:text-slate-200">{g.salesmanName}</span>
                 )}
-                {!g.foundInMaster && (
-                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
-                    ไม่พบรหัสนี้ใน cross_salesman — เข้าสู่ระบบไม่ได้
+                {g.vdas.length === 0 && (
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                    รหัสนี้ยังไม่ดูแลคลังใด
                   </span>
                 )}
                 <span className="ml-auto flex flex-wrap gap-1">

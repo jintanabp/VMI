@@ -62,6 +62,17 @@ describe("revalidateManualCodes — สิทธิ์ตามการกำ�
     expect(await revalidate(base)).toBe(base);
   });
 
+  it("แอดมินกำหนดรหัสที่ไม่มีใน cross_salesman → ยังเข้าใช้งานได้ในฐานะรหัสนั้น (อีเมลอ้างอิง)", async () => {
+    manualCodes = ["S777"];
+    const { buildSalesSessionWithAccess } = await import("@/lib/auth/sales-session");
+    const s = await buildSalesSessionWithAccess("ref@sahapat.co.th", "ผู้ใช้อ้างอิง");
+    expect(s.role).toBe("sales");
+    expect(s.salesmanCode).toBe("S777");
+    expect(s.scopeSalesmanCodes).toEqual(["S777"]);
+    expect(s.manualCodes).toEqual(["S777"]);
+    expect(s.name).toBe("ผู้ใช้อ้างอิง");
+  });
+
   it("session เก่าที่ไม่มีฟิลด์ manualCodes และไม่มีการกำหนด → ใช้ session เดิม", async () => {
     manualCodes = [];
     const old = { ...base, manualCodes: undefined };

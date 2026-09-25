@@ -106,7 +106,9 @@ manager/supervisor จะได้ `scopeSalesmanCodes` และ `scopeEmails` 
 - มีแถว `active` อย่างน้อย 1 แถว → ใช้รหัสพวกนั้น**แทน**ผลอัตโนมัติจาก cross_target ทั้งหมด และใส่ทุกรหัสลง
   `scopeSalesmanCodes` ตรงๆ (รหัสที่ไม่ได้เป็นหัวหน้า/ลูกทีมกันก็ไม่หาย)
 - ไม่มีแถว → พฤติกรรมเดิมทุกประการ
-- รหัสที่กำหนดไม่อยู่ใน master `cross_salesman` → login ไม่ผ่าน พร้อมข้อความให้ตรวจรหัส
+- รหัสที่กำหนดไม่อยู่ใน master `cross_salesman` → **ยัง login ได้** (อีเมลอ้างอิง — ผู้ใช้ตัดสิน 25 ก.ย. 2569)
+  เป็น role `sales` เห็นเฉพาะรหัสที่กำหนด (ไม่มีข้อมูลหัวหน้า/ลูกทีมใน master) · หน้า `/admin/system/vda-sales`
+  ใช้อีเมลเหล่านี้เป็นเจ้าของรหัสด้วย (`buildVdaSalesDirectory(manual)`)
 - **มีผลทันที:** `getRawSalesSession()` เทียบรหัสที่กำหนดตอนนี้กับ `session.manualCodes` ที่ติดมาใน cookie
   (query เดียวต่อ request) ต่างกัน → คำนวณสิทธิ์ใหม่ด้วย `buildSalesSessionWithAccess` สำหรับ request นั้น ·
   คำนวณไม่ได้แล้ว (ไม่เหลือรหัสใน master) → คืน `null` ผู้ใช้ถูกพาไป login · DB อ่านไม่ได้ชั่วคราว → ใช้ session เดิม

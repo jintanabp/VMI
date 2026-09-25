@@ -123,7 +123,8 @@ function normalizeCode(code: string) {
 
 /**
  * Access control:
- * - ต้องมีอีเมลใน cross_salesman master
+ * - ต้องมีอีเมลใน cross_salesman master — หรือแอดมินกำหนดรหัสให้อีเมลนี้ไว้ (อีเมลอ้างอิง) ซึ่งใช้ได้
+ *   แม้รหัสนั้นไม่มีใน cross_salesman
  * - สิทธิ์ดูออเดอร์ VDA มาจากทะเบียน VDA_SALESMAN_MAP (ไม่ใช้ allowlist)
  * - Manager/Supervisor ดูออเดอร์ VDA ของลูกทีม
  */
@@ -156,11 +157,26 @@ export async function buildSalesSessionWithAccess(
     };
   }
 
+  // แอดมินกำหนดรหัสไว้แต่รหัสนั้นไม่มีใน cross_salesman — ใช้ได้ (ผู้ใช้ตัดสิน 25 ก.ย. 69: ใช้อีเมลอ้างอิง
+  // ที่แอดมินกำหนดแทนการพึ่ง cross_salesman) · ไม่มีข้อมูลหัวหน้า/ลูกทีม จึงเป็น role sales ที่เห็นเฉพาะ
+  // รหัสที่กำหนด
+  if (!assignment?.code && manualCodes.length > 0) {
+    const code = manualCodes[0]!;
+    return {
+      email,
+      name: name || email,
+      role: "sales",
+      salesmanCode: code,
+      salesmanName: `รหัส ${code}`,
+      scopeSalesmanCodes: [...manualCodes],
+      scopeEmails: [email.toLowerCase()],
+      manualCodes: [...manualCodes].sort(),
+    };
+  }
+
   if (!assignment?.code) {
     throw new Error(
-      manualCodes.length > 0
-        ? "แอดมินกำหนดรหัสเซลล์ให้อีเมลนี้ไว้ แต่ไม่พบรหัสนั้นใน master (cross_salesman) — ตรวจรหัสที่กำหนดอีกครั้ง"
-        : "ไม่พบข้อมูลพนักงานใน master (cross_salesman) — อีเมลนี้ยังไม่มีในระบบ"
+      "ไม่พบข้อมูลพนักงานใน master (cross_salesman) และแอดมินยังไม่ได้กำหนดรหัสเซลล์ให้อีเมลนี้"
     );
   }
 
