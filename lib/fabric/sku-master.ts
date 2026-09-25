@@ -77,11 +77,54 @@ function parseNum(raw: string | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+export interface SkuSearchHit {
+  code: string;
+  name: string;
+  barcode: string;
+  section: string;
+  brand: string;
+}
+
+/** แถวเบาๆ สำหรับค้นหาเท่านั้น — ไม่เก็บราคา/ประวัติเหมือน pricesByCode เพื่อไม่ให้หน่วยความจำบวม */
+interface SkuSearchRow extends SkuSearchHit {
+  nameLower: string;
+  brandLower: string;
+  sectionLower: string;
+  barcodeLower: string;
+  /** รวมทุกฟิลด์เป็นก้อนเดียวตัวพิมพ์เล็ก — ใช้เป็นทางถอยสุดท้ายเวลาคะแนนอื่นไม่เข้าเงื่อนไข */
+  search: string;
+}
+
+/** จำนวนสูงสุดที่เก็บไว้จัดอันดับ — เกินกว่านี้แปลว่าคำค้นกว้างเกินจะเลือกอยู่ดี (เท่ากับ CustomerDirectory) */
+const SKU_RANK_POOL = 500;
+
+/**
+ * คะแนนยิ่งน้อยยิ่งตรง · -1 = ไม่เข้าเงื่อนไข — ลำดับเดียวกับ CustomerDirectory.scoreCustomer:
+ * รู้รหัสก็พิมพ์รหัส · รู้บาร์โค้ดก็สแกน/พิมพ์บาร์โค้ด · รู้แค่ชื่อสินค้า/แบรนด์ก็พิมพ์ชื่อ
+ */
+function scoreSku(r: SkuSearchRow, qLower: string): number {
+  const code = r.code.toLowerCase();
+  if (code === qLower) return 0;
+  if (code.startsWith(qLower)) return 1;
+
+  if (r.barcodeLower && r.barcodeLower === qLower) return 2;
+  if (qLower.length >= 4 && r.barcodeLower && r.barcodeLower.includes(qLower)) return 3;
+
+  if (r.nameLower.startsWith(qLower)) return 4;
+  if (r.brandLower === qLower) return 5;
+  if (r.nameLower.includes(qLower)) return 6;
+  if (r.search.includes(qLower)) return 7;
+
+  return -1;
+}
+
 export class SkuMasterDirectory {
   private loadedCount = 0;
   private nameByCode = new Map<string, string>();
   private metaByCode = new Map<string, SkuMeta>();
   private pricesByCode = new Map<string, PriceRecord[]>();
+  /** เก็บไว้เฉพาะค้นหา (พนักงานเพิ่มสินค้าใหม่เข้าออเดอร์) — ดู searchRanked() */
+  private searchRows: SkuSearchRow[] = [];
   private csvPath: string | null = null;
 
   get isLoaded() {
@@ -121,6 +164,50 @@ export class SkuMasterDirectory {
    */
   vatStatusForSku(code: string): "Y" | "N" | null {
     return this.metaByCode.get(code.trim())?.vatStatus ?? null;
+  }
+
+  /**
+   * ค้นสินค้าทั้งแคตตาล็อกแบบจัดอันดับ + บอกจำนวนที่เจอทั้งหมด (ดู `scoreSku`)
+   *
+   * ใช้ตอนพนักงานเพิ่มสินค้าใหม่เข้าออเดอร์ที่ร้านส่งมาแล้ว — ต่างจากช่องค้นหาในหน้า /stock
+   * ตรงที่หน้านั้นกรองแค่ในแถวสต็อกที่โหลดมาแล้วของร้านเดียว (ร้านไม่เคยสต็อกจะหาไม่เจอ)
+   * ส่วนตัวนี้ค้นทั้ง master ไม่ผูกกับร้านไหนเลย
+   */
+  searchRanked(
+    q: string,
+    limit = 20
+  ): { hits: SkuSearchHit[]; total: number; capped: boolean } {
+    const needle = q.trim();
+    if (!needle) return { hits: [], total: 0, capped: false };
+
+    const qLower = needle.toLowerCase();
+    const scored: { r: SkuSearchRow; score: number }[] = [];
+    let total = 0;
+
+    for (const r of this.searchRows) {
+      const score = scoreSku(r, qLower);
+      if (score < 0) continue;
+      total++;
+      if (scored.length < SKU_RANK_POOL) scored.push({ r, score });
+    }
+
+    scored.sort(
+      (a, b) =>
+        a.score - b.score ||
+        a.r.code.localeCompare(b.r.code, undefined, { numeric: true })
+    );
+
+    return {
+      hits: scored.slice(0, limit).map(({ r }) => ({
+        code: r.code,
+        name: r.name,
+        barcode: r.barcode,
+        section: r.section,
+        brand: r.brand,
+      })),
+      total,
+      capped: total > SKU_RANK_POOL,
+    };
   }
 
   /**
@@ -183,6 +270,7 @@ export class SkuMasterDirectory {
     const nameByCode = new Map<string, string>();
     const metaByCode = new Map<string, SkuMeta>();
     const pricesByCode = new Map<string, PriceRecord[]>();
+    const searchRows: SkuSearchRow[] = [];
     let count = 0;
 
     // stream ทีละแถว — ไม่เก็บ array 110k แถว, คีย์ถูก lower-case ให้แล้ว (n = row)
@@ -225,6 +313,25 @@ export class SkuMasterDirectory {
           packSize,
           vatStatus,
         });
+        // เก็บแค่ตอนเจอรหัสนี้ครั้งแรก (เหมือน metaByCode) กันรหัสเดียวซ้ำหลายแถวโผล่ในผลค้นหา
+        const nameLower = name.toLowerCase();
+        const brandLower = brand.toLowerCase();
+        const sectionLower = section.toLowerCase();
+        searchRows.push({
+          code: productCode,
+          name,
+          barcode,
+          section,
+          brand,
+          nameLower,
+          brandLower,
+          sectionLower,
+          barcodeLower: barcode.toLowerCase(),
+          search: [productCode, nameLower, brandLower, sectionLower, barcode]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase(),
+        });
       }
 
       // คอลัมน์สรุประดับหีบ ซ้ำเท่ากันทุกแถวของรหัสนี้
@@ -259,6 +366,7 @@ export class SkuMasterDirectory {
     this.nameByCode = nameByCode;
     this.metaByCode = metaByCode;
     this.pricesByCode = pricesByCode;
+    this.searchRows = searchRows;
     this.csvPath = csvPath;
 
     console.info(

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getRepositories } from "@/lib/repositories";
 import { approveWithPoSplit } from "@/lib/po/approve-with-split";
+import { addOrderItem } from "@/lib/po/add-order-item";
 import { notifyStore } from "@/lib/orders/store-notify";
 import { notifySales } from "@/lib/orders/sales-notify";
 import {
@@ -21,7 +22,9 @@ import type { OrderItemInput } from "@/lib/repositories/types";
 import { getSalesSession } from "@/lib/auth/sales-session";
 import { prisma } from "@/lib/prisma";
 import { ensureVdaStoreSalesRep } from "@/lib/fabric/ensure-vda-sales-rep";
-import { isVdaStoreCode } from "@/lib/fabric/vda-aos-bill";
+import { isVdaStoreCode, getVdaAosBillRegistry } from "@/lib/fabric/vda-aos-bill";
+import { getSkuMasterDirectory } from "@/lib/fabric";
+import { getCrossTargetRegistry } from "@/lib/fabric/cross-target";
 import {
   assertOrderAccess,
   resolveAllPersonVdaCodes,
@@ -40,7 +43,8 @@ const orderItemSchema = z.object({
   cvdEstimate: z.number().nullable(),
   minDays: z.number().int().nullable().optional(),
   maxDays: z.number().int().nullable().optional(),
-  // ราคาที่ร้านแก้เอง — รับแค่ตัวนี้ ที่เหลือเซิร์ฟเวอร์คำนวณเอง (client ประกาศ "ไม่ flagged" ไม่ได้)
+  // ร้านค้าแก้ราคาเองไม่ได้แล้ว — รับฟิลด์นี้ไว้เฉย ๆ เผื่อแท็บเก่าที่ยังเปิดค้างส่งมา
+  // แต่ route นี้จะบังคับเป็น null เสมอตอนสร้างออเดอร์ (ดู evaluatePriceOverride ด้านล่าง)
   // .finite() จำเป็น: JSON.parse('{"x":1e999}') ได้ Infinity ซึ่ง z.number() ปล่อยผ่าน
   unitPriceOverride: z
     .number()
@@ -99,6 +103,18 @@ const patchOrderSchema = z.discriminatedUnion("action", [
   }),
   z.object({
     orderId: z.string().min(1),
+    action: z.literal("rejectItem"),
+    itemId: z.string().min(1),
+    reason: z.string().trim().max(500).optional(),
+  }),
+  z.object({
+    orderId: z.string().min(1),
+    action: z.literal("addItem"),
+    skuCode: z.string().trim().min(1).max(64),
+    finalQty: z.number().int().min(1).max(100_000),
+  }),
+  z.object({
+    orderId: z.string().min(1),
     action: z.literal("assignPoGroup"),
     assignments: z
       .array(
@@ -111,6 +127,43 @@ const patchOrderSchema = z.discriminatedUnion("action", [
       .max(500),
   }),
 ]);
+
+/**
+ * แปะ "ชิ้น/หีบ" + "อยู่ในเป้าขายไหม" ให้แต่ละบรรทัด — ไม่มีในฐานข้อมูล อ่านจาก CSV
+ * ที่โหลดไว้แล้วเท่านั้น (ตัดสินแบบเดียวกับแท็บ "ควรมีขาย" ของหน้า /stock: ดูเป้าของ
+ * เซลล์ทุกคนในระบบ ไม่ใช่แค่คนที่ดูแลคลังนี้ — ของที่เซลล์คลังอื่นมีเป้า ร้านนี้ก็สั่งได้)
+ *
+ * `orders.listOrders()` ประกาศคืน `unknown[]` โดยตั้งใจ (route ส่งต่อเป็น JSON ตรง ๆ
+ * ไม่เคยอ่านฟิลด์เอง) จึงต้อง cast รูปร่างที่รู้แน่ว่ามี (items[].sku.code) ตรงนี้เอง
+ */
+function withPackSize(list: unknown[]) {
+  const skuDir = getSkuMasterDirectory();
+  let targetCodes: Set<string> | null = null;
+  try {
+    targetCodes = new Set(
+      getCrossTargetRegistry().productsForSalesmen(
+        getVdaAosBillRegistry().listAllSalesmanCodes()
+      )
+    );
+  } catch {
+    // เป้าขายเป็นฟีเจอร์เสริม — ขาดได้โดยไม่ทำให้ลิสต์ออเดอร์ทั้งหน้าพัง
+    targetCodes = null;
+  }
+  return list.map((orderRaw) => {
+    const order = orderRaw as { items: { sku: { code: string } }[] } &
+      Record<string, unknown>;
+    return {
+      ...order,
+      items: order.items.map((item) => ({
+        ...item,
+        packSize: skuDir.packSizeForSku(item.sku.code),
+        // null = เป้าขายยังไม่พร้อม/โหลดไม่สำเร็จ — ต่างจาก false (โหลดแล้วแต่ไม่มีเป้าจริง)
+        hasTarget: targetCodes ? targetCodes.has(item.sku.code) : null,
+        section: skuDir.sectionForSku(item.sku.code),
+      })),
+    };
+  });
+}
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -136,7 +189,7 @@ export async function GET(request: Request) {
         salesRepId: salesRepId || undefined,
         storeCode: vdaCode || undefined,
       });
-      return NextResponse.json(list);
+      return NextResponse.json(withPackSize(list));
     }
 
     const salesmanCodes = resolveSalesmanCodesForFilter(salesSession);
@@ -157,7 +210,7 @@ export async function GET(request: Request) {
         storeId,
         vdaCodes: filterVdas,
       });
-      return NextResponse.json(list);
+      return NextResponse.json(withPackSize(list));
     }
 
     if (role === "sales") {
@@ -174,12 +227,12 @@ export async function GET(request: Request) {
         : { status, storeId, salesRepEmail: email };
 
     const list = await orders.listOrders(filters);
-    return NextResponse.json(list);
+    return NextResponse.json(withPackSize(list));
   }
 
   if (customerStoreId) {
     const list = await orders.listOrders({ storeId: customerStoreId, status });
-    return NextResponse.json(list);
+    return NextResponse.json(withPackSize(list));
   }
 
   return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -240,8 +293,10 @@ export async function POST(request: Request) {
 
   const enrichedItemsBase: OrderItemInput[] = items.map((i) => {
     const c4 = c4BySku?.get(codeById.get(i.skuId) ?? "") ?? null;
+    // ร้านค้าแก้ราคาเองไม่ได้แล้ว — ไม่ไว้ใจค่า unitPriceOverride ที่ client ส่งมาอีกต่อไป
+    // (เผื่อแท็บเก่าที่ยังเปิดค้างอยู่หรือเรียก API ตรง ๆ) บังคับเป็น null เสมอตอนสร้างออเดอร์ใหม่
     const verdict = evaluatePriceOverride({
-      override: i.unitPriceOverride ?? null,
+      override: null,
       c4UnitPrice: c4?.unitPrice ?? null,
       promoLoaded: c4BySku != null,
     });
@@ -407,6 +462,19 @@ export async function PATCH(request: Request) {
   }
 
   if (action === "approve") {
+    // มีรายการที่พนักงานเพิ่มจำนวนเกินที่ร้านขอ รอร้านยืนยันอยู่ — ห้ามอนุมัติทั้งใบ
+    // จนกว่าร้านจะตอบ (ยืนยัน/ปฏิเสธ) ให้ครบทุกรายการก่อน
+    const pendingCount = await prisma.orderItem.count({
+      where: { orderId, qtyIncreasePendingConfirm: true },
+    });
+    if (pendingCount > 0) {
+      return NextResponse.json(
+        {
+          error: `มี ${pendingCount} รายการที่รอร้านค้ายืนยันจำนวนที่เพิ่ม — อนุมัติไม่ได้จนกว่าร้านจะตอบ`,
+        },
+        { status: 422 }
+      );
+    }
     try {
       const result = await approveWithPoSplit(
         orderId,
@@ -539,10 +607,10 @@ export async function PATCH(request: Request) {
     return NextResponse.json(await orders.getOrderById(orderId));
   }
 
-  if (action === "updateQty") {
+  if (action === "rejectItem") {
     const before = await snapshotOrderItem(orderId, body.itemId);
     try {
-      await orders.updateOrderItemQty(orderId, body.itemId, body.finalQty);
+      await orders.rejectOrderItem(orderId, body.itemId, body.reason);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "";
       if (msg === "ORDER_ITEM_NOT_FOUND") {
@@ -555,10 +623,80 @@ export async function PATCH(request: Request) {
     }
     await notifyStore({
       storeId: order.storeId,
-      kind: "qty_changed",
-      title: "พนักงานปรับจำนวนในคำสั่งซื้อ",
+      kind: "item_rejected",
+      title: "พนักงานปฏิเสธรายการในคำสั่งซื้อ",
+      detail:
+        (before ? `${before.skuCode} ${before.skuName}` : "รายการนี้") +
+        (body.reason ? ` · ${body.reason}` : ""),
+      orderId,
+      actorEmail: salesSession.email,
+    });
+    return NextResponse.json(await orders.getOrderById(orderId));
+  }
+
+  if (action === "addItem") {
+    const skuCode = body.skuCode;
+    let skuName = skuCode;
+    try {
+      const result = await addOrderItem(
+        orderId,
+        order.storeId,
+        skuCode,
+        body.finalQty
+      );
+      skuName = result.skuName;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      if (msg.startsWith("SKU_ALREADY_IN_ORDER:")) {
+        return NextResponse.json(
+          { error: msg.slice("SKU_ALREADY_IN_ORDER:".length) },
+          { status: 409 }
+        );
+      }
+      throw err;
+    }
+    await notifyStore({
+      storeId: order.storeId,
+      kind: "item_added_pending",
+      title: "พนักงานเพิ่มสินค้าใหม่ — รอร้านยืนยัน",
+      detail: `${skuCode} ${skuName} · ${body.finalQty} หีบ`,
+      orderId,
+      actorEmail: salesSession.email,
+    });
+    return NextResponse.json(await orders.getOrderById(orderId));
+  }
+
+  if (action === "updateQty") {
+    const before = await snapshotOrderItem(orderId, body.itemId);
+    let pendingConfirm = false;
+    try {
+      const result = await orders.updateOrderItemQty(
+        orderId,
+        body.itemId,
+        body.finalQty
+      );
+      pendingConfirm = result.pendingConfirm;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      if (msg === "ORDER_ITEM_NOT_FOUND") {
+        return NextResponse.json(
+          { error: "ไม่พบรายการนี้ในออเดอร์" },
+          { status: 404 }
+        );
+      }
+      throw err;
+    }
+    const skuLabel = before ? `${before.skuCode} ${before.skuName}` : "รายการนี้";
+    // เพิ่มเกินที่ร้านขอ = ต้องรอร้านยืนยันก่อนเข้า PO ได้ — แจ้งเตือนคนละแบบกับแก้จำนวนทั่วไป
+    // (ลดจำนวนไม่ต้องรอ ตามที่ผู้ใช้ระบุ)
+    await notifyStore({
+      storeId: order.storeId,
+      kind: pendingConfirm ? "qty_increase_pending" : "qty_changed",
+      title: pendingConfirm
+        ? "พนักงานขอเพิ่มจำนวน — รอร้านยืนยัน"
+        : "พนักงานปรับจำนวนในคำสั่งซื้อ",
       detail: before
-        ? `${before.skuCode} ${before.skuName} · ${before.finalQty} → ${body.finalQty} หีบ`
+        ? `${skuLabel} · ${before.finalQty} → ${body.finalQty} หีบ`
         : `ปรับเป็น ${body.finalQty} หีบ`,
       orderId,
       actorEmail: salesSession.email,

@@ -103,6 +103,8 @@ export const prismaOrderRepository: OrderRepository = {
           skuId: item.skuId,
           suggestedQty: item.suggestedQty,
           finalQty: item.finalQty,
+          // แช่จำนวนที่ร้านส่งมาตอนแรกไว้ ไม่แก้อีก — ใช้เทียบว่าพนักงานแก้จำนวนไปจากนี้ไหม
+          requestedQty: item.finalQty,
           cvdEstimate: item.cvdEstimate,
           minDays: item.minDays ?? null,
           maxDays: item.maxDays ?? null,
@@ -324,13 +326,66 @@ export const prismaOrderRepository: OrderRepository = {
     });
   },
 
+  /**
+   * แก้จำนวน — ถ้าพนักงานตั้งมากกว่าที่ร้านขอไว้ตอนแรก (requestedQty) ต้องรอร้านยืนยันก่อน
+   * ถึงจะเอาเข้า PO ได้ (ลดได้เลยไม่ต้องรอ ตามที่ผู้ใช้ระบุ) — คืนค่า pendingConfirm ให้ route
+   * ตัดสินใจว่าจะแจ้งเตือนร้านแบบไหน
+   */
   async updateOrderItemQty(orderId, itemId, finalQty) {
+    const existing = await prisma.orderItem.findFirst({
+      where: { id: itemId, orderId },
+      select: { requestedQty: true },
+    });
+    if (!existing) throw new Error("ORDER_ITEM_NOT_FOUND");
+
+    const pendingConfirm =
+      existing.requestedQty != null && finalQty > existing.requestedQty;
+
     // ต้องมี orderId ใน where ด้วย — ไม่งั้นผ่าน assertOrderAccess ออเดอร์ตัวเอง
     // แล้วส่ง itemId ของออเดอร์ร้านอื่นเข้ามาแก้ได้
     // updateMany เพราะ (id, orderId) ไม่ใช่ unique key ใน Prisma
     const res = await prisma.orderItem.updateMany({
       where: { id: itemId, orderId },
-      data: { finalQty },
+      data: { finalQty, qtyIncreasePendingConfirm: pendingConfirm },
+    });
+    if (res.count === 0) throw new Error("ORDER_ITEM_NOT_FOUND");
+    return { pendingConfirm };
+  },
+
+  /** ร้านยืนยันจำนวนที่พนักงานเพิ่มให้ — แค่ปลดล็อก ไม่แตะ finalQty/requestedQty */
+  async confirmQtyIncrease(orderId, itemId) {
+    const res = await prisma.orderItem.updateMany({
+      where: { id: itemId, orderId, qtyIncreasePendingConfirm: true },
+      data: { qtyIncreasePendingConfirm: false },
+    });
+    if (res.count === 0) throw new Error("ORDER_ITEM_NOT_FOUND");
+  },
+
+  /** ร้านปฏิเสธจำนวนที่เพิ่ม — คืน finalQty กลับไปเท่าที่ร้านขอไว้ตอนแรก */
+  async rejectQtyIncrease(orderId, itemId) {
+    const existing = await prisma.orderItem.findFirst({
+      where: { id: itemId, orderId, qtyIncreasePendingConfirm: true },
+      select: { requestedQty: true },
+    });
+    if (!existing || existing.requestedQty == null) {
+      throw new Error("ORDER_ITEM_NOT_FOUND");
+    }
+    const res = await prisma.orderItem.updateMany({
+      where: { id: itemId, orderId, qtyIncreasePendingConfirm: true },
+      data: { finalQty: existing.requestedQty, qtyIncreasePendingConfirm: false },
+    });
+    if (res.count === 0) throw new Error("ORDER_ITEM_NOT_FOUND");
+  },
+
+  /**
+   * ปฏิเสธรายการเดียวในออเดอร์ (คนละอันกับปฏิเสธทั้งใบ) — ตั้ง finalQty เป็น 0 เหมือน
+   * "ตัดบรรทัดออก" เดิม เพื่อให้ approve-with-split.ts กันรายการนี้ออกจาก PO ได้โดยไม่ต้อง
+   * แก้เงื่อนไขที่ทดสอบไว้แล้ว แค่แช่เหตุผล/เวลาไว้ให้ดูย้อนหลังเพิ่ม
+   */
+  async rejectOrderItem(orderId, itemId, reason) {
+    const res = await prisma.orderItem.updateMany({
+      where: { id: itemId, orderId },
+      data: { finalQty: 0, rejectedAt: new Date(), rejectReason: reason ?? null },
     });
     if (res.count === 0) throw new Error("ORDER_ITEM_NOT_FOUND");
   },

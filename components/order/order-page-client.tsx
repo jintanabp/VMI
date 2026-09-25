@@ -1,12 +1,7 @@
 "use client";
 
 import { appPath } from "@/lib/paths";
-import {
-  checkDeliveryDate,
-  defaultDeliveryDate,
-  earliestDeliveryDate,
-  thaiShortDate,
-} from "@/lib/orders/delivery-date";
+import { defaultDeliveryDate } from "@/lib/orders/delivery-date";
 import { apiFetch } from "@/lib/api-fetch";
 import { suggestRemainingQty } from "@/lib/stock/suggest-remaining";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -38,12 +33,12 @@ import {
 } from "@/components/promo/promo-group-header";
 import {
   StockDiscountPerCaseCell,
+  StockListPriceCell,
   StockNetPriceCell,
 } from "@/components/stock/stock-price-cells";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { Modal, ModalBody, ModalFooter, ModalHeader } from "@/components/ui/modal";
 import { CvdFlagCell } from "@/components/ui/cvd-flag-cell";
 import {
   OrderNoticeBar,
@@ -67,13 +62,11 @@ import {
   getPromoForQty,
   evaluatePriceOverride,
   resolveEffectivePrice,
-  roundBaht,
   type CvdFlag,
   type CvdFlagReason,
   type PromoResult,
 } from "@/lib/calculations";
 import { cvdFlagHint } from "@/lib/stock/cvd-hint";
-import { StorePriceInput } from "@/components/order/store-price-input";
 import { StockQtyStepper } from "@/components/stock/stock-qty-stepper";
 import { cn } from "@/lib/utils";
 import {
@@ -145,9 +138,6 @@ interface PromoApiLine extends PromoResult {
   promoGroupMembers?: number;
 }
 
-/** ราคาที่ร้านแก้เอง ต้องรอดข้ามการเด้งไป /stock แล้วกลับมา */
-const PRICE_STORAGE_KEY = "vmi_order_price";
-
 interface EnrichedLine {
   row: StockRowComputed;
   qty: number;
@@ -196,18 +186,11 @@ export function OrderPageClient({
   const [submitError, setSubmitError] = useState<string | null>(null);
   /** ยืนยันอีกครั้งเมื่อมีรายการที่จำนวนไม่เข้าเป้าหมาย — เตือน ไม่ใช่ห้ามส่ง */
   const [confirmRiskyOpen, setConfirmRiskyOpen] = useState(false);
-  /** เดิมช่องเลือกวันรับของแอบอยู่ในแถบปุ่มล่างสุด เล็กจนร้านมองข้ามได้ง่าย —
-   * ย้ายมาเป็นกล่องยืนยันแยกที่ขึ้นทุกครั้งตอนกดส่ง จะได้ไม่มีทางพลาด */
-  const [confirmDeliveryOpen, setConfirmDeliveryOpen] = useState(false);
   /** ชิปคำเตือนที่กดค้างไว้ — กรองตารางให้เหลือเฉพาะรายการของคำเตือนนั้น */
   const [noticeFilter, setNoticeFilter] = useState<string | null>(null);
   /** รหัส SKU ที่ติ๊กไว้เพื่อลบออกจากคำสั่ง */
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
-  /** skuCode → ราคา/หีบ ที่ร้านพิมพ์เอง */
-  const [priceOverrides, setPriceOverrides] = useState<Record<string, number>>(
-    {}
-  );
   const [promoApi, setPromoApi] = useState<{
     lines: Record<string, PromoApiLine>;
     orderTotal: number | null;
@@ -243,26 +226,6 @@ export function OrderPageClient({
       } catch {
         qtyBySku = {};
       }
-      // ตัดราคาที่ค้างของ SKU ที่ไม่อยู่ใน draft นี้แล้วทิ้ง
-      // ไม่งั้นราคาเก่าจะไปเกาะ SKU ที่ถูกลบแล้วเพิ่มกลับมาใหม่
-      let priceBySku: Record<string, number> = {};
-      try {
-        const rawPrice = sessionStorage.getItem(PRICE_STORAGE_KEY);
-        if (rawPrice) {
-          const parsed = JSON.parse(rawPrice) as Record<string, number>;
-          const codes = new Set(items.map((r) => r.skuCode));
-          priceBySku = Object.fromEntries(
-            Object.entries(parsed).filter(
-              ([code, v]) =>
-                codes.has(code) && Number.isFinite(v) && (v as number) >= 0
-            )
-          );
-        }
-      } catch {
-        priceBySku = {};
-      }
-      setPriceOverrides(priceBySku);
-
       setLines(
         items.map((row) => ({
           row,
@@ -334,31 +297,6 @@ export function OrderPageClient({
       ctrl.abort();
     };
   }, [lines]);
-
-  function setPriceOverride(skuCode: string, price: number | null) {
-    setPriceOverrides((prev) => {
-      const next = { ...prev };
-      if (price == null) delete next[skuCode];
-      else next[skuCode] = roundBaht(price);
-      return next;
-    });
-  }
-
-  useEffect(() => {
-    if (!ready) return;
-    try {
-      if (Object.keys(priceOverrides).length === 0) {
-        sessionStorage.removeItem(PRICE_STORAGE_KEY);
-      } else {
-        sessionStorage.setItem(
-          PRICE_STORAGE_KEY,
-          JSON.stringify(priceOverrides)
-        );
-      }
-    } catch {
-      // sessionStorage ปิดอยู่ — ราคายังใช้ได้ในหน้านี้ แค่ไม่รอดข้ามหน้า
-    }
-  }, [priceOverrides, ready]);
 
   const enriched = useMemo(() => {
     return lines.map((line) => {
@@ -450,7 +388,10 @@ export function OrderPageClient({
         freeGood = api?.freeGood ?? null;
       }
 
-      const override = priceOverrides[line.row.skuCode] ?? null;
+      // ร้านค้าแก้ราคาเองไม่ได้แล้ว — override เป็น null เสมอสำหรับออเดอร์ใหม่
+      // (ยังต้องคงพารามิเตอร์นี้ไว้ เพราะ evaluatePriceOverride/resolveEffectivePrice
+      // ใช้ค่าเดียวกันกับตอนแสดงผลออเดอร์เก่าที่มี unitPriceOverride ค้างอยู่ในฐานข้อมูล)
+      const override = null;
       const verdict = evaluatePriceOverride({
         override,
         c4UnitPrice,
@@ -507,7 +448,7 @@ export function OrderPageClient({
         pooledQty: apiFresh ? api!.pooledQty ?? line.qty : line.qty,
       };
     });
-  }, [lines, promoApi, priceOverrides]);
+  }, [lines, promoApi]);
 
   const stats = useMemo(() => {
     const totalQty = enriched.reduce((s, l) => s + l.qty, 0);
@@ -710,7 +651,6 @@ export function OrderPageClient({
       try {
         sessionStorage.removeItem("vmi_order_draft");
         sessionStorage.removeItem("vmi_order_qty");
-        sessionStorage.removeItem(PRICE_STORAGE_KEY);
       } catch {
         // sessionStorage ปิดอยู่ — เด้งกลับก็พอ
       }
@@ -719,12 +659,6 @@ export function OrderPageClient({
     }
 
     setLines(next);
-    // ราคาที่ร้านแก้ไว้ของตัวที่ลบต้องหายไปด้วย ไม่งั้นไปเกาะ SKU เดิมถ้าเพิ่มกลับมา
-    setPriceOverrides((prev) =>
-      Object.fromEntries(
-        Object.entries(prev).filter(([code]) => !selected.has(code))
-      )
-    );
     try {
       const qtyMap: Record<string, number> = {};
       for (const l of next) qtyMap[l.row.skuCode] = l.qty;
@@ -746,13 +680,6 @@ export function OrderPageClient({
       qty: suggestRemaining(line.row),
     }));
     setLines(next);
-    // รีเซ็ตจำนวน = รีเซ็ตราคาที่แก้ไว้ด้วย ไม่งั้นราคาเก่าจะค้างกับจำนวนใหม่
-    setPriceOverrides({});
-    try {
-      sessionStorage.removeItem(PRICE_STORAGE_KEY);
-    } catch {
-      // ไม่มีอะไรต้องทำ
-    }
     const qtyMap: Record<string, number> = {};
     for (const line of next) {
       qtyMap[line.row.skuCode] = line.qty;
@@ -1063,12 +990,9 @@ export function OrderPageClient({
    * คิดครั้งเดียวตอนหน้าโหลดด้วย `useState(() => …)` ไม่ใช่ทุก render —
    * ไม่งั้นถ้าหน้าเปิดค้างข้ามเที่ยงคืน ค่าจะขยับเองใต้มือคนที่กำลังกรอกอยู่
    */
-  const [deliveryDate, setDeliveryDate] = useState(() => defaultDeliveryDate());
-  const earliestDelivery = useMemo(() => earliestDeliveryDate(), []);
-  const deliveryError = useMemo(
-    () => checkDeliveryDate(deliveryDate),
-    [deliveryDate]
-  );
+  // ร้านค้าไม่ต้องเลือกวันรับของเองแล้ว — ระบบคำนวณ default ให้เงียบ ๆ ด้วยสูตรเดิม
+  // เพื่อไม่ให้ checkErpReadiness()/erp-payload.ts ที่บล็อกส่ง ERP เมื่อไม่มีวันที่ พังไปด้วย
+  const deliveryDate = useMemo(() => defaultDeliveryDate(), []);
 
   const requestIdRef = useRef<string>("");
   if (!requestIdRef.current) {
@@ -1113,7 +1037,6 @@ export function OrderPageClient({
       sessionStorage.removeItem("vmi_order_draft");
       // เดิมลืมล้าง ทำให้จำนวนเก่ารั่วไปออเดอร์ถัดไป (stock-page-client อ่านคีย์นี้ตอน rehydrate)
       sessionStorage.removeItem("vmi_order_qty");
-      sessionStorage.removeItem(PRICE_STORAGE_KEY);
       setSuccess(true);
     },
     onError: (err) => {
@@ -1134,21 +1057,13 @@ export function OrderPageClient({
    *  ทั้งที่หน้านี้ไม่มีช่องแก้จำนวนให้ปรับด้วยซ้ำ)
    */
   /**
-   * กดส่งครั้งแรกเจอด่านวันรับของก่อนเสมอ — เดิมข้ามตรงไปเช็คจำนวนเสี่ยงเลย
-   * ทำให้ร้านที่ไม่ได้สังเกตช่องวันที่ (เล็กและอยู่ปลายแถบปุ่ม) ส่งไปโดยไม่ได้ตั้งใจดูวันเลย
+   * กดส่ง — ไม่ต้องผ่านด่านวันรับของอีกแล้ว (ร้านค้าไม่ได้เลือกวันเองแล้ว)
+   *
+   * ยอดโปรกลุ่มที่ไม่ลงล็อตไม่กั้นการส่งแล้ว — หน้าตรวจโปร (ขั้นที่ 1 ที่ /stock)
+   * ถามไปแล้วว่าจะปรับหรือใช้ยอดเดิม ถ้ามากั้นซ้ำตรงนี้ ร้านที่เลือก "ใช้จำนวนเดิม"
+   * จะส่งคำสั่งไม่ได้เลย · คำเตือน "แถมไม่ลงตัว" พร้อมปุ่มปรับยังอยู่บนหน้านี้
    */
   function requestSubmit() {
-    setConfirmDeliveryOpen(true);
-  }
-
-  /** กดยืนยันวันรับของแล้ว — ไปต่อด่านจำนวนเสี่ยงถ้ามี ไม่งั้นส่งเลย */
-  function confirmDeliveryAndProceed() {
-    setConfirmDeliveryOpen(false);
-    /**
-     * ยอดโปรกลุ่มที่ไม่ลงล็อตไม่กั้นการส่งแล้ว — หน้าตรวจโปร (ขั้นที่ 1 ที่ /stock)
-     * ถามไปแล้วว่าจะปรับหรือใช้ยอดเดิม ถ้ามากั้นซ้ำตรงนี้ ร้านที่เลือก "ใช้จำนวนเดิม"
-     * จะส่งคำสั่งไม่ได้เลย · คำเตือน "แถมไม่ลงตัว" พร้อมปุ่มปรับยังอยู่บนหน้านี้
-     */
     if (stats.blockingCount > 0) {
       setConfirmRiskyOpen(true);
       return;
@@ -1328,7 +1243,6 @@ export function OrderPageClient({
           promoStagedQty={promoStagedQty}
           groupMemberSkusMap={groupMemberSkusMap}
           onFocusStock={focusSkuOnStock}
-          onPriceChange={setPriceOverride}
           suggestRemaining={suggestRemaining}
           groupStepShortOf={(group) => {
             const fix = groupStepFixes.get(group.trim());
@@ -1364,20 +1278,10 @@ export function OrderPageClient({
             className="shrink-0"
             onClick={resetAllToSuggested}
             disabled={submitMutation.isPending}
-            // ปุ่มนี้ล้างราคาที่แก้เองด้วย (ดู resetAllToSuggested) — ป้ายเดิมพูดถึงแค่จำนวน
-            // คนที่แก้ราคาไว้เพราะราคาระบบเก่า จะเสียของโดยไม่รู้ตัวและกดคืนไม่ได้
-            title={
-              Object.keys(priceOverrides).length > 0
-                ? `รีเซ็ตจำนวนทุกรายการกลับเป็นที่แนะนำ — และล้างราคาที่แก้เองไว้ ${Object.keys(priceOverrides).length} รายการด้วย`
-                : "รีเซ็ตจำนวนทุกรายการกลับเป็นที่แนะนำ"
-            }
+            title="รีเซ็ตจำนวนทุกรายการกลับเป็นที่แนะนำ"
           >
             <RotateCcw className="h-4 w-4" />
-            <span className="hidden md:inline">
-              {Object.keys(priceOverrides).length > 0
-                ? "รีเซ็ตจำนวน + ราคา"
-                : "รีเซ็ตเป็นจำนวนแนะนำ"}
-            </span>
+            <span className="hidden md:inline">รีเซ็ตเป็นจำนวนแนะนำ</span>
           </Button>
           {selected.size > 0 && (
             <Button
@@ -1405,7 +1309,7 @@ export function OrderPageClient({
             title={
               submittableLines.length === 0
                 ? "ยังไม่มีรายการที่จำนวนมากกว่า 0"
-                : "กดแล้วให้เลือกวันรับของก่อนส่ง"
+                : undefined
             }
             onClick={requestSubmit}
           >
@@ -1439,61 +1343,6 @@ export function OrderPageClient({
         onConfirm={removeSelected}
         onClose={() => setConfirmRemoveOpen(false)}
       />
-
-      {/* วันรับของ — เดิมเป็นช่องเล็ก ๆ แอบอยู่ปลายแถบปุ่มล่างสุด ร้านมองข้ามได้ง่าย
-          ย้ายมาเป็นกล่องที่ขึ้นทุกครั้งตอนกดส่ง (แทนที่จะฝากความหวังไว้กับว่าร้านจะสังเกตเห็น) */}
-      <Modal
-        open={confirmDeliveryOpen}
-        onClose={() => setConfirmDeliveryOpen(false)}
-        size="sm"
-        labelledBy="confirm-delivery-title"
-      >
-        <ModalHeader>
-          <h3
-            id="confirm-delivery-title"
-            className="text-sm font-bold text-slate-900 dark:text-slate-100"
-          >
-            วันที่ต้องการรับของ
-          </h3>
-        </ModalHeader>
-        <ModalBody>
-          <label className="flex flex-col gap-1">
-            <input
-              id="delivery-date"
-              type="date"
-              value={deliveryDate}
-              min={earliestDelivery}
-              onChange={(e) => setDeliveryDate(e.target.value)}
-              aria-invalid={deliveryError != null}
-              className={cn(
-                "rounded-lg border bg-white px-3 py-2 text-base outline-none ring-teal-500/30 focus:ring-2 dark:bg-slate-900",
-                deliveryError
-                  ? "border-red-400 dark:border-red-700"
-                  : "border-slate-200 dark:border-slate-700"
-              )}
-            />
-            <span className="vmi-t-xs text-slate-500 dark:text-slate-400">
-              {deliveryError ?? thaiShortDate(deliveryDate)}
-            </span>
-          </label>
-        </ModalBody>
-        <ModalFooter>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setConfirmDeliveryOpen(false)}
-          >
-            ยกเลิก
-          </Button>
-          <Button
-            size="sm"
-            disabled={deliveryError != null}
-            onClick={confirmDeliveryAndProceed}
-          >
-            ยืนยันวันรับของ
-          </Button>
-        </ModalFooter>
-      </Modal>
 
       <ConfirmDialog
         open={confirmRiskyOpen}
@@ -1602,7 +1451,6 @@ function OrderSummaryList({
   groupStepShortOf,
   onApplyGroupStepFix,
   onFocusStock,
-  onPriceChange,
   onQtyChange,
   suggestRemaining,
 }: {
@@ -1621,7 +1469,6 @@ function OrderSummaryList({
   ) => { lot: number; pool: number; delta: number; target: number } | null;
   onApplyGroupStepFix: (promoGroup: string) => void;
   onFocusStock: (skuCode: string) => void;
-  onPriceChange: (skuCode: string, price: number | null) => void;
   onQtyChange: (skuCode: string, qty: number) => void;
   /** จำนวนแนะนำหลังหักของค้าง — ต้องตรงกับตาราง /stock (ดู suggestRemainingQty) */
   suggestRemaining: (row: StockRowComputed) => number;
@@ -1724,16 +1571,16 @@ function OrderSummaryList({
                     value={`${line.row.minDays} / ${line.row.maxDays} วัน`}
                   />
                   <MobileStat label="ราคา/หีบ">
-                    <StorePriceInput
-                      value={line.unitPriceOverride}
-                      c4UnitPrice={line.c4UnitPrice}
+                    <StockListPriceCell
+                      unitPrice={line.c4UnitPrice}
                       expired={line.priceExpired}
-                      mismatch={line.priceMismatch}
-                      diff={line.priceDiff}
-                      onChange={(p) => onPriceChange(line.row.skuCode, p)}
                       compact
                     />
                   </MobileStat>
+                  <MobileStat
+                    label="ชิ้น/หีบ"
+                    value={formatNumber(line.row.packSize, 0)}
+                  />
                   <MobileStat label="ส่วนลด">
                     <StockDiscountPerCaseCell
                       discountBaht={line.discountBaht}
@@ -1803,7 +1650,7 @@ function OrderSummaryList({
               {/* กว้างพอสำหรับตัวปรับจำนวนทั้งชุด (ปุ่ม ↺ + − + ช่อง + +) ~100px
                   ที่ 1024px — เดิม 10% ทำให้ปุ่ม + โดน overflow:hidden ตัดหายทุกแถว
                   ที่ผู้ใช้แก้จำนวน (ปุ่ม ↺ โผล่มาแล้วดันปุ่ม + ตกขอบ) */}
-              <th className="w-[13.5%] whitespace-nowrap px-1.5 py-3 text-right">
+              <th className="w-[11.5%] whitespace-nowrap px-1.5 py-3 text-right">
                 จำนวน
               </th>
               <th
@@ -1812,10 +1659,16 @@ function OrderSummaryList({
               >
                 MIN/MAX
               </th>
-              <th className="w-[8%] whitespace-nowrap px-2 py-3 text-right">
+              <th
+                className="hidden w-[5%] whitespace-nowrap px-2 py-3 text-right xl:table-cell"
+                title="ชิ้นต่อหีบ จากมาสเตอร์สินค้า"
+              >
+                ชิ้น/หีบ
+              </th>
+              <th className="w-[7%] whitespace-nowrap px-2 py-3 text-right">
                 ราคา/หีบ
               </th>
-              <th className="w-[6%] whitespace-nowrap px-2 py-3 text-right">
+              <th className="w-[5%] whitespace-nowrap px-2 py-3 text-right">
                 ส่วนลด
               </th>
               <th
@@ -1827,7 +1680,7 @@ function OrderSummaryList({
               <th className="w-[7%] whitespace-nowrap px-2 py-3 text-right">
                 รวม
               </th>
-              <th className="w-[10%] whitespace-nowrap px-1.5 py-3 text-right">
+              <th className="w-[9%] whitespace-nowrap px-1.5 py-3 text-right">
                 CVD
               </th>
               <th className="w-[14.5%] px-2 py-3">โปรที่ได้</th>
@@ -1939,14 +1792,13 @@ function OrderSummaryList({
                 <td className="hidden px-2 py-2.5 text-right text-xs tabular-nums text-slate-600 dark:text-slate-400 xl:table-cell">
                   {line.row.minDays} / {line.row.maxDays} วัน
                 </td>
+                <td className="hidden px-2 py-2.5 text-right text-xs tabular-nums text-slate-600 dark:text-slate-400 xl:table-cell">
+                  {formatNumber(line.row.packSize, 0)}
+                </td>
                 <td className="px-2 py-2.5 text-right">
-                  <StorePriceInput
-                    value={line.unitPriceOverride}
-                    c4UnitPrice={line.c4UnitPrice}
+                  <StockListPriceCell
+                    unitPrice={line.c4UnitPrice}
                     expired={line.priceExpired}
-                    mismatch={line.priceMismatch}
-                    diff={line.priceDiff}
-                    onChange={(p) => onPriceChange(line.row.skuCode, p)}
                     compact
                   />
                 </td>

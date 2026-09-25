@@ -28,7 +28,12 @@ export default async function HomePage() {
   // ต้องครอบทุก role ที่ล็อกอินได้ — เดิมตกหล่น supervisor/manager ทำให้คนที่มี
   // session อยู่แล้วกด "กลับหน้าแรก" (จากหน้า error/404) แล้วมาเจอหน้าเลือกล็อกอิน
   if (salesSession) {
-    redirect(salesSession.role === "admin" ? "/admin" : "/sales");
+    // แอดมินที่มีรหัสเซลล์จริงด้วย (กำหนดเองผ่านหน้าแอดมิน หรือมีอยู่แล้วใน
+    // cross_target) ถือเป็นงานประจำวันจริง ไม่ใช่แค่มุมมองทดสอบ — พาไปหน้าเซลล์
+    // ตามปกติแล้วใช้ลิงก์ "กลับศูนย์ Admin" ที่มีอยู่แล้วใน AppHeader กดเข้า /admin เอง
+    const isPureAdmin =
+      salesSession.role === "admin" && !salesSession.salesmanCode;
+    redirect(isPureAdmin ? "/admin" : "/sales");
   }
   return (
     <div className="relative min-h-screen overflow-hidden vmi-mesh-bg">

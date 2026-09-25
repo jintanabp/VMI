@@ -115,6 +115,69 @@ export function PriceFlagBadge({
 }
 
 /**
+ * SKU นี้ไม่อยู่ในเป้าขายเดือนนี้ของเซลล์คนไหนเลย (cross_target) — ข้อมูลไว้ดูเฉย ๆ
+ * ไม่ใช่ข้อผิดพลาด จึงใช้โทนกลาง ไม่ใช่สีเหลือง/แดงเหมือนธงราคา/ส่วนลด
+ */
+export function NoTargetBadge({
+  title,
+  compact = false,
+  className,
+}: {
+  title?: string;
+  compact?: boolean;
+  className?: string;
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-0.5 rounded-full font-semibold",
+        compact
+          ? "px-1.5 py-0.5 vmi-t-xs leading-tight"
+          : "px-2.5 py-1 text-xs",
+        "bg-slate-100 text-slate-600 ring-1 ring-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700",
+        className
+      )}
+      title={title ?? "ไม่มีเป้าขาย"}
+    >
+      ไม่มีเป้า
+    </span>
+  );
+}
+
+/**
+ * พนักงานเพิ่มจำนวนเกินที่ร้านขอ รอร้านยืนยัน — ห้ามอนุมัติทั้งใบจนกว่าร้านจะตอบ
+ * ใช้โทนเหลืองเหมือนธงราคา/ส่วนลด เพราะเป็นเงื่อนไขที่บล็อกการอนุมัติจริง
+ */
+export function PendingQtyIncreaseBadge({
+  compact = false,
+  newItem = false,
+  className,
+}: {
+  compact?: boolean;
+  /** สินค้าที่พนักงานเพิ่มเข้ามาเอง (ร้านไม่เคยสั่ง) — ไม่ใช่การเพิ่มจำนวน */
+  newItem?: boolean;
+  className?: string;
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-0.5 rounded-full font-semibold",
+        compact ? "px-1.5 py-0.5 vmi-t-xs leading-tight" : "px-2.5 py-1 text-xs",
+        flagStyles.yellow,
+        className
+      )}
+      title={
+        newItem
+          ? "พนักงานเพิ่มสินค้าที่ร้านไม่ได้สั่ง — รอร้านยืนยันก่อนอนุมัติทั้งใบได้"
+          : "พนักงานเพิ่มจำนวนเกินที่ร้านขอ — รอร้านยืนยันก่อนอนุมัติทั้งใบได้"
+      }
+    >
+      {newItem ? "⚠ รอร้านยืนยันสินค้าใหม่" : "⚠ รอร้านยืนยันเพิ่มจำนวน"}
+    </span>
+  );
+}
+
+/**
  * สมาชิกกลุ่มโปรเดียวกันในออเดอร์นี้ได้ส่วนลด/pooledQty ไม่ตรงกัน — สัญญาณว่า
  * คำนวณมาคนละแหล่ง เซลล์ต้องเห็นก่อนอนุมัติ (เตือนเฉย ๆ ไม่บล็อกการส่ง)
  */

@@ -4,9 +4,17 @@ import { appPath } from "@/lib/paths";
 import { StorePriceInput } from "@/components/order/store-price-input";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Filter, Sparkles } from "lucide-react";
+import { AlertTriangle, Filter, PackagePlus, Sparkles, XCircle } from "lucide-react";
 import { PromoDetailCell } from "@/components/promo/promo-detail-cell";
-import { DiscountFlagBadge, FlagBadge, PriceFlagBadge } from "@/components/ui/badge";
+import { RejectItemModal } from "@/components/sales/reject-item-modal";
+import { AddOrderItemModal } from "@/components/sales/add-order-item-modal";
+import {
+  DiscountFlagBadge,
+  FlagBadge,
+  NoTargetBadge,
+  PendingQtyIncreaseBadge,
+  PriceFlagBadge,
+} from "@/components/ui/badge";
 import {
   MobileRow,
   MobileRowExtra,
@@ -40,10 +48,19 @@ export interface ReviewOrderItem {
   id: string;
   finalQty: number;
   suggestedQty: number;
+  /// finalQty ที่ร้านส่งมาตอนแรก (null = ออเดอร์เก่าก่อนมีฟีเจอร์นี้) — ใช้เทียบว่าพนักงาน
+  /// แก้จำนวนไปจากที่ร้านขอไหม สำหรับเสนอแยก PO อัตโนมัติ
+  requestedQty?: number | null;
   cvdEstimate: number | null;
   minDays?: number | null;
   maxDays?: number | null;
   sku: { code: string; name: string };
+  /** ชิ้นต่อหีบ จากมาสเตอร์สินค้า — API แปะให้ ไม่ได้มาจาก field ในฐานข้อมูล */
+  packSize?: number;
+  /** อยู่ในเป้าขายเดือนนี้ไหม (cross_target) — null = เป้าขายยังไม่พร้อม/โหลดไม่สำเร็จ */
+  hasTarget?: boolean | null;
+  /** กลุ่มสินค้า (Section) จากมาสเตอร์สินค้า — ใช้กรองบนหน้านี้เท่านั้น */
+  section?: string;
   // ราคาที่ร้านแก้เอง + สแนปช็อต C4 ณ เวลาส่ง (null = ออเดอร์ก่อนมีฟีเจอร์นี้)
   unitPriceOverride?: number | null;
   c4UnitPrice?: number | null;
@@ -61,6 +78,11 @@ export interface ReviewOrderItem {
   salesPriceBy?: string | null;
   /** กลุ่ม PO ที่จัดไว้ ("A".."Z") */
   poGroup?: string | null;
+  /** พนักงานปฏิเสธรายการนี้ (คนละอันกับปฏิเสธทั้งใบ) — finalQty ถูกตั้งเป็น 0 ไปแล้ว */
+  rejectedAt?: string | null;
+  rejectReason?: string | null;
+  /** พนักงานเพิ่มจำนวนเกินที่ร้านขอ รอร้านยืนยัน — ห้ามอนุมัติทั้งใบจนกว่าจะครบ */
+  qtyIncreasePendingConfirm?: boolean;
 }
 
 /** ข้อความอธิบายธงราคา — สร้างจากค่าที่แช่ไว้ตอนส่ง ไม่ใช่ราคาสดวันนี้ */
@@ -103,6 +125,13 @@ interface OrderReviewTableProps {
   /** เลือกแถวเพื่อย้ายกลุ่ม PO */
   selectedIds?: Set<string>;
   onToggleSelect?: (itemId: string) => void;
+  /** เลือกหลายแถวพร้อมกัน (ปุ่ม "เลือกทั้งหมดที่กรองอยู่") — เสริมจาก onToggleSelect ทีละแถว */
+  onSelectMany?: (itemIds: string[]) => void;
+  /** ปฏิเสธรายการเดียว (คนละอันกับปฏิเสธทั้งใบ) — ไม่ส่งมา = ไม่แสดงปุ่ม */
+  onRejectItem?: (itemId: string, reason: string) => void;
+  /** เพิ่มสินค้าใหม่ (SKU ที่ไม่เคยอยู่ในออเดอร์) — ไม่ส่งมา = ไม่แสดงปุ่ม */
+  onAddItem?: (skuCode: string, finalQty: number) => void;
+  addItemPending?: boolean;
   /** true = แสดงคอลัมน์/ป้ายกลุ่ม PO */
   showPoGroups?: boolean;
 }
@@ -299,9 +328,18 @@ export function OrderReviewTable({
   onQtyChange,
   selectedIds,
   onToggleSelect,
+  onSelectMany,
+  onRejectItem,
+  onAddItem,
+  addItemPending,
   showPoGroups,
 }: OrderReviewTableProps) {
   const [promoOnly, setPromoOnly] = useState(false);
+  const [sectionFilter, setSectionFilter] = useState("");
+  const [addItemOpen, setAddItemOpen] = useState(false);
+  const [rejectPromptItem, setRejectPromptItem] = useState<ReviewOrderItem | null>(
+    null
+  );
   const lineKey = items.map((i) => `${i.sku.code}:${i.finalQty}`).join("|");
 
   /**
@@ -387,12 +425,23 @@ export function OrderReviewTable({
     };
   }, [items, promoBySku, promoData?.orderTotal]);
 
+  const sections = useMemo(() => {
+    const set = new Set<string>();
+    for (const item of items) {
+      if (item.section) set.add(item.section);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b, "th"));
+  }, [items]);
+
   const visibleItems = useMemo(() => {
-    if (!promoOnly) return items;
-    return items.filter((item) =>
-      hasActivePromo(promoBySku.get(item.sku.code))
-    );
-  }, [items, promoOnly, promoBySku]);
+    return items.filter((item) => {
+      if (promoOnly && !hasActivePromo(promoBySku.get(item.sku.code))) {
+        return false;
+      }
+      if (sectionFilter && item.section !== sectionFilter) return false;
+      return true;
+    });
+  }, [items, promoOnly, promoBySku, sectionFilter]);
 
   const promoStagedQty = useMemo(() => {
     const m: Record<string, number> = {};
@@ -492,6 +541,49 @@ export function OrderReviewTable({
           เฉพาะได้โปร ({stats.withPromo})
         </button>
       </div>
+
+      {sections.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
+            กลุ่มสินค้า
+            <select
+              value={sectionFilter}
+              onChange={(e) => setSectionFilter(e.target.value)}
+              className="h-7 rounded-md border border-slate-300 bg-white px-1.5 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+            >
+              <option value="">ทั้งหมด</option>
+              {sections.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </label>
+          {onSelectMany && sectionFilter && visibleItems.length > 0 && (
+            <button
+              type="button"
+              onClick={() =>
+                onSelectMany(visibleItems.map((item) => item.id))
+              }
+              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+            >
+              เลือกทั้งหมดที่กรองอยู่ ({visibleItems.length})
+            </button>
+          )}
+        </div>
+      )}
+
+      {onAddItem && (
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setAddItemOpen(true)}
+            className="inline-flex items-center gap-1 rounded-md border border-teal-300 bg-teal-50 px-2 py-1 text-xs font-semibold text-teal-700 hover:bg-teal-100 dark:border-teal-800 dark:bg-teal-950/40 dark:text-teal-300 dark:hover:bg-teal-900/40"
+          >
+            <PackagePlus className="h-3.5 w-3.5" />+ เพิ่มสินค้า
+          </button>
+        </div>
+      )}
       </div>
 
       {promoLoading && (
@@ -576,6 +668,34 @@ export function OrderReviewTable({
                                 compact
                               />
                             )}
+                            {item.hasTarget === false && (
+                              <NoTargetBadge compact />
+                            )}
+                            {item.qtyIncreasePendingConfirm && (
+                              <PendingQtyIncreaseBadge compact newItem={item.requestedQty === 0} />
+                            )}
+                            {item.rejectedAt ? (
+                              <span
+                                className="inline-flex items-center gap-0.5 rounded-full bg-red-100 px-1.5 py-0.5 text-[11px] font-semibold text-red-700 dark:bg-red-950/40 dark:text-red-300"
+                                title={item.rejectReason || undefined}
+                              >
+                                <XCircle className="h-3 w-3" />
+                                ปฏิเสธแล้ว
+                              </span>
+                            ) : (
+                              onRejectItem &&
+                              item.finalQty > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setRejectPromptItem(item)}
+                                  className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] font-medium text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
+                                  title="ปฏิเสธรายการนี้"
+                                >
+                                  <XCircle className="h-3 w-3" />
+                                  ปฏิเสธ
+                                </button>
+                              )
+                            )}
                           </div>
                           <p className="mt-0.5 line-clamp-2 text-sm font-medium leading-snug text-slate-800 dark:text-slate-100">
                             {item.sku.name}
@@ -583,6 +703,10 @@ export function OrderReviewTable({
                         </div>
                       </MobileRowTop>
                       <MobileRowStats className="pl-7">
+                        <MobileStat
+                          label="ชิ้น/หีบ"
+                          value={formatNumber(item.packSize ?? 1, 0)}
+                        />
                         <MobileStat
                           label="หีบ"
                           value={formatQtyPair(
@@ -719,12 +843,41 @@ export function OrderReviewTable({
                               compact
                             />
                           )}
+                          {item.hasTarget === false && <NoTargetBadge compact />}
+                          {item.qtyIncreasePendingConfirm && (
+                            <PendingQtyIncreaseBadge compact newItem={item.requestedQty === 0} />
+                          )}
+                          {item.rejectedAt ? (
+                            <span
+                              className="inline-flex items-center gap-0.5 rounded-full bg-red-100 px-1.5 py-0.5 text-[11px] font-semibold text-red-700 dark:bg-red-950/40 dark:text-red-300"
+                              title={item.rejectReason || undefined}
+                            >
+                              <XCircle className="h-3 w-3" />
+                              ปฏิเสธแล้ว
+                            </span>
+                          ) : (
+                            onRejectItem &&
+                            item.finalQty > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setRejectPromptItem(item)}
+                                className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] font-medium text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
+                                title="ปฏิเสธรายการนี้"
+                              >
+                                <XCircle className="h-3 w-3" />
+                                ปฏิเสธ
+                              </button>
+                            )
+                          )}
                         </div>
                         <p
                           className="vmi-cell-text mt-0.5 line-clamp-2 text-sm font-medium leading-snug text-slate-800 dark:text-slate-100"
                           title={item.sku.name}
                         >
                           {item.sku.name}
+                        </p>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          {formatNumber(item.packSize ?? 1, 0)} ชิ้น/หีบ
                         </p>
                         {!promoLoading && (
                           <div className="mt-1.5 max-w-full">
@@ -795,6 +948,29 @@ export function OrderReviewTable({
           </table>
         </div>
       </div>
+
+      <RejectItemModal
+        open={rejectPromptItem != null}
+        skuCode={rejectPromptItem?.sku.code ?? ""}
+        skuName={rejectPromptItem?.sku.name ?? ""}
+        onConfirm={(reason) => {
+          if (rejectPromptItem && onRejectItem) {
+            onRejectItem(rejectPromptItem.id, reason);
+          }
+          setRejectPromptItem(null);
+        }}
+        onClose={() => setRejectPromptItem(null)}
+      />
+
+      <AddOrderItemModal
+        open={addItemOpen}
+        pending={addItemPending}
+        onSubmit={(skuCode, finalQty) => {
+          onAddItem?.(skuCode, finalQty);
+          setAddItemOpen(false);
+        }}
+        onClose={() => setAddItemOpen(false)}
+      />
     </div>
   );
 }

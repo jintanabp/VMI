@@ -68,6 +68,26 @@ const ORDER_KIND_META: Record<
     icon: Trash2,
     className: "text-red-600 dark:text-red-400",
   },
+  qty_increase_confirmed: {
+    label: "ร้านยืนยันเพิ่มจำนวน",
+    icon: PackagePlus,
+    className: "text-emerald-600 dark:text-emerald-400",
+  },
+  qty_increase_rejected: {
+    label: "ร้านปฏิเสธเพิ่มจำนวน",
+    icon: Trash2,
+    className: "text-red-600 dark:text-red-400",
+  },
+  item_added_confirmed: {
+    label: "ร้านรับสินค้าที่เพิ่ม",
+    icon: PackagePlus,
+    className: "text-emerald-600 dark:text-emerald-400",
+  },
+  item_added_rejected: {
+    label: "ร้านไม่รับสินค้าที่เพิ่ม",
+    icon: Trash2,
+    className: "text-red-600 dark:text-red-400",
+  },
 };
 
 function fmt(iso: string): string {

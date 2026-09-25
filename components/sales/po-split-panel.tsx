@@ -39,6 +39,8 @@ export function toSplittable(items: ReviewOrderItem[]): SplittableItem[] {
       skuName: item.sku.name,
       finalQty: item.finalQty,
       priceFlagged: item.priceFlagged,
+      qtyEdited:
+        item.requestedQty != null && item.finalQty !== item.requestedQty,
       // ส่วนลด C4 คิดทับบนราคาที่มีผล ไม่ใช่ใช้ c4NetUnitPrice ที่คิดจากราคาแคตตาล็อก
       effectiveUnitPrice:
         calcNetUnitPrice(unitPrice, item.c4DiscountBaht, item.c4DiscountPct) ??

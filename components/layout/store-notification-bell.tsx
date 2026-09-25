@@ -1,8 +1,9 @@
 "use client";
 
 import { appPath } from "@/lib/paths";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 import { Bell, BellOff } from "lucide-react";
 import { AnchoredPanel, PanelHeader } from "@/components/ui/anchored-panel";
 import { useToast } from "@/components/ui/toast";
@@ -29,6 +30,7 @@ const COLLAPSED = 6;
  */
 export function StoreNotificationBell() {
   const queryClient = useQueryClient();
+  const router = useRouter();
   const { toast } = useToast();
   const anchorRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -150,6 +152,13 @@ export function StoreNotificationBell() {
 
   const visible = showAll ? items : items.slice(0, COLLAPSED);
 
+  /** กดแจ้งเตือนที่ผูกกับออเดอร์ = พาไปเปิดออเดอร์นั้นในหน้าประวัติ (กางให้ + เลื่อนไปหา)
+   *  ไม่งั้นร้านต้องไล่หาเองว่าใบไหน โดยเฉพาะรายการที่รอร้านยืนยันซึ่งซ่อนอยู่ในการ์ดที่ยุบ */
+  function openOrder(orderId: string) {
+    close();
+    router.push(`/history?order=${encodeURIComponent(orderId)}`);
+  }
+
   return (
     <>
       <div ref={anchorRef} className="relative shrink-0">
@@ -220,9 +229,25 @@ export function StoreNotificationBell() {
               return (
                 <li
                   key={n.id}
+                  {...(n.orderId
+                    ? {
+                        role: "button",
+                        tabIndex: 0,
+                        title: "เปิดออเดอร์นี้",
+                        onClick: () => openOrder(n.orderId!),
+                        onKeyDown: (e: KeyboardEvent) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            openOrder(n.orderId!);
+                          }
+                        },
+                      }
+                    : {})}
                   className={cn(
                     "flex flex-wrap items-start gap-x-2 gap-y-1 px-3 py-2.5",
-                    isNew && "bg-teal-50/60 dark:bg-teal-950/20"
+                    isNew && "bg-teal-50/60 dark:bg-teal-950/20",
+                    n.orderId &&
+                      "cursor-pointer transition-colors hover:bg-slate-50 focus-visible:bg-slate-50 focus-visible:outline-none dark:hover:bg-slate-800/40 dark:focus-visible:bg-slate-800/40"
                   )}
                 >
                   <span

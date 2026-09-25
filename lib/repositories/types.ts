@@ -182,11 +182,22 @@ export interface OrderRepository {
   getOrderById(id: string): Promise<unknown | null>;
   approveOrder(id: string, actorEmail?: string): Promise<unknown>;
   rejectOrder(id: string, reason?: string, actorEmail?: string): Promise<unknown>;
+  /** คืน pendingConfirm = true เมื่อ finalQty ที่ตั้งใหม่มากกว่า requestedQty — ต้องรอร้านยืนยัน */
   updateOrderItemQty(
     orderId: string,
     itemId: string,
     finalQty: number
+  ): Promise<{ pendingConfirm: boolean }>;
+  /** ปฏิเสธรายการเดียว — ตั้ง finalQty เป็น 0 ให้เหมือน "ตัดบรรทัดออก" เดิม + แช่เหตุผลไว้ */
+  rejectOrderItem(
+    orderId: string,
+    itemId: string,
+    reason?: string | null
   ): Promise<void>;
+  /** ร้านยืนยันจำนวนที่พนักงานเพิ่มให้ */
+  confirmQtyIncrease(orderId: string, itemId: string): Promise<void>;
+  /** ร้านปฏิเสธจำนวนที่เพิ่ม — finalQty กลับไปเท่า requestedQty */
+  rejectQtyIncrease(orderId: string, itemId: string): Promise<void>;
   /** ราคาที่พนักงานตั้ง — flag คำนวณใหม่ฝั่งเซิร์ฟเวอร์ ไม่รับจาก client */
   updateOrderItemPrice(
     orderId: string,

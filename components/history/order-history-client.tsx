@@ -2,10 +2,11 @@
 
 import { appPath } from "@/lib/paths";
 import { apiFetch } from "@/lib/api-fetch";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   Boxes,
   Check,
   ChevronDown,
@@ -242,6 +243,10 @@ export function OrderHistoryClient({
   const [dayFilter, setDayFilter] = useState<number>(0);
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  /** ออเดอร์ที่เพิ่งถูกพามาจากกระดิ่ง (?order=) — ไฮไลต์ชั่วครู่ให้เห็นว่าใบไหน */
+  const [focusedId, setFocusedId] = useState<string | null>(null);
+  const searchParams = useSearchParams();
+  const focusParam = searchParams.get("order");
   const [cancelTarget, setCancelTarget] = useState<OrderHistoryEntry | null>(
     null
   );
@@ -314,6 +319,52 @@ export function OrderHistoryClient({
     onError: (err) => {
       toast({
         title: "ยกเลิกไม่สำเร็จ",
+        detail: err instanceof Error ? err.message : undefined,
+        tone: "error",
+      });
+    },
+  });
+
+  const respondQtyIncrease = useMutation({
+    mutationFn: async (vars: {
+      orderId: string;
+      itemId: string;
+      action: "confirmQtyIncrease" | "rejectQtyIncrease";
+    }) => {
+      const res = await apiFetch(appPath("/api/store/orders"), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(vars),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => null)) as {
+          error?: unknown;
+        } | null;
+        throw new Error(
+          typeof data?.error === "string"
+            ? data.error
+            : `ดำเนินการไม่สำเร็จ (${res.status})`
+        );
+      }
+      return res.json() as Promise<{ staffAdded?: boolean; removed?: boolean }>;
+    },
+    onSuccess: (data, vars) => {
+      toast({
+        title:
+          vars.action === "confirmQtyIncrease"
+            ? data.staffAdded
+              ? "ยืนยันสินค้าที่พนักงานเพิ่มแล้ว"
+              : "ยืนยันจำนวนที่เพิ่มแล้ว"
+            : data.removed
+              ? "เอาสินค้าที่พนักงานเพิ่มออกจากออเดอร์แล้ว"
+              : "ปฏิเสธจำนวนที่เพิ่มแล้ว",
+        tone: "success",
+      });
+      void queryClient.invalidateQueries({ queryKey: ["order-history"] });
+    },
+    onError: (err) => {
+      toast({
+        title: "ดำเนินการไม่สำเร็จ",
         detail: err instanceof Error ? err.message : undefined,
         tone: "error",
       });
@@ -400,6 +451,43 @@ export function OrderHistoryClient({
       totalValue: hasValue ? totalValue : null,
     };
   }, [filtered]);
+
+  // มาจากกดแจ้งเตือน — กางออเดอร์นั้น เลื่อนไปหา แล้วลบ ?order= ทิ้ง (กดแจ้งเตือนเดิมซ้ำได้อีก)
+  // ล้างตัวกรองด้วย ไม่งั้นถ้ากรอง "7 วัน"/สถานะอื่นค้างอยู่ ใบที่ต้องการจะไม่อยู่ในรายการ
+  useEffect(() => {
+    if (!focusParam || !data) return;
+    router.replace("/history", { scroll: false });
+    if (!orders.some((o) => o.id === focusParam)) {
+      toast({ title: "ไม่พบออเดอร์นี้แล้ว — อาจถูกลบไปแล้ว", tone: "warn" });
+      return;
+    }
+    setStatusFilter("");
+    setDayFilter(0);
+    setSearch("");
+    setExpanded((prev) => new Set(prev).add(focusParam));
+    setFocusedId(focusParam);
+  }, [focusParam, data, orders, router, toast]);
+
+  useEffect(() => {
+    if (!focusedId) return;
+    // รอให้การ์ดกางเสร็จก่อนค่อยเลื่อน ไม่งั้นตำแหน่งยังเป็นของการ์ดตอนยุบ
+    const raf = requestAnimationFrame(() => {
+      const el = document.getElementById(`order-${focusedId}`);
+      if (!el) return;
+      // header ติดบนจอสูงไม่เท่ากันระหว่างมือถือ/เดสก์ท็อป — วัดจริงแทนการเดา scroll-margin
+      const headerBottom =
+        document.querySelector("header")?.getBoundingClientRect().bottom ?? 0;
+      window.scrollTo({
+        top: window.scrollY + el.getBoundingClientRect().top - Math.max(headerBottom, 0) - 12,
+        behavior: "smooth",
+      });
+    });
+    const t = setTimeout(() => setFocusedId(null), 2500);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(t);
+    };
+  }, [focusedId]);
 
   function toggle(id: string) {
     setExpanded((prev) => {
@@ -577,12 +665,17 @@ export function OrderHistoryClient({
               const open = expanded.has(order.id);
               const meta = STATUS_META[order.status] ?? FALLBACK_META;
               const StatusIcon = meta.icon;
+              const awaitingMe = order.items.filter(
+                (i) => i.qtyIncreasePendingConfirm
+              ).length;
               return (
                 <li
                   key={order.id}
+                  id={`order-${order.id}`}
                   className={cn(
-                    "overflow-hidden rounded-2xl border border-l-[3px] border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900/60",
-                    meta.accent
+                    "overflow-hidden rounded-2xl border border-l-[3px] border-slate-200 bg-white shadow-sm transition-shadow dark:border-slate-800 dark:bg-slate-900/60",
+                    meta.accent,
+                    focusedId === order.id && "ring-2 ring-amber-400"
                   )}
                 >
                   <button
@@ -611,6 +704,14 @@ export function OrderHistoryClient({
                           <StatusIcon className="h-3 w-3" />
                           {meta.label}
                         </span>
+                        {/* ต้องเห็นตั้งแต่การ์ดยังยุบ — ปุ่มยืนยัน/ปฏิเสธซ่อนอยู่ข้างใน
+                            ถ้าร้านไม่กาง ออเดอร์จะค้างอนุมัติไม่ได้โดยไม่มีใครรู้ */}
+                        {awaitingMe > 0 && (
+                          <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-800 ring-1 ring-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-800">
+                            <AlertTriangle className="h-3 w-3" />
+                            รอคุณยืนยัน {awaitingMe} รายการ
+                          </span>
+                        )}
                         <span className="text-xs text-slate-400">
                           {relativeTime(order.createdAt)}
                         </span>
@@ -756,8 +857,8 @@ export function OrderHistoryClient({
                               const changed =
                                 item.finalQty !== item.suggestedQty;
                               return (
+                                <Fragment key={item.skuId}>
                                 <tr
-                                  key={item.skuId}
                                   className="border-t border-slate-100 dark:border-slate-800"
                                 >
                                   <td className="px-3 py-1.5 font-mono text-teal-700 dark:text-teal-400">
@@ -839,6 +940,62 @@ export function OrderHistoryClient({
                                     {formatBaht(item.lineTotal) ?? "-"}
                                   </td>
                                 </tr>
+                                {item.qtyIncreasePendingConfirm && (
+                                  <tr className="border-t border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/30">
+                                    <td colSpan={7} className="px-3 py-2">
+                                      {/* ตารางนี้เลื่อนแนวนอนบนมือถือ — ถ้าไม่ตรึงไว้ซ้ายและจำกัดความกว้าง
+                                          ปุ่มยืนยัน/ปฏิเสธจะไปอยู่ขวาสุดนอกจอ ร้านกดไม่ได้ */}
+                                      <div className="sticky left-3 flex max-w-[calc(100vw-4rem)] flex-wrap items-center justify-between gap-2">
+                                        <p className="text-xs font-medium text-amber-800 dark:text-amber-300">
+                                          {item.requestedQty === 0 ? (
+                                            <>
+                                              พนักงานเพิ่มสินค้าใหม่ {item.skuCode}{" "}
+                                              {formatNumber(item.finalQty, 0)} หีบ เข้าออเดอร์นี้ —
+                                              ยืนยันไหม?
+                                            </>
+                                          ) : (
+                                            <>
+                                              พนักงานขอเพิ่มจำนวน {item.skuCode} เป็น{" "}
+                                              {formatNumber(item.finalQty, 0)} หีบ — ยืนยันไหม?
+                                            </>
+                                          )}
+                                        </p>
+                                        <div className="flex gap-1.5">
+                                          <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="h-7 text-xs"
+                                            disabled={respondQtyIncrease.isPending}
+                                            onClick={() =>
+                                              respondQtyIncrease.mutate({
+                                                orderId: order.id,
+                                                itemId: item.id,
+                                                action: "rejectQtyIncrease",
+                                              })
+                                            }
+                                          >
+                                            ปฏิเสธ
+                                          </Button>
+                                          <Button
+                                            size="sm"
+                                            className="h-7 text-xs"
+                                            disabled={respondQtyIncrease.isPending}
+                                            onClick={() =>
+                                              respondQtyIncrease.mutate({
+                                                orderId: order.id,
+                                                itemId: item.id,
+                                                action: "confirmQtyIncrease",
+                                              })
+                                            }
+                                          >
+                                            ยืนยัน
+                                          </Button>
+                                        </div>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                                </Fragment>
                               );
                             })}
                           </tbody>

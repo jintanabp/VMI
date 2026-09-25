@@ -12,9 +12,13 @@ import { prisma } from "@/lib/prisma";
 export type StoreNotificationKind =
   | "approved"
   | "rejected"
+  | "item_rejected"
   | "deleted"
   | "price_changed"
   | "qty_changed"
+  | "qty_increase_pending"
+  // พนักงานเพิ่มสินค้าที่ร้านไม่เคยสั่งเข้ามา — แยกจากเพิ่มจำนวน ข้อความบนชิปจะได้ไม่เข้าใจผิด
+  | "item_added_pending"
   | "po_issued"
   // สถานะ PO เปลี่ยนหลังออกเลขแล้ว — ร้านต้องรู้ ไม่งั้นรอของที่ถูกยกเลิกไปแล้ว
   | "po_cancelled"

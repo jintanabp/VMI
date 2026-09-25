@@ -1,11 +1,115 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getAuthorizedStoreId } from "@/lib/auth/store-context";
+import { getRepositories } from "@/lib/repositories";
 import { notifySales } from "@/lib/orders/sales-notify";
+import { removeRejectedAddedItem } from "@/lib/po/add-order-item";
 
 export const dynamic = "force-dynamic";
 
 const resolveStoreId = getAuthorizedStoreId;
+
+const patchSchema = z.object({
+  orderId: z.string().min(1),
+  itemId: z.string().min(1),
+  action: z.enum(["confirmQtyIncrease", "rejectQtyIncrease"]),
+});
+
+/**
+ * ร้านยืนยัน/ปฏิเสธจำนวนที่พนักงานเพิ่มให้เกินที่ร้านขอ (ดู updateOrderItemQty)
+ *
+ * ต้องเป็นออเดอร์ของร้านตัวเองเท่านั้น — เช็คเจ้าของก่อนเสมอเหมือน DELETE ด้านล่าง
+ */
+export async function PATCH(request: Request) {
+  const storeId = await resolveStoreId();
+  if (!storeId) {
+    return NextResponse.json({ error: "ไม่พบร้านค้า" }, { status: 401 });
+  }
+
+  const parsed = patchSchema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) {
+    return NextResponse.json({ error: "คำสั่งไม่ถูกต้อง" }, { status: 400 });
+  }
+  const { orderId, itemId, action } = parsed.data;
+
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: {
+      storeId: true,
+      store: { select: { code: true } },
+      items: {
+        where: { id: itemId },
+        select: { finalQty: true, requestedQty: true, sku: { select: { code: true, name: true } } },
+      },
+    },
+  });
+  if (!order) {
+    return NextResponse.json({ error: "ไม่พบออเดอร์" }, { status: 404 });
+  }
+  if (order.storeId !== storeId) {
+    return NextResponse.json({ error: "ไม่มีสิทธิ์จัดการออเดอร์นี้" }, { status: 403 });
+  }
+  const item = order.items[0];
+  if (!item) {
+    return NextResponse.json({ error: "ไม่พบรายการนี้ในออเดอร์" }, { status: 404 });
+  }
+
+  // requestedQty=0 = พนักงานเพิ่มสินค้าตัวนี้เข้ามาเอง ร้านไม่เคยสั่ง — ปฏิเสธแล้วลบทั้งแถว
+  const isStaffAdded = item.requestedQty === 0;
+  const { orders } = getRepositories();
+  try {
+    if (action === "confirmQtyIncrease") {
+      await orders.confirmQtyIncrease(orderId, itemId);
+    } else if (isStaffAdded) {
+      await removeRejectedAddedItem(orderId, itemId);
+    } else {
+      await orders.rejectQtyIncrease(orderId, itemId);
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "";
+    if (msg === "ORDER_ITEM_NOT_FOUND") {
+      return NextResponse.json(
+        { error: "ไม่พบรายการที่รอยืนยันนี้ — อาจถูกจัดการไปแล้ว" },
+        { status: 404 }
+      );
+    }
+    throw err;
+  }
+
+  await notifySales({
+    storeId,
+    kind: isStaffAdded
+      ? action === "confirmQtyIncrease"
+        ? "item_added_confirmed"
+        : "item_added_rejected"
+      : action === "confirmQtyIncrease"
+        ? "qty_increase_confirmed"
+        : "qty_increase_rejected",
+    title:
+      action === "confirmQtyIncrease"
+        ? isStaffAdded
+          ? `${order.store.code} ยืนยันสินค้าที่เพิ่มแล้ว`
+          : `${order.store.code} ยืนยันเพิ่มจำนวนแล้ว`
+        : isStaffAdded
+          ? `${order.store.code} ปฏิเสธสินค้าที่เพิ่ม`
+          : `${order.store.code} ปฏิเสธจำนวนที่เพิ่ม`,
+    detail:
+      `${item.sku.code} ${item.sku.name}` +
+      (action === "confirmQtyIncrease"
+        ? ` · ${item.finalQty} หีบ`
+        : isStaffAdded
+          ? " · เอาออกจากออเดอร์แล้ว"
+          : ` · กลับไปเป็น ${item.requestedQty ?? item.finalQty} หีบ`),
+    orderId,
+  });
+
+  return NextResponse.json({
+    success: true,
+    staffAdded: isStaffAdded,
+    removed: action === "rejectQtyIncrease" && isStaffAdded,
+  });
+}
 
 /**
  * ร้านยกเลิกคำสั่งซื้อของตัวเอง

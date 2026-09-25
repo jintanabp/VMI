@@ -67,6 +67,9 @@ export async function approveWithPoSplit(
       skuName: item.sku.name,
       finalQty: item.finalQty,
       priceFlagged: item.priceFlagged,
+      // requestedQty null = ออเดอร์เก่าก่อนมีฟีเจอร์นี้ — ไม่รู้ค่าดั้งเดิม ถือว่ายังไม่แก้
+      qtyEdited:
+        item.requestedQty != null && item.finalQty !== item.requestedQty,
       // ส่วนลด C4 คิดทับบน "ราคาที่มีผล" — ห้ามใช้ c4NetUnitPrice ตรง ๆ
       // เพราะนั่นคิดจากราคาแคตตาล็อก ทำให้ราคาที่ร้าน/เซลส์ตั้งไว้หายไป
       effectiveUnitPrice:

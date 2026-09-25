@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   ChevronDown,
+  Download,
   Gift,
   Info,
   Layers,
@@ -115,6 +116,8 @@ export function AdminPromoPanel() {
   /** คลังที่เลือกดู — "" = รวมทุกคลังที่มีสิทธิ์ */
   const [vda, setVda] = useState("");
   const [availableVdas, setAvailableVdas] = useState<string[]>([]);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -149,6 +152,41 @@ export function AdminPromoPanel() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  async function exportGroups() {
+    setExporting(true);
+    setExportError(null);
+    try {
+      const qs = vda ? `?vdaCode=${encodeURIComponent(vda)}` : "";
+      const res = await apiFetch(appPath(`/api/promo/month/export${qs}`));
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        throw new Error(
+          friendlyError(body?.error, `ส่งออกไฟล์ไม่สำเร็จ (${res.status})`)
+        );
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get("content-disposition") ?? "";
+      const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition);
+      const filename = match ? decodeURIComponent(match[1]) : "promo-groups.xlsx";
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setExportError(
+        err instanceof Error ? err.message : "ส่งออกไฟล์ไม่สำเร็จ"
+      );
+    } finally {
+      setExporting(false);
+    }
+  }
 
   function toggle(key: string) {
     setExpanded((prev) => {
@@ -441,7 +479,22 @@ export function AdminPromoPanel() {
                 </button>
               ))}
             </div>
+            <button
+              type="button"
+              onClick={() => void exportGroups()}
+              disabled={exporting || !data}
+              title="ส่งออกกลุ่มโปรทั้งหมด (ตามคลังที่เลือกอยู่) เป็น Excel"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+            >
+              <Download className="h-3.5 w-3.5" />
+              {exporting ? "กำลังส่งออก..." : "ส่งออก Excel"}
+            </button>
           </div>
+          {exportError && (
+            <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+              {exportError}
+            </p>
+          )}
         </CardHeader>
         <CardContent className="space-y-3">
           {/*

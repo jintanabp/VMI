@@ -32,6 +32,8 @@ export interface SplittableItem {
   freeGoodPairSku?: string | null;
   /** กลุ่มที่ถูกจัดไว้แล้ว (จาก DB) */
   poGroup?: string | null;
+  /** จำนวนที่พนักงานแก้ต่างจากที่ร้านขอตอนแรก (requestedQty ที่แช่ไว้ตอนสร้างออเดอร์) */
+  qtyEdited?: boolean;
 }
 
 export interface PoSplitGroup {
@@ -66,6 +68,13 @@ function labelFor(kind: PoPriceKind, groupKey: string): string {
   return `กลุ่ม ${groupKey} (ราคาผสม)`;
 }
 
+/** ตัดสินว่ากลุ่มนี้แยกออกมาเพราะแก้ราคา หรือแก้จำนวน หรือทั้งคู่ — ต่อท้าย label เดิม */
+function classifyKey(item: SplittableItem): string {
+  if (item.priceFlagged && item.qtyEdited) return "D";
+  if (item.qtyEdited) return "C";
+  return item.priceFlagged ? "B" : "A";
+}
+
 /** สรุปกลุ่มจากรายการที่ถูกจัดไว้แล้ว (map groupKey → items) */
 export function summarizeGroups(
   assignment: Map<string, SplittableItem[]>
@@ -75,9 +84,12 @@ export function summarizeGroups(
     const items = assignment.get(groupKey) ?? [];
     if (items.length === 0) continue;
     const kind = priceKindOf(items);
+    const anyQtyEdited = items.some((i) => i.qtyEdited);
+    const label =
+      labelFor(kind, groupKey) + (anyQtyEdited ? " + จำนวนถูกแก้จากที่ร้านขอ" : "");
     out.push({
       groupKey,
-      label: labelFor(kind, groupKey),
+      label,
       priceKind: kind,
       itemIds: items.map((i) => i.id),
       itemCount: items.length,
@@ -103,8 +115,8 @@ export function proposePoSplit(items: SplittableItem[]): PoSplitGroup[] {
 
   if (alreadyAssigned) {
     for (const item of items) {
-      // บรรทัดที่ยังไม่ถูกจัด ให้ไปกองที่กลุ่มตามเกณฑ์ราคา เพื่อไม่ให้หลุดหาย
-      const key = item.poGroup ?? (item.priceFlagged ? "B" : "A");
+      // บรรทัดที่ยังไม่ถูกจัด ให้ไปกองที่กลุ่มตามเกณฑ์ราคา/จำนวน เพื่อไม่ให้หลุดหาย
+      const key = item.poGroup ?? classifyKey(item);
       const list = assignment.get(key) ?? [];
       list.push(item);
       assignment.set(key, list);
@@ -113,7 +125,7 @@ export function proposePoSplit(items: SplittableItem[]): PoSplitGroup[] {
   }
 
   for (const item of items) {
-    const key = item.priceFlagged ? "B" : "A";
+    const key = classifyKey(item);
     const list = assignment.get(key) ?? [];
     list.push(item);
     assignment.set(key, list);

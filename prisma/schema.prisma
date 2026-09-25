@@ -217,6 +217,12 @@ model OrderItem {
   skuId        String
   suggestedQty Int
   finalQty     Int
+  /// finalQty ที่ร้านส่งมาตอนแรก แช่ไว้ตอนสร้างออเดอร์ ไม่แก้อีก — ใช้เทียบกับ finalQty
+  /// ปัจจุบันว่าพนักงานแก้จำนวนไปจากที่ร้านขอไหม (null = ออเดอร์เก่าก่อนมีฟีเจอร์นี้)
+  requestedQty Int?
+  /// พนักงานแก้ finalQty ให้มากกว่า requestedQty แล้วรอร้านยืนยัน — ลดได้เลยไม่ต้องรอ
+  /// (ดู updateOrderItemQty) ห้ามอนุมัติออเดอร์ทั้งใบขณะที่ยังมีรายการค้างสถานะนี้อยู่
+  qtyIncreasePendingConfirm Boolean @default(false)
   cvdEstimate  Float?
   // threshold ที่ร้านใช้ตอนสั่ง — "แช่แข็ง" ไว้ให้ฝั่งเซลส์คำนวณสีธง CVD ตรงกับที่ร้านเห็น
   // (null = ออเดอร์เก่าก่อนมีฟีเจอร์นี้ → getCvdFlag ใช้ค่า default เดิม)
@@ -273,6 +279,12 @@ model OrderItem {
   /// กลุ่ม PO ที่พนักงานจัดไว้ ("A".."Z") — null = ยังไม่จัด
   poGroup            String?
   purchaseOrderId    String?
+
+  // --- พนักงานปฏิเสธรายการนี้ (คนละอันกับปฏิเสธทั้งออเดอร์) ---
+  // แค่บันทึกไว้ดูย้อนหลัง — ตัวที่กันไม่ให้รายการนี้เข้า PO คือ finalQty=0 เดิม
+  // (approve-with-split.ts กรอง finalQty>0 ออกอยู่แล้ว ไม่ต้องเพิ่มเงื่อนไขใหม่)
+  rejectedAt   DateTime?
+  rejectReason String?
 
   order         Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
   sku           Sku            @relation(fields: [skuId], references: [id])
@@ -356,4 +368,24 @@ model VdaWarehouse {
   active        Boolean  @default(true)         // ปิดชั่วคราวได้โดยไม่ต้องลบประวัติ
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+}
+
+/// แอดมินกำหนดเองว่าอีเมลไหนเข้าใช้งานในฐานะรหัสเซลล์ (SXXX) ไหนได้บ้าง
+///
+/// ปกติระบบจับคู่ อีเมล↔รหัสเซลล์ อัตโนมัติจาก cross_target_current_month.csv
+/// (ดู lib/fabric/vda-aos-bill.ts) ตารางนี้มีไว้ "กำหนดทับ" เฉพาะอีเมลที่มีแถว active
+/// อยู่จริง — ถ้าอีเมลไม่มีแถวในตารางนี้เลย ระบบ fallback ไปใช้ผลอัตโนมัติเหมือนเดิมทุกประการ
+/// ใช้กรณีแอดมินที่ต้องคีย์ในฐานะพนักงานจริงด้วย หรือคนที่ยังไม่เข้าไฟล์เป้าขาย
+model SalesmanEmailAssignment {
+  id           String   @id @default(cuid())
+  email        String                          // normalize เป็นตัวพิมพ์เล็กเสมอ
+  salesmanCode String                          // "S091" (normalize เป็นตัวพิมพ์ใหญ่เสมอ)
+  active       Boolean  @default(true)         // ปิดชั่วคราวได้โดยไม่ต้องลบประวัติ
+  createdBy    String                          // อีเมลแอดมินที่ตั้งค่านี้ไว้
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([email, salesmanCode])
+  @@index([email])
+  @@index([salesmanCode])
 }

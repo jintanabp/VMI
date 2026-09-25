@@ -223,6 +223,30 @@ export function pickDefaultSalesmanAssignment(email: string) {
   )[0];
 }
 
+/**
+ * เหมือน pickDefaultSalesmanAssignment แต่เริ่มจาก "ชุดรหัสที่รู้อยู่แล้ว" ไม่ใช่อีเมล
+ *
+ * ใช้กับรหัสที่แอดมินกำหนดทับให้อีเมลหนึ่ง (SalesmanEmailAssignment) — รหัสพวกนี้อาจไม่มี
+ * แถวในไฟล์ cross_salesman ที่ผูกกับอีเมลนี้เลย จึงหา "รายละเอียดของรหัส" จาก
+ * getCurrentByCode() ตรง ๆ แทนที่จะหาแถวที่อีเมลตรงกัน
+ */
+export function pickAssignmentForCodes(codes: string[]) {
+  const salesmanReg = getSalesmanRegistry();
+  const vdaReg = getVdaAosBillRegistry();
+  const assignments = codes
+    .map((c) => salesmanReg.getCurrentByCode(c))
+    .filter((a): a is NonNullable<typeof a> => a != null);
+  if (assignments.length === 0) return null;
+
+  const withVda = assignments.filter(
+    (a) => vdaReg.getVdasForSalesman(a.code).length > 0
+  );
+  const pool = withVda.length > 0 ? withVda : assignments;
+  return pool.sort((a, b) =>
+    a.code.localeCompare(b.code, undefined, { numeric: true, sensitivity: "base" })
+  )[0];
+}
+
 export function getPersonSalesCodes(email: string) {
   const salesmanReg = getSalesmanRegistry();
   const vdaReg = getVdaAosBillRegistry();

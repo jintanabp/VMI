@@ -15,6 +15,10 @@ export const NOTIF_META: Record<string, { label: string; className: string }> = 
     label: "ปฏิเสธ",
     className: "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-200",
   },
+  item_rejected: {
+    label: "ปฏิเสธรายการ",
+    className: "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-200",
+  },
   deleted: {
     label: "ลบออเดอร์",
     className: "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-200",
@@ -27,6 +31,16 @@ export const NOTIF_META: Record<string, { label: string; className: string }> = 
   qty_changed: {
     label: "แก้จำนวน",
     className: "bg-sky-100 text-sky-800 dark:bg-sky-500/15 dark:text-sky-200",
+  },
+  qty_increase_pending: {
+    label: "รอยืนยันเพิ่มจำนวน",
+    className:
+      "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200",
+  },
+  item_added_pending: {
+    label: "รอยืนยันสินค้าใหม่",
+    className:
+      "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200",
   },
   po_issued: {
     label: "ออก PO",
@@ -66,7 +80,14 @@ export function relativeTime(iso: string): string {
 
 /** โทนสีของ toast ตามชนิดแจ้งเตือน */
 export function notifTone(kind: string): "success" | "warn" | "info" {
-  if (kind === "rejected" || kind === "deleted" || kind === "po_cancelled") {
+  if (
+    kind === "rejected" ||
+    kind === "item_rejected" ||
+    kind === "deleted" ||
+    kind === "po_cancelled" ||
+    kind === "qty_increase_pending" ||
+    kind === "item_added_pending"
+  ) {
     return "warn";
   }
   if (

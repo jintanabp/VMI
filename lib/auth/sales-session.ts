@@ -4,7 +4,11 @@ import { SALES_SESSION_COOKIE, isAdminEmail, type UserRole } from "./roles";
 import { getSessionSecret } from "./session-secret";
 import { getSalesmanRegistry } from "@/lib/fabric";
 import { applySalesPreview, getSalesPreview } from "./sales-preview";
-import { pickDefaultSalesmanAssignment } from "@/lib/admin/vda-sales-directory";
+import {
+  pickAssignmentForCodes,
+  pickDefaultSalesmanAssignment,
+} from "@/lib/admin/vda-sales-directory";
+import { getManualSalesmanCodes } from "./manual-salesman-assignments";
 
 export interface SalesSession {
   email: string;
@@ -122,8 +126,13 @@ export async function buildSalesSessionWithAccess(
   name?: string
 ): Promise<SalesSession> {
   const registry = getSalesmanRegistry();
+  // แอดมินกำหนดทับได้เสมอ — ถ้าอีเมลนี้มีแถว active ในตาราง SalesmanEmailAssignment
+  // ใช้รหัสที่กำหนดไว้แทนผลอัตโนมัติจาก cross_target ทั้งหมด ไม่มีแถว = fallback แบบเดิม
+  const manualCodes = await getManualSalesmanCodes(email);
   const assignment =
-    pickDefaultSalesmanAssignment(email) ?? registry.getCurrentByEmail(email);
+    manualCodes.length > 0
+      ? pickAssignmentForCodes(manualCodes)
+      : (pickDefaultSalesmanAssignment(email) ?? registry.getCurrentByEmail(email));
 
   if (isAdminEmail(email)) {
     return {
@@ -136,11 +145,16 @@ export async function buildSalesSessionWithAccess(
       divisionCode: assignment?.divisionCode,
       superCode: assignment?.superCode,
       managerCode: assignment?.managerCode,
+      scopeSalesmanCodes: manualCodes.length > 0 ? manualCodes : undefined,
     };
   }
 
   if (!assignment?.code) {
-    throw new Error("ไม่พบข้อมูลพนักงานใน master (cross_salesman) — อีเมลนี้ยังไม่มีในระบบ");
+    throw new Error(
+      manualCodes.length > 0
+        ? "แอดมินกำหนดรหัสเซลล์ให้อีเมลนี้ไว้ แต่ไม่พบรหัสนั้นใน master (cross_salesman) — ตรวจรหัสที่กำหนดอีกครั้ง"
+        : "ไม่พบข้อมูลพนักงานใน master (cross_salesman) — อีเมลนี้ยังไม่มีในระบบ"
+    );
   }
 
   const current = registry.listCurrentAssignments();
@@ -180,6 +194,9 @@ export async function buildSalesSessionWithAccess(
     frontier = next;
     if (frontier.size === 0) break;
   }
+  // แอดมินอาจกำหนดหลายรหัสให้อีเมลเดียว โดยรหัสอื่นไม่ได้เป็นหัวหน้า/ลูกทีมของ myCode
+  // เลย ไม่โผล่จากการไล่ต้นไม้ด้านบน — ใส่เพิ่มตรง ๆ กันสิทธิ์หายไปเงียบ ๆ
+  for (const c of manualCodes) scope.add(c);
 
   const scopeEmails = new Set<string>();
   scopeEmails.add(email.toLowerCase());

@@ -10,7 +10,13 @@ import { prisma } from "@/lib/prisma";
  * ผูกกับ storeId ไม่ใช่ตัวเซลล์ เพราะสิทธิ์เซลล์คำนวณจาก VDA registry ตอน query
  * (storeScopeWhere ใน app/api/sales/notifications/route.ts)
  */
-export type SalesNotificationKind = "order_created" | "order_cancelled";
+export type SalesNotificationKind =
+  | "order_created"
+  | "order_cancelled"
+  | "qty_increase_confirmed"
+  | "qty_increase_rejected"
+  | "item_added_confirmed"
+  | "item_added_rejected";
 
 export async function notifySales(args: {
   storeId: string;

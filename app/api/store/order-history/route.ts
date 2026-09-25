@@ -19,6 +19,7 @@ const DEFAULT_SUMMARY_DAYS = 14;
 const resolveStoreId = getAuthorizedStoreId;
 
 export interface OrderHistoryItem {
+  id: string;
   skuId: string;
   skuCode: string;
   skuName: string;
@@ -50,6 +51,10 @@ export interface OrderHistoryItem {
     qty: number;
     unit: string;
   } | null;
+  /** พนักงานเพิ่มจำนวนเกินที่ร้านขอไว้ตอนแรก รอร้านยืนยัน/ปฏิเสธ */
+  qtyIncreasePendingConfirm: boolean;
+  /** finalQty ที่ร้านส่งมาตอนแรก — 0 = พนักงานเพิ่มสินค้านี้เข้ามาเอง ร้านไม่เคยขอเลย */
+  requestedQty: number | null;
 }
 
 export interface OrderHistoryEntry {
@@ -196,6 +201,7 @@ export async function GET(request: Request) {
         calcNetUnitPrice(unitPrice, i.c4DiscountBaht, i.c4DiscountPct) ??
         unitPrice;
       return {
+        id: i.id,
         skuId: i.skuId,
         skuCode: i.sku.code,
         skuName: i.sku.name,
@@ -219,6 +225,8 @@ export async function GET(request: Request) {
               unit: i.c4FreeGoodUnit ?? "",
             }
           : null,
+        qtyIncreasePendingConfirm: i.qtyIncreasePendingConfirm,
+        requestedQty: i.requestedQty,
       };
     });
     const withPrice = items.filter((i) => i.lineTotal != null);
