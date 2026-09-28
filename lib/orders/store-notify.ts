@@ -26,7 +26,13 @@ export type StoreNotificationKind =
   | "po_issued"
   // สถานะ PO เปลี่ยนหลังออกเลขแล้ว — ร้านต้องรู้ ไม่งั้นรอของที่ถูกยกเลิกไปแล้ว
   | "po_cancelled"
-  | "po_received";
+  | "po_received"
+  // ย้ายกลับจาก "ยกเลิก" — ร้านเคยได้แจ้งว่ายกเลิกไปแล้ว ต้องบอกว่าของจะมาอีก
+  | "po_reopened"
+  // ERP ปฏิเสธแล้วขอเลขใหม่ (clone-for-erp) — poNumbers = [เลขเดิม, เลขใหม่] ร้านจะได้อ้างอิงเลขใหม่ตอนรับของ
+  | "po_replaced"
+  // ปลายทาง ERP รับใบนี้เข้าระบบแล้ว (ยังไม่ใช่ออกบิล — ดู SENT_TO_ERP ใน lib/po/po-status.ts)
+  | "po_sent_erp";
 
 export async function notifyStore(args: {
   storeId: string;

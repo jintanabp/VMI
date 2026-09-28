@@ -8,6 +8,8 @@
  * ในไฟล์ .tsx เพื่อให้เทสต์รันได้ใต้ environment: "node" ตามนโยบายใน vitest.config.ts
  */
 import { isPathUnder, normalizePathname } from "@/lib/paths";
+import { can, isCreator, type AdminPermission } from "@/lib/auth/permissions";
+import type { SalesSession } from "@/lib/auth/sales-session";
 
 export type AdminIconKey = "database" | "store" | "tag" | "eye" | "shield";
 export type AdminBadgeKey = "storePending" | "syncFailed" | "promoNotReady";
@@ -16,6 +18,12 @@ export interface AdminSubTabDef {
   href: string;
   label: string;
   badge?: AdminBadgeKey;
+  /**
+   * สิทธิ์ที่ admin (ไม่ใช่ creator) ต้องมีถึงจะเห็นแท็บนี้ · ไม่ระบุ = creator เท่านั้น
+   * ต้องตรงกับที่ตรวจฝั่งเซิร์ฟเวอร์ — หน้าที่ creator เท่านั้นถูกกันด้วย layout ของหมวด
+   * (`CreatorOnlyLayout`) และ API ตรวจ `can()` เอง การซ่อนแท็บเป็นแค่ UX
+   */
+  permission?: AdminPermission;
 }
 
 export interface AdminGroupDef {
@@ -45,7 +53,12 @@ export const ADMIN_GROUPS: AdminGroupDef[] = [
     iconKey: "store",
     basePath: "/admin/stores",
     subTabs: [
-      { href: "/admin/stores/accounts", label: "บัญชีร้านค้า", badge: "storePending" },
+      {
+        href: "/admin/stores/accounts",
+        label: "บัญชีร้านค้า",
+        badge: "storePending",
+        permission: "stores.view",
+      },
       { href: "/admin/stores/thresholds", label: "MIN/MAX & หยุดสั่ง" },
     ],
   },
@@ -55,7 +68,12 @@ export const ADMIN_GROUPS: AdminGroupDef[] = [
     iconKey: "tag",
     basePath: "/admin/promotions",
     subTabs: [
-      { href: "/admin/promotions/c4", label: "โปร C4 เดือนนี้", badge: "promoNotReady" },
+      {
+        href: "/admin/promotions/c4",
+        label: "โปร C4 เดือนนี้",
+        badge: "promoNotReady",
+        permission: "promotions.view",
+      },
     ],
   },
   {
@@ -75,7 +93,11 @@ export const ADMIN_GROUPS: AdminGroupDef[] = [
     basePath: "/admin/system",
     subTabs: [
       { href: "/admin/system/admins", label: "ผู้ดูแล" },
-      { href: "/admin/system/vda-sales", label: "สิทธิ์เซลล์-VDA" },
+      {
+        href: "/admin/system/vda-sales",
+        label: "สิทธิ์เซลล์-VDA",
+        permission: "salesCodes.view",
+      },
     ],
   },
 ];
@@ -112,6 +134,21 @@ export const ADMIN_LEGACY_REDIRECTS: Record<string, string> = {
 export const normalizeAdminPath = normalizePathname;
 
 const isUnder = isPathUnder;
+
+type NavSession = Pick<SalesSession, "role" | "adminAccess" | "salesmanCode"> | null | undefined;
+
+export function canSeeSubTab(session: NavSession, sub: AdminSubTabDef): boolean {
+  if (isCreator(session)) return true;
+  return sub.permission != null && can(session, sub.permission);
+}
+
+/** เมนูที่ผู้ใช้คนนี้เห็น — หมวดที่ไม่เหลือแท็บย่อยให้เห็นถูกตัดทิ้งทั้งหมวด */
+export function visibleAdminGroups(session: NavSession): AdminGroupDef[] {
+  return ADMIN_GROUPS.map((g) => ({
+    ...g,
+    subTabs: g.subTabs.filter((s) => canSeeSubTab(session, s)),
+  })).filter((g) => g.subTabs.length > 0);
+}
 
 export interface AdminNavMatch {
   group: AdminGroupDef;

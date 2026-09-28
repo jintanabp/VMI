@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { AppHeader } from "@/components/layout/app-header";
-import { ORDER_KIND_META } from "@/lib/orders/sales-notify-display";
+import { ORDER_KIND_FALLBACK, ORDER_KIND_META } from "@/lib/orders/sales-notify-display";
 import { PageShell } from "@/components/layout/page-shell";
 import { useSalesSession } from "@/hooks/use-sales-session";
 import { Button } from "@/components/ui/button";
@@ -64,6 +64,8 @@ function fmt(iso: string): string {
     year: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
+    // เวลาไทยเสมอ ไม่ขึ้นกับ timezone ของเครื่องที่เปิดดู (ตรงกับ fmtDateTime ฝั่งร้าน)
+    timeZone: "Asia/Bangkok",
   });
 }
 
@@ -130,7 +132,7 @@ export function SalesNotificationsClient() {
       <AppHeader
         compact
         title="การแจ้งเตือน"
-        subtitle="ออเดอร์ใหม่และรายการหยุดสั่งจากร้านที่คุณดูแล"
+        subtitle="ความเคลื่อนไหวของออเดอร์และรายการหยุดสั่งจากร้านที่คุณดูแล"
         role={session?.role ?? "sales"}
       />
       {/* รายการอ่าน — ขยายพอให้ไม่เสียพื้นที่ แต่ไม่เต็มจอ บรรทัดยาวเกินอ่านยาก */}
@@ -185,12 +187,12 @@ export function SalesNotificationsClient() {
             </p>
           ) : orderItems.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-500">
-              ยังไม่มีออเดอร์ใหม่
+              ยังไม่มีแจ้งเตือน
             </p>
           ) : (
             <ul className="mt-3 space-y-2">
               {orderItems.map((n) => {
-                const meta = ORDER_KIND_META[n.kind] ?? ORDER_KIND_META.order_created;
+                const meta = ORDER_KIND_META[n.kind] ?? ORDER_KIND_FALLBACK;
                 const Icon = meta.icon;
                 return (
                   <li
@@ -253,18 +255,27 @@ export function SalesNotificationsClient() {
                           บอกสถานะปัจจุบันของออเดอร์ — เดิมขึ้น "ออเดอร์ใหม่" พร้อมปุ่ม
                           "ตรวจ" ตลอดไปแม้อนุมัติไปแล้ว เซลล์จึงกดเข้าไปดูซ้ำเรื่อย ๆ
                         */}
+                        {/* เดิมสถานะอื่นที่ไม่ใช่ approved ขึ้น "ปฏิเสธแล้ว" หมด และใบที่ถูกลบไม่มีป้ายเลย */}
                         {n.kind === "order_created" &&
-                          n.orderStatus &&
+                          n.orderId &&
                           n.orderStatus !== "pending_approval" && (
                             <span
                               className={cn(
                                 "rounded-md px-1.5 py-0.5 text-[11px] font-semibold",
                                 n.orderStatus === "approved"
                                   ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
-                                  : "bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-300"
+                                  : n.orderStatus === "rejected"
+                                    ? "bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-300"
+                                    : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"
                               )}
                             >
-                              {n.orderStatus === "approved" ? "อนุมัติแล้ว" : "ปฏิเสธแล้ว"}
+                              {n.orderStatus === "approved"
+                                ? "อนุมัติแล้ว"
+                                : n.orderStatus === "rejected"
+                                  ? "ปฏิเสธแล้ว"
+                                  : n.orderStatus == null
+                                    ? "ออเดอร์ถูกลบแล้ว"
+                                    : "ดำเนินการแล้ว"}
                             </span>
                           )}
                         {n.kind === "order_created" &&

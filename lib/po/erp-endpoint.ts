@@ -46,6 +46,9 @@ export interface ErpEndpoint {
  */
 export function erpEndpoint(): ErpEndpoint | null {
   if (!SEND_ENABLED) return null;
+  // เบรกฉุกเฉินจาก env — **ปิดได้อย่างเดียว เปิดไม่ได้** (เปิดยังต้องแก้ SEND_ENABLED ในโค้ด)
+  // ใช้กับเครื่อง dev / รอบทดสอบที่ห้ามยิง ERP แม้แต่ UAT
+  if (process.env.ERP_SEND_DISABLED === "1") return null;
   return { url: ERP_UAT_URL, timeoutMs: ERP_TIMEOUT_MS };
 }
 

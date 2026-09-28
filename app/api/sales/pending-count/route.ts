@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { hasSalesView } from "@/lib/auth/permissions";
 import { getSalesSession } from "@/lib/auth/sales-session";
 import { prisma } from "@/lib/prisma";
 import { countPendingOrders } from "@/lib/sales/dashboard-queries";
@@ -15,7 +16,10 @@ export const dynamic = "force-dynamic";
  * และ /api/sales/dashboard เรียก countPendingOrders ตัวเดียวกันนี้ ตัวเลขจึงตรงกันเสมอ
  */
 export async function GET() {
-  const scope = resolveOrderStoreScope(await getSalesSession());
+  const session = await getSalesSession();
+  // admin ที่ไม่ได้ผูกรหัสเซลล์ — เดิมได้ 200 ข้อมูลว่าง ทั้งที่หน้า /sales ถูกกันไว้แล้ว
+  if (session && !hasSalesView(session)) return NextResponse.json({ error: "บัญชีนี้ไม่ได้ผูกกับรหัสเซลล์ — ใช้ได้เฉพาะหน้าตั้งค่า" }, { status: 403 });
+  const scope = resolveOrderStoreScope(session);
   if (!scope) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

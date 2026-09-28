@@ -21,7 +21,6 @@ export async function GET() {
       hasVdaAccess: true,
       isAdmin: true,
       vdaRegistryLoaded: true,
-      salesmanMasterLoaded: true,
     });
   }
 

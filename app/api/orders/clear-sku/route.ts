@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getSalesSession } from "@/lib/auth/sales-session";
+import { getSalesSession, salesPreviewReadOnly } from "@/lib/auth/sales-session";
 import { resolveOrderStoreScope } from "@/lib/orders/access";
 import { deleteOrdersForSession } from "@/lib/orders/delete-orders";
 import { notifyStore } from "@/lib/orders/store-notify";
@@ -20,6 +20,8 @@ export async function DELETE(request: Request) {
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const previewBlock = salesPreviewReadOnly(session);
+  if (previewBlock) return previewBlock;
 
   const params = new URL(request.url).searchParams;
   const skuCode = params.get("skuCode")?.trim();
@@ -29,13 +31,17 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "ต้องระบุ skuCode" }, { status: 400 });
   }
 
-  const storeScope = resolveOrderStoreScope(session);
-  if (storeScope === null) {
+  const fullScope = resolveOrderStoreScope(session);
+  if (fullScope === null) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (storeScope === "none") {
+  if (fullScope === "none") {
     return NextResponse.json({ itemsRemoved: 0, ordersRemoved: 0 });
   }
+  // `vdaCode` = เคลียร์เฉพาะ VDA ที่กำลังดูอยู่ (ต้องอยู่ในขอบเขตของคนนี้ — ตัดกันด้วย AND ด้านล่าง)
+  // ไม่ส่ง = ทุก VDA ในขอบเขต เหมือนเดิม
+  const vdaCode = params.get("vdaCode")?.trim().toLowerCase();
+  const storeScope = vdaCode ? { AND: [fullScope, { code: vdaCode }] } : fullScope;
 
   const matchingItems = await prisma.orderItem.findMany({
     where: {

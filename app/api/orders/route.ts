@@ -1,10 +1,17 @@
 import { NextResponse } from "next/server";
+import { hasSalesView } from "@/lib/auth/permissions";
 import { z } from "zod";
 import { getRepositories } from "@/lib/repositories";
 import { approveWithPoSplit } from "@/lib/po/approve-with-split";
 import { approveSelectedItems, PartialSelectionError } from "@/lib/po/approve-selected";
 import { addOrderItem, repricePooledGroupOf } from "@/lib/po/add-order-item";
 import { notifyStore } from "@/lib/orders/store-notify";
+import {
+  INVALID_SALES_PRICE_ERROR,
+  isValidSalesPrice,
+  qtyChanged,
+  salesPriceChanged,
+} from "@/lib/orders/item-edit";
 import { notifySales } from "@/lib/orders/sales-notify";
 import {
   getAuthorizedStore,
@@ -20,7 +27,7 @@ import {
   type OrderPromoLineResult,
 } from "@/lib/promo/lookup-order-lines";
 import type { OrderItemInput } from "@/lib/repositories/types";
-import { getSalesSession } from "@/lib/auth/sales-session";
+import { getSalesSession, salesPreviewReadOnly } from "@/lib/auth/sales-session";
 import { prisma } from "@/lib/prisma";
 import { ensureVdaStoreSalesRep } from "@/lib/fabric/ensure-vda-sales-rep";
 import { isVdaStoreCode, getVdaAosBillRegistry } from "@/lib/fabric/vda-aos-bill";
@@ -40,7 +47,12 @@ import {
 const orderItemSchema = z.object({
   skuId: z.string(),
   suggestedQty: z.number().int().min(0),
-  finalQty: z.number().int().min(1),
+  // เพดานเดียวกับที่เซลล์แก้จำนวนได้ — เดิมไม่มีเพดาน ร้านส่ง 999,999,999 หีบได้ (QA 28 ก.ย. 69)
+  finalQty: z
+    .number()
+    .int("จำนวนต้องเป็นจำนวนเต็ม")
+    .min(1, "จำนวนต้องอย่างน้อย 1 หีบ")
+    .max(100_000, "จำนวนต้องไม่เกิน 100,000 หีบต่อรายการ"),
   cvdEstimate: z.number().nullable(),
   minDays: z.number().int().nullable().optional(),
   maxDays: z.number().int().nullable().optional(),
@@ -57,7 +69,14 @@ const orderItemSchema = z.object({
 });
 
 const createOrderSchema = z.object({
-  items: z.array(orderItemSchema).min(1),
+  items: z
+    .array(orderItemSchema)
+    .min(1, "ต้องมีสินค้าอย่างน้อย 1 รายการ")
+    .superRefine((items, ctx) => {
+      if (new Set(items.map((i) => i.skuId)).size !== items.length) {
+        ctx.addIssue({ code: "custom", message: "มีสินค้าซ้ำในคำสั่งซื้อ — รวมเป็นบรรทัดเดียว" });
+      }
+    }),
   /**
    * รหัสประจำดราฟต์จาก client — กดส่งซ้ำ/เน็ต retry ด้วยรหัสเดิมจะได้ใบเดิม
    * ไม่บังคับ เพื่อให้ client เวอร์ชันเก่าที่ยังเปิดค้างอยู่ส่งออเดอร์ได้ตามปกติ
@@ -183,6 +202,7 @@ export async function GET(request: Request) {
   const { orders } = getRepositories();
 
   if (salesSession) {
+    if (!hasSalesView(salesSession)) return NextResponse.json({ error: "บัญชีนี้ไม่ได้ผูกกับรหัสเซลล์ — ใช้ได้เฉพาะหน้าตั้งค่า" }, { status: 403 });
     const email = salesSession.email;
     const role = salesSession.role;
 
@@ -202,6 +222,10 @@ export async function GET(request: Request) {
         ? resolveAllPersonVdaCodes(email, salesSession.manualCodes)
         : resolveVdaCodesForSalesmanCodes(salesmanCodes);
     const requestedVda = vdaCode?.trim().toLowerCase();
+    // ขอ VDA นอกขอบเขต = 403 ชัด ๆ — เดิมเงียบแล้วคืนลิสต์ของ VDA ตัวเองแทน ดูเหมือนคลังนั้นมีออเดอร์เหมือนกัน
+    if (requestedVda && !allowedVdas.includes(requestedVda)) {
+      return NextResponse.json({ error: "ไม่มีสิทธิ์ดูออเดอร์ของคลังนี้" }, { status: 403 });
+    }
 
     if (allowedVdas.length > 0) {
       const filterVdas =
@@ -217,21 +241,9 @@ export async function GET(request: Request) {
       return NextResponse.json(withPackSize(list));
     }
 
-    if (role === "sales") {
-      return NextResponse.json([]);
-    }
-
-    const filters =
-      role === "manager" || role === "supervisor"
-        ? {
-            status,
-            storeId,
-            salesRepEmails: salesSession.scopeEmails ?? [email],
-          }
-        : { status, storeId, salesRepEmail: email };
-
-    const list = await orders.listOrders(filters);
-    return NextResponse.json(withPackSize(list));
+    // ไม่มี VDA ในความดูแล = ไม่มีออเดอร์ให้ดู — เดิม manager/supervisor ถอยไปกรองด้วย Store.salesRep
+    // (มาจาก master ที่เลิกใช้แล้ว ค้างเก่าได้) ตอนนี้ทุก role ตัดสินด้วย รหัส → VDA อย่างเดียว
+    return NextResponse.json([]);
   }
 
   if (customerStoreId) {
@@ -249,11 +261,15 @@ export async function POST(request: Request) {
   }
   const { storeId } = authorized;
 
-  const body = await request.json();
+  const body = await request.json().catch(() => null);
   const parsed = createOrderSchema.safeParse(body);
 
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    // ข้อความไทยตัวแรก — เดิมส่ง object ของ zod กลับไป หน้าเว็บแสดงให้ร้านอ่านไม่ได้
+    return NextResponse.json(
+      { error: parsed.error.issues[0]?.message ?? "ข้อมูลคำสั่งซื้อไม่ถูกต้อง" },
+      { status: 400 }
+    );
   }
 
   const store = await prisma.store.findUnique({ where: { id: storeId } });
@@ -276,6 +292,13 @@ export async function POST(request: Request) {
     where: { id: { in: items.map((i) => i.skuId) } },
     select: { id: true, code: true },
   });
+  // SKU ที่ไม่มีจริง — เดิมไปพังที่ FK ตอนเขียนแล้วตอบ 500
+  if (skus.length !== items.length) {
+    return NextResponse.json(
+      { error: "ไม่พบสินค้าบางรายการ — รีเฟรชหน้าแล้วลองใหม่" },
+      { status: 400 }
+    );
+  }
   const codeById = new Map(skus.map((s) => [s.id, s.code]));
 
   const storeCode = store?.code ?? authorized.storeCode ?? "";
@@ -411,6 +434,8 @@ async function snapshotOrderItem(orderId: string, itemId: string) {
     skuName: item.sku.name,
     finalQty: item.finalQty,
     c4UnitPrice: item.c4UnitPrice,
+    salesPriceOverride: item.salesPriceOverride,
+    unitPriceOverride: item.unitPriceOverride,
     /** ราคาที่มีผลอยู่ก่อนแก้: พนักงาน > ร้าน > C4 */
     effectivePrice:
       item.salesPriceOverride ?? item.unitPriceOverride ?? item.c4UnitPrice,
@@ -422,6 +447,8 @@ export async function PATCH(request: Request) {
   if (!salesSession) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const previewBlock = salesPreviewReadOnly(salesSession);
+  if (previewBlock) return previewBlock;
 
   const parsed = patchOrderSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
@@ -612,6 +639,10 @@ export async function PATCH(request: Request) {
   }
 
   if (action === "updatePrice") {
+    // schema รับ 0 ได้ (min(0)) — กันตรงนี้เพื่อตอบข้อความไทยที่บอกเหตุผล แทน "คำสั่งไม่ถูกต้อง"
+    if (!isValidSalesPrice(body.unitPriceOverride)) {
+      return NextResponse.json({ error: INVALID_SALES_PRICE_ERROR }, { status: 400 });
+    }
     // อ่านค่าเดิมก่อนแก้ เพื่อบอกร้านได้ว่า "รายการไหน จากเท่าไร เป็นเท่าไร"
     // (เดิมแจ้งแค่ราคาใหม่ ร้านไม่รู้ว่าเป็นสินค้าตัวไหนในออเดอร์)
     const before = await snapshotOrderItem(orderId, body.itemId);
@@ -631,6 +662,10 @@ export async function PATCH(request: Request) {
         );
       }
       throw err;
+    }
+    // ราคาที่ร้านเห็นไม่ได้เปลี่ยน (เช่นกดบันทึกซ้ำ) = ไม่แจ้ง — เดิมร้านได้ "140 → 140"
+    if (before && !salesPriceChanged(before, body.unitPriceOverride)) {
+      return NextResponse.json(await orders.getOrderById(orderId));
     }
     const priceLabel = before ? `${before.skuCode} ${before.skuName} · ` : "";
     const oldPrice = before?.effectivePrice ?? null;
@@ -655,6 +690,15 @@ export async function PATCH(request: Request) {
   }
 
   if (action === "assignPoGroup") {
+    // itemId ที่ไม่ได้อยู่ในใบนี้ — เดิมตอบ 200 แล้วไม่ทำอะไร หน้าเว็บเข้าใจว่าจัดกลุ่มสำเร็จ (QA 28 ก.ย. 69)
+    const wanted = [...new Set(body.assignments.map((a) => a.itemId))];
+    const found = await prisma.orderItem.count({ where: { orderId, id: { in: wanted } } });
+    if (found !== wanted.length) {
+      return NextResponse.json(
+        { error: "ไม่พบบางรายการในออเดอร์นี้ — ลองรีเฟรชหน้า" },
+        { status: 404 }
+      );
+    }
     await orders.assignPoGroups(orderId, body.assignments);
     return NextResponse.json(await orders.getOrderById(orderId));
   }
@@ -739,6 +783,14 @@ export async function PATCH(request: Request) {
   }
 
   if (action === "updateQty") {
+    // ตั้งเป็น 0 = ไม่เอารายการนี้ — ต้องไปทาง «ปฏิเสธ» (มีเหตุผล · ขึ้นป้ายปฏิเสธให้ร้านเห็น)
+    // เดิมรับ 0 ได้: ร้านได้ "11 → 0 หีบ" บรรทัดไม่ถูกนับว่าปฏิเสธ แล้วหายจาก PO เงียบ ๆ (QA 28 ก.ย. 69)
+    if (body.finalQty === 0) {
+      return NextResponse.json(
+        { error: "ถ้าไม่ต้องการรายการนี้ ให้กด «ปฏิเสธ» พร้อมเหตุผลแทนการตั้งเป็น 0" },
+        { status: 400 }
+      );
+    }
     const before = await snapshotOrderItem(orderId, body.itemId);
     let pendingConfirm = false;
     try {
@@ -758,6 +810,11 @@ export async function PATCH(request: Request) {
         );
       }
       throw err;
+    }
+    // จำนวนไม่ได้เปลี่ยน = ไม่แจ้ง — เดิมร้านได้ "150 → 150"
+    // (ถ้าบรรทัดนี้รอร้านยืนยันอยู่แล้ว ร้านได้แจ้งตอนเพิ่มครั้งแรกไปแล้ว ไม่ต้องซ้ำ)
+    if (!qtyChanged(before?.finalQty, body.finalQty)) {
+      return NextResponse.json(await orders.getOrderById(orderId));
     }
     const skuLabel = before ? `${before.skuCode} ${before.skuName}` : "รายการนี้";
     // เพิ่มเกินที่ร้านขอ = ต้องรอร้านยืนยันก่อนเข้า PO ได้ — แจ้งเตือนคนละแบบกับแก้จำนวนทั่วไป
@@ -794,6 +851,8 @@ export async function DELETE(request: Request) {
   if (!salesSession) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const previewBlock = salesPreviewReadOnly(salesSession);
+  if (previewBlock) return previewBlock;
 
   const { searchParams } = new URL(request.url);
   const single = searchParams.get("orderId")?.trim() ?? "";
@@ -823,6 +882,15 @@ export async function DELETE(request: Request) {
     const reason = result.skipped[0]?.reason;
     if (reason === "not_found") {
       return NextResponse.json({ error: "ไม่พบออเดอร์" }, { status: 404 });
+    }
+    if (reason === "in_erp") {
+      return NextResponse.json(
+        {
+          error:
+            "ลบไม่ได้ — ออเดอร์นี้มี PO ที่ส่งเข้า ERP แล้ว (หรือส่งแล้วผลไม่ชัดเจน) ต้องยกเลิกที่ฝั่ง ERP ก่อน",
+        },
+        { status: 409 }
+      );
     }
     if (reason === "has_po") {
       return NextResponse.json(

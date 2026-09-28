@@ -68,11 +68,13 @@ export function checkDeliveryDate(
 
 /** `2026-08-31` → `31 ส.ค. 69` — รูปแบบเดียวกับที่ใช้ทั้งแอป */
 export function thaiShortDate(isoDate: string): string {
-  const d = new Date(`${isoDate}T00:00:00`);
+  // ตรึงเป็นเที่ยงคืนเวลาไทยแล้วแสดงแบบเวลาไทย — ไม่งั้นเครื่องที่ timezone อื่นเลื่อนวันได้
+  const d = new Date(`${isoDate}T00:00:00+07:00`);
   if (Number.isNaN(d.getTime())) return isoDate;
   return d.toLocaleDateString("th-TH", {
     day: "numeric",
     month: "short",
     year: "2-digit",
+    timeZone: "Asia/Bangkok",
   });
 }

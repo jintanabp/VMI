@@ -88,12 +88,20 @@ describe("clientIp", () => {
     return new Request("https://x/", { headers });
   }
 
-  it("เอา hop แรกของ x-forwarded-for — ตัวหลังคือ nginx ไม่ใช่ผู้ใช้", () => {
-    expect(clientIp(req({ "x-forwarded-for": "1.2.3.4, 10.0.0.1" }))).toBe("1.2.3.4");
+  it("x-real-ip (nginx ตั้งจาก $remote_addr) มาก่อน — hop แรกที่ client ปลอมมาไม่มีผล", () => {
+    expect(
+      clientIp(req({ "x-real-ip": "5.6.7.8", "x-forwarded-for": "9.9.9.9, 5.6.7.8" }))
+    ).toBe("5.6.7.8");
   });
 
-  it("ถอยไป x-real-ip เมื่อไม่มี x-forwarded-for", () => {
-    expect(clientIp(req({ "x-real-ip": "5.6.7.8" }))).toBe("5.6.7.8");
+  it("ไม่มี x-real-ip → hop สุดท้ายของ x-forwarded-for (ตัวที่ proxy ของเราเติม)", () => {
+    expect(clientIp(req({ "x-forwarded-for": "1.2.3.4, 10.0.0.1" }))).toBe("10.0.0.1");
+  });
+
+  it("ปลอม x-forwarded-for ทุกครั้ง แต่ผ่าน nginx ตัวเดิม → key เดิม (หลบ rate limit ไม่ได้)", () => {
+    const a = clientIp(req({ "x-forwarded-for": "11.11.11.11, 203.0.113.7" }));
+    const b = clientIp(req({ "x-forwarded-for": "22.22.22.22, 203.0.113.7" }));
+    expect(a).toBe(b);
   });
 
   it("ไม่มี header เลย → unknown (ยังนับรวมกันได้ ไม่ throw)", () => {

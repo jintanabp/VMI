@@ -298,7 +298,8 @@ npm run dev:stop && npm run build
 ## 5. การทดสอบ
 
 ```bash
-npm test          # ทำงานครั้งเดียว (501 กรณี จาก 46 ไฟล์ · 25 ก.ย. 2569)
+npm test          # ทำงานครั้งเดียว (584 กรณี จาก 55 ไฟล์ · 28 ก.ย. 2569)
+npx vitest run --no-file-parallelism   # ถ้าเทสต์ *.db.test.ts หมดเวลาตอนเตรียมฐานข้อมูล (เครื่องช้า/มี dev server รันอยู่)
 npm run test:watch
 npx vitest run tests/cvd-flag.test.ts    # ระบุเฉพาะไฟล์
 ```
@@ -335,6 +336,21 @@ const { approveWithPoSplit } = await import("@/lib/po/approve-with-split");
 ---
 
 ## 6. ขั้นตอนการทำงานที่พบบ่อย
+
+### ทดสอบทุกตำแหน่งบนเครื่องตัวเอง (ไม่ต้องผ่าน Microsoft)
+
+Azure ลงทะเบียน redirect ของ localhost ไว้เฉพาะพอร์ต 3000 — ถ้าไม่ได้หรือพอร์ตไม่ว่าง ใช้ทางเข้าสำหรับ dev:
+
+```bash
+# .env บนเครื่อง dev เท่านั้น — ห้ามคัดลอกขึ้น server
+DEV_LOGIN=1                              # เปิด GET /api/dev/login/?email=<อีเมล> (ปิดเองใน production + ต้องเป็น localhost)
+VDA_SALESMAN_MAP=vda1:S555,vda2:S777     # ทะเบียน VDA สำรองเมื่อไม่มีไฟล์ cross_target ในเครื่อง
+ERP_SEND_DISABLED=1                      # เบรก — ห้ามยิง ERP จากเครื่อง dev (ปิดได้อย่างเดียว)
+```
+
+แล้วเปิด `http://localhost:3000/vmi/api/dev/login/?email=<อีเมล>` — สิทธิ์คำนวณด้วย `buildSalesSessionWithAccess`
+ตัวจริง จึงได้ตำแหน่งตรงกับ login จริง (Creator = อีเมลใน `ADMIN_EMAILS` · เซลล์ = อีเมลที่ผูกรหัสไว้)
+· ร้านค้า: ออกรหัสตั้งค่าจากหน้าบัญชีร้านค้า แล้วตั้งรหัสที่ `/login?mode=customer` (ไม่ต้องมีข้อมูล Fabric)
 
 ### การเพิ่ม API route
 

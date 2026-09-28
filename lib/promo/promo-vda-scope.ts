@@ -1,4 +1,5 @@
 import type { SalesSession } from "@/lib/auth/sales-session";
+import { can } from "@/lib/auth/permissions";
 import {
   resolveAllPersonVdaCodes,
   resolveSalesmanCodesForFilter,
@@ -22,7 +23,8 @@ export function resolvePromoVdaScope(
   ownedVdaCodes: string[]
 ): PromoScope {
   if (!session) return { kind: "none" };
-  if (session.role === "admin") {
+  // creator + admin ที่มีสิทธิ์ดูโปร (แท็บโปรในหน้าตั้งค่า) เห็นทุกคลัง
+  if (can(session, "promotions.view")) {
     return { kind: "all", storeCodes: allStoreCodes };
   }
 

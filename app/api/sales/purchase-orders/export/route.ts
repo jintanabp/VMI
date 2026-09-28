@@ -1,4 +1,5 @@
 import { readFile } from "fs/promises";
+import { bangkokDateStr } from "@/lib/fabric/bkk-date";
 import { NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { z } from "zod";
@@ -135,7 +136,7 @@ export async function POST(request: Request) {
     summary.getCell(r, 6).value = doc.totalAmount;
     summary.getCell(r, 7).value = doc.vatTotal;
     summary.getCell(r, 8).value = doc.grandTotal;
-    summary.getCell(r, 9).value = new Date(doc.approvedAt).toLocaleString("th-TH");
+    summary.getCell(r, 9).value = new Date(doc.approvedAt).toLocaleString("th-TH", { timeZone: "Asia/Bangkok" });
     summary.getCell(r, 10).value = doc.approvedBy || "-";
   });
   const totalRow = 4 + docs.length;
@@ -177,7 +178,7 @@ export async function POST(request: Request) {
     sheet.getCell("A2").value = `${doc.storeCode.toUpperCase()} · ${doc.storeName}`;
     sheet.getCell("A3").value = `กลุ่ม ${doc.groupKey} (${doc.priceKind}) · ออกเมื่อ ${new Date(
       doc.approvedAt
-    ).toLocaleString("th-TH")}`;
+    ).toLocaleString("th-TH", { timeZone: "Asia/Bangkok" })}`;
 
     const headerRow = 5;
     detailCols.forEach((c, i) => {
@@ -261,7 +262,8 @@ export async function POST(request: Request) {
     sheet.views = [{ state: "frozen", ySplit: headerRow }];
   }
 
-  const stamp = new Date().toISOString().slice(0, 10);
+  // ชื่อไฟล์ตามวันที่ไทย — toISOString เป็น UTC ช่วง 00:00–07:00 ได้วันที่ของเมื่อวาน
+  const stamp = bangkokDateStr(new Date());
   const buffer = await wb.xlsx.writeBuffer();
   return new NextResponse(buffer as ArrayBuffer, {
     headers: {

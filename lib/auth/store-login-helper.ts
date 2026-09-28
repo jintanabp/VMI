@@ -37,6 +37,8 @@ export async function establishStoreSession(account: StoreAccount) {
     vdaCode: code,
     storeId: dbStore.id,
     canManageMinMax: account.canManageMinMax,
+    // ผูก token กับรุ่นของบัญชี — ถูกปฏิเสธ/รีเซ็ต/ย้าย VDA ทีหลัง token นี้ใช้ไม่ได้ทันที
+    sessionVersion: account.sessionVersion,
   });
 
   return dbStore;

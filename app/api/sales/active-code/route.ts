@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { z } from "zod";
-import { getSalesmanRegistry } from "@/lib/fabric";
 import {
   getRawSalesSession,
   signSalesSession,
@@ -11,6 +10,8 @@ import {
   getSalesPreview,
   setSalesPreviewCookie,
 } from "@/lib/auth/sales-preview";
+import { getManualSalesmanCodes } from "@/lib/auth/manual-salesman-assignments";
+import { salesCodeLabel } from "@/lib/admin/vda-sales-directory";
 
 const bodySchema = z.object({
   code: z.string().min(1),
@@ -20,42 +21,44 @@ function normCode(code: string) {
   return code.trim().toUpperCase();
 }
 
+/**
+ * สลับรหัสเซลล์ที่ใช้อยู่ — เลือกได้เฉพาะรหัสที่ผูกกับอีเมลนั้นในหน้า «สิทธิ์เซลล์-VDA»
+ * (ไม่ใช้ cross_salesman master แล้ว)
+ */
 export async function POST(request: Request) {
-  const parsed = bodySchema.safeParse(await request.json());
-  if (!parsed.success) {
-    return NextResponse.json({ error: "กรุณาระบุรหัสเซลล์" }, { status: 400 });
-  }
-
+  // ตรวจตัวตนก่อนอ่าน body — เดิม parse ก่อน: ไม่มี body = 500 และคนไม่ได้ login ได้ 400 แทน 401
   const rawSession = await getRawSalesSession();
   if (!rawSession) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const parsed = bodySchema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) {
+    return NextResponse.json({ error: "กรุณาระบุรหัสเซลล์" }, { status: 400 });
+  }
+
   const targetCode = normCode(parsed.data.code);
-  const registry = getSalesmanRegistry();
   const preview = await getSalesPreview();
 
   if (rawSession.role === "admin" && preview) {
-    const assignments = registry.getAssignmentsByEmail(preview.asEmail);
-    const picked = assignments.find((a) => normCode(a.code) === targetCode);
-    if (!picked) {
+    const codes = await getManualSalesmanCodes(preview.asEmail);
+    if (!codes.includes(targetCode)) {
       return NextResponse.json(
-        { error: "รหัสเซลล์นี้ไม่ตรงกับอีเมลที่ทดสอบ" },
+        { error: "รหัสเซลล์นี้ไม่ได้ผูกกับอีเมลที่ทดสอบ" },
         { status: 400 }
       );
     }
 
     await setSalesPreviewCookie({
-      asEmail: picked.email,
-      asCode: picked.code,
-      asName: registry.getDisplayName(picked),
-      divisionCode: picked.divisionCode,
+      asEmail: preview.asEmail,
+      asCode: targetCode,
+      asName: salesCodeLabel(targetCode),
     });
 
     return NextResponse.json({
       success: true,
-      code: picked.code,
-      name: registry.getDisplayName(picked),
+      code: targetCode,
+      name: salesCodeLabel(targetCode),
     });
   }
 
@@ -63,17 +66,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // แอดมินกำหนดรหัสไว้ = สลับได้เฉพาะในชุดที่กำหนด (แทนที่รหัสอัตโนมัติ ไม่ใช่เพิ่ม)
-  const manual = (rawSession.manualCodes ?? []).map(normCode);
-  const picked =
-    manual.length > 0
-      ? manual.includes(targetCode)
-        ? registry.getCurrentByCode(targetCode)
-        : undefined
-      : registry
-          .getAssignmentsByEmail(rawSession.email)
-          .find((a) => normCode(a.code) === targetCode);
-  if (!picked) {
+  if (!(rawSession.manualCodes ?? []).map(normCode).includes(targetCode)) {
     return NextResponse.json(
       { error: "รหัสเซลล์นี้ไม่ตรงกับบัญชีของคุณ" },
       { status: 400 }
@@ -82,10 +75,8 @@ export async function POST(request: Request) {
 
   const updated = {
     ...rawSession,
-    salesmanCode: picked.code,
-    salesmanName: registry.getDisplayName(picked),
-    employeeNo: picked.employeeNo,
-    divisionCode: picked.divisionCode,
+    salesmanCode: targetCode,
+    salesmanName: salesCodeLabel(targetCode),
   };
 
   const cookieStore = await cookies();
@@ -99,7 +90,7 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     success: true,
-    code: picked.code,
-    name: registry.getDisplayName(picked),
+    code: targetCode,
+    name: salesCodeLabel(targetCode),
   });
 }

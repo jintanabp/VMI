@@ -120,6 +120,7 @@ export function applySalesPreview(
 
   return {
     ...session,
+    previewBy: session.email,
     role: "sales",
     email: preview.asEmail,
     salesmanCode: preview.asCode,
@@ -127,5 +128,8 @@ export function applySalesPreview(
     divisionCode: preview.divisionCode,
     scopeEmails: [preview.asEmail.toLowerCase()],
     scopeSalesmanCodes: [preview.asCode],
+    // ต้องทับ — ไม่งั้นติดรหัสที่ผูกกับอีเมลของ creator เองมาด้วย แล้วจุดที่ดึง "รหัสทั้งหมดของคนนี้"
+    // (resolveAllPersonVdaCodes / getPersonSalesCodes) จะเห็นคลังของ creator แทนของเซลล์ที่ทดสอบ
+    manualCodes: [preview.asCode],
   };
 }

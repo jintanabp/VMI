@@ -4,6 +4,7 @@ import { appPath } from "@/lib/paths";
 import { SALES_SESSION_COOKIE } from "@/lib/auth/roles";
 import { verifyMicrosoftIdToken } from "@/lib/auth/microsoft-id-token";
 import { buildSalesSessionWithAccess, signSalesSession } from "@/lib/auth/sales-session";
+import { homePathFor } from "@/lib/auth/permissions";
 
 /**
  * ตัวตนต้องมาจาก id_token ที่ตรวจลายเซ็นแล้วเท่านั้น
@@ -66,7 +67,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: message }, { status: 403 });
   }
   const token = signSalesSession(session);
-  const redirectTo = session.role === "admin" ? "/admin" : "/sales/orders";
+  const redirectTo = homePathFor(session);
   const contentType = request.headers.get("content-type") ?? "";
 
   if (contentType.includes("application/json")) {

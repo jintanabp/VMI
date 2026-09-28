@@ -1130,8 +1130,13 @@ function QtyStepper({
   // ค่าจากเซิร์ฟเวอร์เปลี่ยน (อีกคนแก้ / โหลดใหม่) → ตามค่าล่าสุดเสมอ
   useEffect(() => setDraft(String(value)), [value]);
 
+  // ต่ำสุด 1 — ไม่เอารายการนี้ให้กด «ปฏิเสธ» (server ไม่รับ 0 แล้ว) · พิมพ์ 0/ว่าง = คืนค่าเดิม
   function commit(next: number) {
-    const qty = Math.max(0, Math.trunc(Number.isFinite(next) ? next : value));
+    const qty = Math.trunc(Number.isFinite(next) ? next : value);
+    if (qty < 1) {
+      setDraft(String(value));
+      return;
+    }
     setDraft(String(qty));
     if (qty !== value) onChange(qty);
   }
@@ -1142,7 +1147,8 @@ function QtyStepper({
         <button
           type="button"
           className="px-1.5 py-0.5 text-sm font-bold text-slate-500 hover:bg-slate-100 disabled:opacity-30 dark:hover:bg-slate-800"
-          disabled={value <= 0}
+          disabled={value <= 1}
+          title={value <= 1 ? "ไม่ต้องการรายการนี้ — กด «ปฏิเสธ»" : undefined}
           onClick={() => commit(value - 1)}
           aria-label="ลดจำนวน"
         >

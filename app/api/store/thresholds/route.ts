@@ -21,7 +21,7 @@ async function resolveStoreId(): Promise<{
 export async function GET() {
   const { storeId, canManage } = await resolveStoreId();
   if (!storeId) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   return NextResponse.json({
     canManage,
@@ -32,11 +32,11 @@ export async function GET() {
 export async function PATCH(request: Request) {
   const { storeId, canManage } = await resolveStoreId();
   if (!storeId) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   if (!canManage) {
     return NextResponse.json(
-      { error: "ไม่มีสิทธิจัดการ min/max" },
+      { error: "ไม่มีสิทธิ์จัดการ min/max" },
       { status: 403 }
     );
   }

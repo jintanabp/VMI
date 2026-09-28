@@ -16,8 +16,29 @@ import { sanitizePoNumber } from "@/lib/po/po-number";
  *  - ไฟล์ JSON ที่เขียนลงดิสก์ตอนอนุมัติ
  */
 
-/** เหตุผลที่ข้ามออเดอร์ใบนั้นไป — ใช้สรุปให้ผู้ใช้เห็นตอนลบหลายใบ */
-export type DeleteSkipReason = "not_found" | "forbidden" | "has_po";
+/**
+ * เหตุผลที่ข้ามออเดอร์ใบนั้นไป — ใช้สรุปให้ผู้ใช้เห็นตอนลบหลายใบ
+ * `in_erp` = มี PO ที่ส่งเข้า ERP แล้ว หรือส่งแล้วผลไม่ชัดเจน — **ห้ามลบเด็ดขาด** ไม่ว่าจะยืนยันกี่ครั้ง
+ */
+export type DeleteSkipReason = "not_found" | "forbidden" | "has_po" | "in_erp";
+
+/**
+ * PO ใบนี้อาจอยู่ใน ERP แล้วหรือไม่ — ส่งสำเร็จ หรือเคยลองส่งแล้วผลไม่ชัดเจน (timeout/network/
+ * แถวเก่าที่ไม่มี failureKind) · ถูก ERP ปฏิเสธชัดเจน (`rejected`) = ไม่ได้เข้า ลบได้
+ *
+ * ลบ PO ที่อยู่ใน ERP แล้ว = ฝั่งเราไม่มีหลักฐานเหลือ แต่ ERP ยังเปิดบิลอยู่ และเลข orderNo นั้นถูกล็อก
+ * 6 เดือน (ดู lib/po/erp-endpoint.ts) — พบจาก QA 28 ก.ย. 69 ว่าเซลล์ลบได้ด้วย notify=0
+ */
+export function poMayBeInErp(po: {
+  erpSentAt: Date | null;
+  erpAttemptedAt?: Date | null;
+  erpError?: string | null;
+  erpFailureKind?: string | null;
+}): boolean {
+  if (po.erpSentAt) return true;
+  const attempted = po.erpAttemptedAt != null || po.erpError != null;
+  return attempted && po.erpFailureKind !== "rejected";
+}
 
 export interface DeleteOrdersResult {
   deletedOrderIds: string[];
@@ -51,7 +72,16 @@ export async function deleteOrdersForSession(
       storeId: true,
       createdAt: true,
       _count: { select: { items: true } },
-      purchaseOrders: { select: { poNumber: true, exportPath: true } },
+      purchaseOrders: {
+        select: {
+          poNumber: true,
+          exportPath: true,
+          erpSentAt: true,
+          erpAttemptedAt: true,
+          erpError: true,
+          erpFailureKind: true,
+        },
+      },
     },
   });
 
@@ -67,6 +97,11 @@ export async function deleteOrdersForSession(
       await assertOrderAccess(order.id, session);
     } catch {
       skipped.push({ orderId: order.id, reason: "forbidden" });
+      continue;
+    }
+    // ตรวจก่อน has_po — ต่อให้ยืนยัน "ลบพร้อม PO" ก็ห้ามถ้าใบไหนอาจอยู่ใน ERP แล้ว
+    if (order.purchaseOrders.some(poMayBeInErp)) {
+      skipped.push({ orderId: order.id, reason: "in_erp" });
       continue;
     }
     if (order.purchaseOrders.length > 0 && !opts.allowIssuedPo) {
@@ -109,15 +144,22 @@ export async function deleteOrdersForSession(
     )
   );
 
-  if (opts.notifyStores) {
-    for (const o of targets) {
-      const pos = o.purchaseOrders.map((p) => p.poNumber);
+  // บันทึกไว้ใน log ของเซิร์ฟเวอร์ทุกครั้ง — ลบแล้วแถวหายหมด ไม่เหลือหลักฐานว่าใครลบอะไร
+  console.info(
+    `[orders:delete] by=${session.email} role=${session.role} notify=${opts.notifyStores} ` +
+      `orders=${ids.join(",")} po=${deletedPoNumbers.join(",") || "-"}`
+  );
+
+  for (const o of targets) {
+    const pos = o.purchaseOrders.map((p) => p.poNumber);
+    // ร้านเคยได้แจ้งเตือน "ออก PO แล้ว" — ลบใบที่มี PO ต้องบอกร้านเสมอ ปิดแจ้งเตือนได้เฉพาะใบที่ยังไม่มี PO
+    if (opts.notifyStores || pos.length > 0) {
       await notifyStore({
         storeId: o.storeId,
         kind: "deleted",
         title: "คำสั่งซื้อถูกลบโดยพนักงาน",
         detail:
-          `ออเดอร์ ${o._count.items} รายการ ที่ส่งเมื่อ ${o.createdAt.toLocaleDateString("th-TH")} ถูกลบออกจากระบบ` +
+          `ออเดอร์ ${o._count.items} รายการ ที่ส่งเมื่อ ${o.createdAt.toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" })} ถูกลบออกจากระบบ` +
           (pos.length > 0 ? ` · PO ${pos.join(", ")} ถูกยกเลิกด้วย` : ""),
         poNumbers: pos,
         orderId: o.id,

@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { getAuthorizedStoreId } from "@/lib/auth/store-context";
 import { getRawSalesSession } from "@/lib/auth/sales-session";
+import { homePathFor, isStaffAdmin } from "@/lib/auth/permissions";
 import { PublicTopbar } from "@/components/layout/public-topbar";
 
 export const dynamic = "force-dynamic";
@@ -31,9 +32,12 @@ export default async function HomePage() {
     // แอดมินที่มีรหัสเซลล์จริงด้วย (กำหนดเองผ่านหน้าแอดมิน หรือมีอยู่แล้วใน
     // cross_target) ถือเป็นงานประจำวันจริง ไม่ใช่แค่มุมมองทดสอบ — พาไปหน้าเซลล์
     // ตามปกติแล้วใช้ลิงก์ "กลับศูนย์ Admin" ที่มีอยู่แล้วใน AppHeader กดเข้า /admin เอง
+    // admin (ไม่ใช่ creator) ใช้กติกาเดียวกับหลัง login — มีรหัสเซลล์ = หน้าเซลล์ ไม่มี = หน้าตั้งค่า
     const isPureAdmin =
       salesSession.role === "admin" && !salesSession.salesmanCode;
-    redirect(isPureAdmin ? "/admin" : "/sales");
+    redirect(
+      isPureAdmin ? "/admin" : isStaffAdmin(salesSession) ? homePathFor(salesSession) : "/sales"
+    );
   }
   return (
     <div className="relative min-h-screen overflow-hidden vmi-mesh-bg">

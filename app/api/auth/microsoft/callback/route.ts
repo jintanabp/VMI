@@ -9,6 +9,7 @@ import {
   parseMicrosoftIdToken,
 } from "@/lib/auth/microsoft-oauth";
 import { buildSalesSessionWithAccess, signSalesSession } from "@/lib/auth/sales-session";
+import { homePathFor } from "@/lib/auth/permissions";
 
 function loginErrorRedirect(request: Request, message: string) {
   return NextResponse.redirect(
@@ -55,8 +56,7 @@ export async function GET(request: Request) {
     const { email, name } = parseMicrosoftIdToken(idToken);
     const session = await buildSalesSessionWithAccess(email, name);
     const token = signSalesSession(session);
-    const nextPath =
-      session.role === "admin" ? "/admin" : "/sales/orders";
+    const nextPath = homePathFor(session);
 
     const response = NextResponse.redirect(
       new URL(appPath(nextPath), request.url)

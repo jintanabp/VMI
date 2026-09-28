@@ -86,6 +86,9 @@ erDiagram
 | `StoreNotification` | พนักงาน → ร้าน | `approved` `rejected` `item_rejected` `item_cleared` `order_split` `deleted` `price_changed` `qty_changed` `qty_increase_pending` `item_added_pending` `po_issued` `po_cancelled` `po_received` |
 | `SalesNotification` | ร้าน → พนักงาน | `order_created` `order_cancelled` `qty_increase_confirmed` `qty_increase_rejected` `item_added_confirmed` `item_added_rejected` |
 
+สถานะ "อ่านแล้ว" ของฝั่งเซลล์เก็บ**ต่อผู้ใช้**ใน `SalesNotificationRead` / `StoreSkuBlockRead` (ตั้งแต่ 28 ก.ย. 2569) ·
+`acknowledgedAt` บนแถวเดิมยังนับว่าอ่านแล้วสำหรับทุกคน (ข้อมูลก่อนหน้านั้น) · มี `sku_unblocked` = ร้านยกเลิกหยุดสั่ง
+
 `kind` เป็น `String` — เพิ่มชนิดใหม่ไม่ต้อง migrate แต่ต้องเพิ่มใน union type
 (`lib/orders/store-notify.ts` / `sales-notify.ts`) และตารางป้าย (`store-notify-display.ts` /
 `sales-notifications-client.tsx`) ไม่งั้นชิปจะขึ้นเป็นชื่อ kind ดิบๆ

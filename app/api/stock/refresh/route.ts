@@ -17,7 +17,7 @@ import { maxDataAgeHours, runMasterRefresh } from "@/lib/fabric/scheduler";
 export async function POST() {
   const store = await getCustomerStoreFromCookie();
   if (!store) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const status = readMasterRefreshStatus();

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getSalesSession } from "@/lib/auth/sales-session";
+import { getSalesSession, salesPreviewReadOnly } from "@/lib/auth/sales-session";
 import { assertOrderAccess } from "@/lib/orders/access";
 import { sanitizePoNumber } from "@/lib/po/po-number";
 import { rebuildPoDocumentFromDb } from "@/lib/po/po-from-db";
@@ -11,6 +11,7 @@ import {
   ERP_SEND_DISABLED_REASON,
 } from "@/lib/po/erp-endpoint";
 import { SENT_TO_ERP, SENDING_TO_ERP } from "@/lib/po/po-status";
+import { notifyErpSendResult } from "@/lib/po/erp-notify";
 
 /**
  * ส่ง PO หนึ่งใบเข้า ERP
@@ -33,6 +34,9 @@ export async function POST(
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  // มุมมองทดสอบห้ามยิง ERP เด็ดขาด — ไม่งั้นบันทึกว่าเซลล์ที่ถูกทดสอบเป็นคนส่ง
+  const previewBlock = salesPreviewReadOnly(session);
+  if (previewBlock) return previewBlock;
 
   const { poNumber: raw } = await ctx.params;
   const poNumber = sanitizePoNumber(decodeURIComponent(raw));
@@ -48,6 +52,8 @@ export async function POST(
       erpError: true,
       erpFailureKind: true,
       replacedByPoNumber: true,
+      // ใช้แจ้งเตือนหลังรู้ผลเท่านั้น (ไม่เกี่ยวกับการตัดสินใจส่ง)
+      order: { select: { storeId: true } },
     },
   });
   if (!po) {
@@ -122,6 +128,16 @@ export async function POST(
       where: { poNumber, erpSentAt: null },
       data: { status: "issued", statusAt: new Date(), statusBy: session.email },
     });
+    // หลังรู้ผลแล้วเท่านั้น — ให้เซลล์คนอื่นของคลังเห็นด้วย ไม่ใช่แค่คนที่กดแล้วอาจปิดจอไป
+    await notifyErpSendResult({
+      ok: false,
+      poNumber,
+      orderId: po.orderId,
+      storeId: po.order.storeId,
+      actorEmail: session.email,
+      failure: outcome.failure,
+      message: outcome.message,
+    });
     return NextResponse.json(
       { error: outcome.message, failure: outcome.failure },
       // not_ready = ใบนี้ยังไม่ครบ (คนแก้ได้) · ที่เหลือเป็นเรื่องปลายทาง
@@ -137,6 +153,14 @@ export async function POST(
       statusBy: session.email,
       statusNote: "",
     },
+  });
+
+  await notifyErpSendResult({
+    ok: true,
+    poNumber,
+    orderId: po.orderId,
+    storeId: po.order.storeId,
+    actorEmail: session.email,
   });
 
   return NextResponse.json({

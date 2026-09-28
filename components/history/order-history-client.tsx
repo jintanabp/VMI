@@ -4,7 +4,7 @@ import { appPath } from "@/lib/paths";
 import { apiFetch } from "@/lib/api-fetch";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, skipToken } from "@tanstack/react-query";
 import {
   AlertTriangle,
   Boxes,
@@ -33,6 +33,12 @@ import { formatBaht, formatNumber } from "@/lib/calculations";
 import { cn } from "@/lib/utils";
 import type { OrderHistoryEntry } from "@/app/api/store/order-history/route";
 import { fmtDateTime, relativeTime } from "@/lib/orders/store-notify-display";
+import {
+  lineChangedByStaff,
+  storeOrderedQty,
+  summarizeHistory,
+} from "@/lib/orders/order-history-view";
+import { PO_STATUS_CLASS, poStatusMeta } from "@/lib/po/po-status";
 
 const STATUS_FILTERS = [
   { value: "", label: "ทั้งหมด" },
@@ -274,14 +280,11 @@ export function OrderHistoryClient({
    * กระดิ่ง poll ทุก 60 วิอยู่แล้ว — เกาะจำนวนที่ยังไม่อ่านของมัน แล้วดึงประวัติใหม่
    * เมื่อมีแจ้งเตือนเข้ามาจริง (ไม่ poll ประวัติเองซ้ำอีกชุด)
    */
+  // อ่านจาก cache ของกระดิ่งอย่างเดียว (skipToken = ไม่ยิงเอง) — เดิมใช้ key เดียวกันแต่ queryFn คนละตัว
+  // (ไม่มี `since` และกลืน error) ผลัดกันเขียน cache ทำให้ popup แจ้งเตือนใหม่หายตอนเปิดหน้านี้อยู่ (QA 28 ก.ย. 69)
   const { data: notiCount } = useQuery<{ unread: number }>({
     queryKey: ["store-notifications-count"],
-    queryFn: async () => {
-      const r = await apiFetch(appPath("/api/store/notifications?count=1"));
-      if (!r.ok) return { unread: 0 };
-      return r.json();
-    },
-    refetchInterval: 60_000,
+    queryFn: skipToken,
   });
 
   const lastUnread = useRef<number | null>(null);
@@ -428,29 +431,8 @@ export function OrderHistoryClient({
   }, [orders, statusFilter, search, dayFilter]);
 
   // สรุปตามผลกรองที่เห็นอยู่ — ไม่งั้นเลือก "7 วัน" แล้วตัวเลขบนสุดยังเป็นทั้งหมด
-  const stats = useMemo(() => {
-    let totalQty = 0;
-    let pending = 0;
-    let approved = 0;
-    let totalValue = 0;
-    let hasValue = false;
-    for (const o of filtered) {
-      totalQty += o.totalQty;
-      if (o.status === "pending_approval") pending++;
-      if (o.status === "approved") approved++;
-      if (o.orderTotal != null) {
-        totalValue += o.orderTotal;
-        hasValue = true;
-      }
-    }
-    return {
-      count: filtered.length,
-      totalQty,
-      pending,
-      approved,
-      totalValue: hasValue ? totalValue : null,
-    };
-  }, [filtered]);
+  // ออเดอร์ที่ถูกปฏิเสธไม่นับใน «รวมที่สั่ง»/«มูลค่ารวม» — ของจะไม่มา
+  const stats = useMemo(() => summarizeHistory(filtered), [filtered]);
 
   // มาจากกดแจ้งเตือน — กางออเดอร์นั้น เลื่อนไปหา แล้วลบ ?order= ทิ้ง (กดแจ้งเตือนเดิมซ้ำได้อีก)
   // ล้างตัวกรองด้วย ไม่งั้นถ้ากรอง "7 วัน"/สถานะอื่นค้างอยู่ ใบที่ต้องการจะไม่อยู่ในรายการ
@@ -749,20 +731,35 @@ export function OrderHistoryClient({
                         )}
                       </div>
 
-                      {order.poNumbers && order.poNumbers.length > 0 && (
+                      {/* เลข PO พร้อมสถานะ — เดิมขึ้นป้ายเขียวทุกใบ PO ที่ถูกยกเลิกเลยดูเหมือนยังรอของอยู่ */}
+                      {order.purchaseOrders && order.purchaseOrders.length > 0 && (
                         <div className="mt-1.5 flex flex-wrap items-center gap-1">
                           <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
                             เลข PO
                           </span>
-                          {order.poNumbers.map((po) => (
-                            <span
-                              key={po}
-                              className="rounded bg-emerald-100 px-1.5 py-0.5 font-mono text-xs font-bold text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300"
-                              title="ใช้อ้างอิงเวลาตามของกับฝ่ายจัดซื้อ"
-                            >
-                              {po}
-                            </span>
-                          ))}
+                          {order.purchaseOrders.map((po) => {
+                            const poMeta = poStatusMeta(po.status);
+                            return (
+                              <span
+                                key={po.poNumber}
+                                className={cn(
+                                  "inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs ring-1",
+                                  PO_STATUS_CLASS[poMeta.tone] ?? PO_STATUS_CLASS.slate
+                                )}
+                                title={`ใช้อ้างอิงเวลาตามของกับฝ่ายจัดซื้อ · ${poMeta.hint}`}
+                              >
+                                <span
+                                  className={cn(
+                                    "font-mono font-bold",
+                                    po.status === "cancelled" && "line-through"
+                                  )}
+                                >
+                                  {po.poNumber}
+                                </span>
+                                <span className="font-medium">· {poMeta.label}</span>
+                              </span>
+                            );
+                          })}
                         </div>
                       )}
 
@@ -854,8 +851,10 @@ export function OrderHistoryClient({
                           </thead>
                           <tbody>
                             {order.items.map((item) => {
-                              const changed =
-                                item.finalQty !== item.suggestedQty;
+                              // เทียบกับที่ร้านสั่งเอง ไม่ใช่ที่ระบบแนะนำ — ร้านสั่งต่างจากคำแนะนำเป็นเรื่องปกติ
+                              // สีส้มต้องแปลว่า "พนักงานแก้" เท่านั้น
+                              const changed = lineChangedByStaff(item);
+                              const orderedQty = storeOrderedQty(item);
                               return (
                                 <Fragment key={item.skuId}>
                                 <tr
@@ -878,17 +877,34 @@ export function OrderHistoryClient({
                                   <td
                                     className={cn(
                                       "px-3 py-1.5 text-right font-semibold tabular-nums",
-                                      changed
-                                        ? "text-amber-700 dark:text-amber-400"
-                                        : "text-slate-800 dark:text-slate-100"
+                                      item.rejected
+                                        ? "text-red-700 dark:text-red-400"
+                                        : changed
+                                          ? "text-amber-700 dark:text-amber-400"
+                                          : "text-slate-800 dark:text-slate-100"
                                     )}
                                     title={
-                                      changed
-                                        ? "ต่างจากจำนวนที่ระบบแนะนำ"
-                                        : undefined
+                                      item.rejected
+                                        ? `พนักงานปฏิเสธรายการนี้ (ร้านสั่ง ${formatNumber(orderedQty, 0)} หีบ)`
+                                        : changed
+                                          ? `พนักงานแก้จากที่ร้านสั่ง ${formatNumber(orderedQty, 0)} หีบ`
+                                          : undefined
                                     }
                                   >
-                                    {formatNumber(item.finalQty, 0)}
+                                    {item.rejected ? (
+                                      <span className="inline-flex items-center rounded bg-red-100 px-1.5 py-0.5 text-[11px] font-semibold text-red-700 dark:bg-red-950/40 dark:text-red-300">
+                                        ปฏิเสธ
+                                      </span>
+                                    ) : (
+                                      <>
+                                        {formatNumber(item.finalQty, 0)}
+                                        {changed && (
+                                          <span className="ml-1 text-[11px] font-normal text-slate-400 line-through">
+                                            {formatNumber(orderedQty, 0)}
+                                          </span>
+                                        )}
+                                      </>
+                                    )}
                                   </td>
                                   <td className="px-3 py-1.5">
                                     {item.promoLabel ? (
@@ -940,6 +956,18 @@ export function OrderHistoryClient({
                                     {formatBaht(item.lineTotal) ?? "-"}
                                   </td>
                                 </tr>
+                                {/* เหตุผลต้องขึ้นเสมอ — เดิมร้านเห็นแค่เลข 0 แล้วไม่รู้ว่าโดนตัดเพราะอะไร */}
+                                {item.rejected && (
+                                  <tr className="bg-red-50/60 dark:bg-red-950/20">
+                                    <td colSpan={7} className="px-3 pb-1.5 pt-0">
+                                      <p className="sticky left-3 max-w-[calc(100vw-4rem)] text-[11px] text-red-700 dark:text-red-300">
+                                        {item.rejectReason
+                                          ? `พนักงานปฏิเสธรายการนี้: ${item.rejectReason}`
+                                          : "พนักงานปฏิเสธรายการนี้ — ไม่ได้ระบุเหตุผล สอบถามเซลล์ที่ดูแลได้"}
+                                      </p>
+                                    </td>
+                                  </tr>
+                                )}
                                 {item.qtyIncreasePendingConfirm && (
                                   <tr className="border-t border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/30">
                                     <td colSpan={7} className="px-3 py-2">

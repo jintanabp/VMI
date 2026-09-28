@@ -2,7 +2,7 @@
 
 import { appPath } from "@/lib/paths";
 import { useCallback, useEffect, useState } from "react";
-import { Pencil, Plus } from "lucide-react";
+import { Copy, Pencil, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
@@ -25,6 +25,16 @@ export interface StoreAccountRow {
   canManageMinMax: boolean;
   resetRequestedAt: string | null;
   createdAt: string;
+  /** มีรหัสตั้งค่าครั้งแรกที่ยังไม่หมดอายุ (ตัวรหัสไม่ถูกส่งมา — โชว์ได้ครั้งเดียวตอนออก) */
+  setupCodeActive?: boolean;
+  setupCodeExpiresAt?: string | null;
+}
+
+/** รหัสตั้งค่าที่เพิ่งออก — แสดงครั้งเดียว ปิดแล้วดูซ้ำไม่ได้ (ในฐานข้อมูลเก็บแค่ hash) */
+interface IssuedSetupCode {
+  email: string;
+  code: string;
+  reason: "created" | "approved" | "reset";
 }
 
 export function StoreAccountsPanel({
@@ -51,6 +61,37 @@ export function StoreAccountsPanel({
   const [actionError, setActionError] = useState<string | null>(null);
   /** อีเมลที่รอยืนยันการลบ (null = ไม่มีกล่องยืนยันเปิดอยู่) */
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  /**
+   * creator = ทำได้ทุกปุ่ม · admin = อนุมัติ / รีเซ็ตรหัส / เพิ่มบัญชี เท่านั้น
+   * ค่ามาจาก API (ตัวที่ตรวจสิทธิ์จริง) — ที่นี่แค่ซ่อนปุ่มที่กดไปก็ได้ 403
+   */
+  const [canManageAll, setCanManageAll] = useState(false);
+  const [issued, setIssued] = useState<IssuedSetupCode | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  /** บัญชีที่ยังไม่เคยตั้งรหัส "รีเซ็ต" = ออกรหัสตั้งค่าใหม่ (ใช้ action เดียวกันฝั่งเซิร์ฟเวอร์) */
+  function resetLabel(a: StoreAccountRow) {
+    return a.mustSetPassword ? "ออกรหัสตั้งค่าใหม่" : "รีเซ็ตรหัส";
+  }
+
+  function setupStatus(a: StoreAccountRow) {
+    if (a.setupCodeActive && a.setupCodeExpiresAt) {
+      const until = new Date(a.setupCodeExpiresAt).toLocaleString("th-TH", {
+        dateStyle: "short",
+        timeStyle: "short",
+        timeZone: "Asia/Bangkok",
+      });
+      return ` · รอร้านตั้งรหัส (รหัสตั้งค่าใช้ได้ถึง ${until})`;
+    }
+    return " · ยังไม่ตั้งรหัส — ไม่มีรหัสตั้งค่าที่ใช้ได้ กด «ออกรหัสตั้งค่าใหม่»";
+  }
+
+  function showIssued(email: string, code: unknown, reason: IssuedSetupCode["reason"]) {
+    if (typeof code === "string" && code) {
+      setIssued({ email, code, reason });
+      setCopied(false);
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -61,6 +102,7 @@ export function StoreAccountsPanel({
         ? data.accounts
         : [];
       setAccounts(rows);
+      setCanManageAll(data.canManageAll === true);
       const pendingN =
         rows.filter((a) => a.status === "pending").length +
         rows.filter((a) => a.status === "approved" && a.resetRequestedAt).length;
@@ -90,6 +132,9 @@ export function StoreAccountsPanel({
       });
       if (res.ok) {
         setActionError(null);
+        const d = (await res.json().catch(() => null)) as { setupCode?: unknown } | null;
+        const action = String(body.action ?? "");
+        showIssued(email, d?.setupCode, action === "reset-password" ? "reset" : "approved");
         await load();
       } else {
         const d = await res.json().catch(() => null);
@@ -123,6 +168,7 @@ export function StoreAccountsPanel({
         setAddError(friendlyError(data.error, "เพิ่มบัญชีไม่สำเร็จ"));
         return;
       }
+      showIssued(email, data.setupCode, "created");
       setAddForm({ email: "", vdaCode: "", canManageMinMax: false });
       setAddOpen(false);
       await load();
@@ -131,7 +177,7 @@ export function StoreAccountsPanel({
     }
   }
 
-  /** เปลี่ยนอีเมลที่ใช้ล็อกอิน — รหัสผ่านและสิทธิเดิมคงอยู่ */
+  /** เปลี่ยนอีเมลที่ใช้ล็อกอิน — รหัสผ่านและสิทธิ์เดิมคงอยู่ */
   async function saveEmail(currentEmail: string) {
     const next = emailDraft.trim().toLowerCase();
     if (!next || next === currentEmail) {
@@ -231,6 +277,43 @@ export function StoreAccountsPanel({
         }}
         onClose={() => setConfirmDelete(null)}
       />
+      {issued && (
+        <div className="rounded-2xl border-2 border-teal-400 bg-teal-50 px-4 py-3 dark:border-teal-700 dark:bg-teal-950/40">
+          <p className="text-sm font-semibold text-teal-900 dark:text-teal-100">
+            {issued.reason === "reset"
+              ? "รีเซ็ตรหัสแล้ว"
+              : issued.reason === "created"
+                ? "เพิ่มบัญชีแล้ว"
+                : "อนุมัติแล้ว"}{" "}
+            — ส่งรหัสตั้งค่านี้ให้ร้าน <span className="font-mono">{issued.email}</span>
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <span className="rounded-lg bg-white px-3 py-1.5 font-mono text-xl font-bold tracking-[0.2em] text-slate-900 ring-1 ring-teal-300 dark:bg-slate-900 dark:text-slate-50 dark:ring-teal-700">
+              {issued.code}
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                void navigator.clipboard
+                  ?.writeText(issued.code)
+                  .then(() => setCopied(true))
+                  .catch(() => setCopied(false));
+              }}
+            >
+              <Copy className="h-3.5 w-3.5" />
+              {copied ? "คัดลอกแล้ว" : "คัดลอก"}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setIssued(null)}>
+              ปิด
+            </Button>
+          </div>
+          <p className="mt-2 text-xs text-teal-800 dark:text-teal-300">
+            ร้านกรอกอีเมล + รหัสนี้ตอนตั้งรหัสผ่านครั้งแรก · ใช้ได้ครั้งเดียว ภายใน 72 ชม. ·
+            <strong> รหัสจะแสดงครั้งเดียว</strong> ปิดแล้วดูซ้ำไม่ได้ ถ้าหายให้กด «ออกรหัสตั้งค่าใหม่»
+          </p>
+        </div>
+      )}
       {(deleteError || actionError) && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
           {deleteError ?? actionError}
@@ -304,7 +387,9 @@ export function StoreAccountsPanel({
                   {vdaSelect(a)}
                   <Button
                     size="sm"
-                    disabled={busy === a.email}
+                    // อนุมัติโดยไม่มี VDA = บัญชีค้าง (ร้านตั้งรหัสไม่ได้) — server ก็ปฏิเสธเช่นกัน
+                    disabled={busy === a.email || !(vdaDraft[a.email] ?? a.vdaCode)}
+                    title={!(vdaDraft[a.email] ?? a.vdaCode) ? "เลือก VDA ก่อนอนุมัติ" : undefined}
                     onClick={() =>
                       act(a.email, {
                         action: "approve",
@@ -314,14 +399,16 @@ export function StoreAccountsPanel({
                   >
                     อนุมัติ
                   </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={busy === a.email}
-                    onClick={() => act(a.email, { action: "reject" })}
-                  >
-                    ปฏิเสธ
-                  </Button>
+                  {canManageAll && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={busy === a.email}
+                      onClick={() => act(a.email, { action: "reject" })}
+                    >
+                      ปฏิเสธ
+                    </Button>
+                  )}
                 </div>
               </div>
             ))
@@ -335,7 +422,9 @@ export function StoreAccountsPanel({
             <div className="min-w-0">
               <CardTitle>ร้านค้าที่อนุมัติแล้ว ({approved.length})</CardTitle>
               <CardDescription>
-                เพิ่มบัญชีเอง · แก้อีเมล · ตั้งค่า VDA และสิทธิจัดการ min/max
+                {canManageAll
+                  ? "เพิ่มบัญชีเอง · แก้อีเมล · ตั้งค่า VDA และสิทธิ์จัดการ min/max"
+                  : "เพิ่มบัญชีเอง · รีเซ็ตรหัสผ่าน"}
               </CardDescription>
             </div>
             <Button
@@ -392,19 +481,21 @@ export function StoreAccountsPanel({
                     </option>
                   ))}
                 </select>
-                <label className="flex items-center gap-1.5 text-xs">
-                  <input
-                    type="checkbox"
-                    checked={addForm.canManageMinMax}
-                    onChange={(e) =>
-                      setAddForm((f) => ({
-                        ...f,
-                        canManageMinMax: e.target.checked,
-                      }))
-                    }
-                  />
-                  จัดการ min/max
-                </label>
+                {canManageAll && (
+                  <label className="flex items-center gap-1.5 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={addForm.canManageMinMax}
+                      onChange={(e) =>
+                        setAddForm((f) => ({
+                          ...f,
+                          canManageMinMax: e.target.checked,
+                        }))
+                      }
+                    />
+                    จัดการ min/max
+                  </label>
+                )}
                 <Button
                   size="sm"
                   disabled={busy === "__add__"}
@@ -468,72 +559,86 @@ export function StoreAccountsPanel({
                       <p className="truncate text-sm font-medium">{a.email}</p>
                       <p className="text-xs text-slate-500">
                         VDA: {a.vdaCode?.toUpperCase() || "—"}
-                        {a.mustSetPassword ? " · ยังไม่ตั้งรหัส" : ""}
+                        {a.mustSetPassword ? setupStatus(a) : ""}
+                        {!canManageAll && a.canManageMinMax ? " · จัดการ min/max ได้" : ""}
                       </p>
                     </>
                   )}
                 </div>
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 xl:shrink-0">
-                  {editingEmail === a.email ? null : (
+                  {!canManageAll ? (
                     <Button
                       size="sm"
-                      variant="ghost"
+                      variant="outline"
                       disabled={busy === a.email}
-                      title="เปลี่ยนอีเมลที่ใช้ล็อกอิน (รหัสผ่านและสิทธิเดิมคงอยู่)"
-                      onClick={() => {
-                        setEditingEmail(a.email);
-                        setEmailDraft(a.email);
-                      }}
+                      onClick={() => act(a.email, { action: "reset-password" })}
                     >
-                      <Pencil className="h-3.5 w-3.5" />
-                      แก้อีเมล
+                      {resetLabel(a)}
                     </Button>
+                  ) : (
+                    <>
+                      {editingEmail === a.email ? null : (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={busy === a.email}
+                          title="เปลี่ยนอีเมลที่ใช้ล็อกอิน (รหัสผ่านและสิทธิ์เดิมคงอยู่)"
+                          onClick={() => {
+                            setEditingEmail(a.email);
+                            setEmailDraft(a.email);
+                          }}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                          แก้อีเมล
+                        </Button>
+                      )}
+                      {vdaSelect(a)}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busy === a.email}
+                        onClick={() =>
+                          act(a.email, {
+                            action: "set-vda",
+                            vdaCode: vdaDraft[a.email] ?? a.vdaCode,
+                          })
+                        }
+                      >
+                        บันทึก VDA
+                      </Button>
+                      <label className="flex shrink-0 items-center gap-1.5 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={a.canManageMinMax}
+                          disabled={busy === a.email}
+                          onChange={(e) =>
+                            act(a.email, {
+                              action: "set-can-manage",
+                              canManageMinMax: e.target.checked,
+                            })
+                          }
+                        />
+                        จัดการ min/max
+                      </label>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={busy === a.email}
+                        onClick={() => act(a.email, { action: "reset-password" })}
+                      >
+                        {resetLabel(a)}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-red-600"
+                        disabled={busy === a.email}
+                        onClick={() => setConfirmDelete(a.email)}
+                      >
+                        ลบ
+                      </Button>
+                    </>
                   )}
-                  {vdaSelect(a)}
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={busy === a.email}
-                    onClick={() =>
-                      act(a.email, {
-                        action: "set-vda",
-                        vdaCode: vdaDraft[a.email] ?? a.vdaCode,
-                      })
-                    }
-                  >
-                    บันทึก VDA
-                  </Button>
-                  <label className="flex shrink-0 items-center gap-1.5 text-xs">
-                    <input
-                      type="checkbox"
-                      checked={a.canManageMinMax}
-                      disabled={busy === a.email}
-                      onChange={(e) =>
-                        act(a.email, {
-                          action: "set-can-manage",
-                          canManageMinMax: e.target.checked,
-                        })
-                      }
-                    />
-                    จัดการ min/max
-                  </label>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={busy === a.email}
-                    onClick={() => act(a.email, { action: "reset-password" })}
-                  >
-                    รีเซ็ตรหัส
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-red-600"
-                    disabled={busy === a.email}
-                    onClick={() => setConfirmDelete(a.email)}
-                  >
-                    ลบ
-                  </Button>
                 </div>
               </div>
             ))

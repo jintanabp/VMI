@@ -4,11 +4,18 @@ import { prisma } from "@/lib/prisma";
 import { getAuthorizedStoreId } from "@/lib/auth/store-context";
 import { getRepositories } from "@/lib/repositories";
 import { notifySales } from "@/lib/orders/sales-notify";
+import type { StoreNotificationKind } from "@/lib/orders/store-notify";
 import { removeRejectedAddedItem, repricePooledGroupOf } from "@/lib/po/add-order-item";
 
 export const dynamic = "force-dynamic";
 
 const resolveStoreId = getAuthorizedStoreId;
+
+/** แจ้งเตือนฝั่งร้านที่รอร้านกดยืนยัน — ออเดอร์หายไปแล้วต้องลบทิ้ง ไม่ใช่ปล่อยให้กดแล้ว 404 */
+const STORE_PENDING_CONFIRM_KINDS: StoreNotificationKind[] = [
+  "qty_increase_pending",
+  "item_added_pending",
+];
 
 const patchSchema = z.object({
   orderId: z.string().min(1),
@@ -66,7 +73,7 @@ export async function PATCH(request: Request) {
   }
   const item = order.items[0];
   if (!item) {
-    return NextResponse.json({ error: "ไม่พบรายการนี้ในออเดอร์" }, { status: 404 });
+    return NextResponse.json({ error: "ไม่พบรายการนี้ — อาจถูกจัดการไปแล้ว ลองรีเฟรชหน้า" }, { status: 404 });
   }
 
   // requestedQty=0 = พนักงานเพิ่มสินค้าตัวนี้เข้ามาเอง ร้านไม่เคยสั่ง — ปฏิเสธแล้วลบทั้งแถว
@@ -87,7 +94,7 @@ export async function PATCH(request: Request) {
     const msg = err instanceof Error ? err.message : "";
     if (msg === "ORDER_ITEM_NOT_FOUND") {
       return NextResponse.json(
-        { error: "ไม่พบรายการที่รอยืนยันนี้ — อาจถูกจัดการไปแล้ว" },
+        { error: "ไม่พบรายการนี้ — อาจถูกจัดการไปแล้ว ลองรีเฟรชหน้า" },
         { status: 404 }
       );
     }
@@ -186,16 +193,35 @@ export async function DELETE(request: Request) {
   const itemCount = order.items.length;
   const totalQty = order.items.reduce((s, i) => s + i.finalQty, 0);
 
-  // OrderItem มี onDelete: Cascade อยู่แล้ว
-  await prisma.order.delete({ where: { id: orderId } });
+  // OrderItem มี onDelete: Cascade อยู่แล้ว — แต่แจ้งเตือนไม่ผูก FK กับ Order (ตั้งใจ ดู store-notify.ts)
+  // จึงต้องลบเองในทรานแซกชันเดียวกัน ไม่งั้น:
+  //   - เซลล์กด "ออเดอร์ใหม่" ที่ค้างในกระดิ่งแล้วเปิดเจอออเดอร์ที่ไม่มีแล้ว
+  //   - ร้านยังเห็นชิป "รอคุณยืนยัน" ของออเดอร์ที่ตัวเองลบไปแล้ว
+  await prisma.$transaction([
+    prisma.salesNotification.deleteMany({
+      where: { storeId, orderId, kind: "order_created" },
+    }),
+    prisma.storeNotification.deleteMany({
+      where: { storeId, orderId, kind: { in: STORE_PENDING_CONFIRM_KINDS } },
+    }),
+    prisma.order.delete({ where: { id: orderId } }),
+  ]);
 
   await notifySales({
     storeId,
     kind: "order_cancelled",
     title: `${order.store.code} ยกเลิกคำสั่งซื้อเอง`,
+    // เซิร์ฟเวอร์อาจรันเป็น UTC — ไม่ระบุโซนเวลา ชั่วโมงในข้อความจะคลาด 7 ชม.
     detail: `${itemCount} รายการ · ${totalQty} หีบ ที่ส่งเมื่อ ${order.createdAt.toLocaleString(
       "th-TH",
-      { day: "2-digit", month: "short", year: "2-digit", hour: "2-digit", minute: "2-digit" }
+      {
+        day: "2-digit",
+        month: "short",
+        year: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZone: "Asia/Bangkok",
+      }
     )}`,
     orderId,
   });

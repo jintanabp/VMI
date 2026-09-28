@@ -94,11 +94,13 @@ export function datasetMeta(id: DatasetId): DatasetMeta | null {
     case "salesman_registry":
       return {
         id,
-        label: "พนักงานขาย (cross_salesman_reference_email)",
+        // ไม่ใช้แล้วตั้งแต่ 28 ก.ย. 69 (สิทธิ์เซลล์มาจาก SalesmanEmailAssignment) — ยังดึงมาเก็บไว้ดูในหน้า
+        // ข้อมูลดิบได้ แต่ห้ามนับเป็น required: ไฟล์ที่ไม่มีใครใช้ดึงไม่สำเร็จ ต้องไม่ทำให้ทั้งรอบถูกนับว่า sync ล้ม
+        label: "พนักงานขาย (cross_salesman_reference_email) — ไม่ใช้แล้ว",
         localPath: getSalesmanCsvPath(),
         minRows: min.salesman,
         minRowsEnv: "SALESMAN_MIN_ROWS",
-        required: true,
+        required: false,
       };
     case "stock_cover_day":
       return {

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { hasSalesView } from "@/lib/auth/permissions";
 import { prisma } from "@/lib/prisma";
 import { getSalesSession } from "@/lib/auth/sales-session";
 import { resolveOrderStoreScope } from "@/lib/orders/access";
@@ -26,7 +27,9 @@ const MAX_WINDOW_DAYS = 180;
  * ธงแดงผ่านมันจะลากทั้งกราฟข้อมูลข้ามสายมาเพื่อนับเลขไม่กี่ตัว
  */
 export async function GET(request: Request) {
-  const scope = resolveOrderStoreScope(await getSalesSession());
+  const session = await getSalesSession();
+  if (session && !hasSalesView(session)) return NextResponse.json({ error: "บัญชีนี้ไม่ได้ผูกกับรหัสเซลล์ — ใช้ได้เฉพาะหน้าตั้งค่า" }, { status: 403 });
+  const scope = resolveOrderStoreScope(session);
   if (!scope) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

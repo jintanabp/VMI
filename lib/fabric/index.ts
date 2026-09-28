@@ -16,7 +16,6 @@ import {
   getVdaProductCsvPath,
 } from "./paths";
 import { PromotionCredit } from "./promotion-credit";
-import { SalesmanRegistry } from "./salesman-registry";
 import { SkuMasterDirectory } from "./sku-master";
 import { SoldHistoryDirectory } from "./sold-history";
 import { getVdaKeys, reloadVdaAosBillRegistry } from "./vda-aos-bill";
@@ -25,7 +24,6 @@ import { reloadCrossTargetRegistry } from "./cross-target";
 import { fabricMastersEnabled } from "./env";
 
 let customerDir: CustomerDirectory | null = null;
-let salesmanReg: SalesmanRegistry | null = null;
 let promoCredit: PromotionCredit | null = null;
 let skuMaster: SkuMasterDirectory | null = null;
 let soldHistory: SoldHistoryDirectory | null = null;
@@ -175,17 +173,6 @@ export function getCustomerDirectory(): CustomerDirectory {
   return customerDir;
 }
 
-export function getSalesmanRegistry(): SalesmanRegistry {
-  if (!salesmanReg) {
-    salesmanReg = new SalesmanRegistry();
-    const path = getSalesmanCsvPath();
-    if (fs.existsSync(path) && fs.statSync(path).size > 100) {
-      salesmanReg.load(path);
-    }
-  }
-  return salesmanReg;
-}
-
 export function getPromotionCreditDirectory(): PromotionCredit {
   if (!promoCredit) {
     promoCredit = new PromotionCredit();
@@ -222,7 +209,6 @@ export function fabricSoldHistoryReady(): boolean {
 
 export function reloadFabricMasters(): void {
   customerDir = new CustomerDirectory();
-  salesmanReg = new SalesmanRegistry();
   promoCredit = new PromotionCredit();
   skuMaster = new SkuMasterDirectory();
   soldHistory = new SoldHistoryDirectory();
@@ -232,10 +218,6 @@ export function reloadFabricMasters(): void {
   }
   if (shouldLoadMasters()) {
     customerDir.load(getCustomerCsvPath());
-  }
-  const salesmanPath = getSalesmanCsvPath();
-  if (fs.existsSync(salesmanPath)) {
-    salesmanReg.load(salesmanPath);
   }
   if (shouldLoadPromotion()) {
     promoCredit.load(getPromotionCsvPath());
@@ -294,7 +276,6 @@ export function fabricSkuMasterReady(): boolean {
 
 export * from "./assorted-mapping";
 export * from "./customer-directory";
-export * from "./salesman-registry";
 export * from "./env";
 export * from "./paths";
 export * from "./onelake-refresh";

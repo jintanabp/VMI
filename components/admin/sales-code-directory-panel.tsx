@@ -19,14 +19,16 @@ import { cn } from "@/lib/utils";
 interface CodeRow {
   code: string;
   name: string;
-  masterEmail: string | null;
   manual: { id: string; email: string }[];
   vdas: string[];
 }
 
 interface DirectoryResponse {
-  loaded: { salesmanMaster: boolean; vdaAosBill: boolean };
+  loaded: { vdaAosBill: boolean };
   codes: CodeRow[];
+  /** creator = ทั้งคู่ · admin = เพิ่มได้ เอาออกไม่ได้ (ตรวจจริงที่ /api/admin/salesman-assignments) */
+  canAddEmail?: boolean;
+  canRemoveEmail?: boolean;
 }
 
 type Scope = "with_vda" | "no_email" | "all";
@@ -47,15 +49,14 @@ function parseEmails(text: string): string[] {
 }
 
 function hasEmail(r: CodeRow) {
-  return r.masterEmail != null || r.manual.length > 0;
+  return r.manual.length > 0;
 }
 
 /**
  * รหัสเซลล์ ↔ อีเมล ↔ VDA ในตารางเดียว (เดิมแยกเป็นกล่อง "กำหนดอีเมล" กับ "เซลล์ ↔ VDA"
  * ต้องดูสลับกันไปมา) — หนึ่งแถวต่อรหัส แก้อีเมลอ้างอิงได้ในแถวนั้นเลย
  *
- * อีเมลอ้างอิงที่แอดมินกำหนด = ใช้ login ในฐานะรหัสนั้นได้ (แม้รหัสไม่อยู่ใน cross_salesman)
- * และทับการจับคู่อัตโนมัติของอีเมลนั้น · อีเมลจาก cross_salesman แสดงไว้ให้เห็นแต่แก้ที่นี่ไม่ได้
+ * อีเมลที่ผูกไว้ = แหล่งเดียวของ "อีเมลนี้คือเซลล์รหัสไหน" (ไม่ใช้ cross_salesman master แล้ว)
  */
 export function SalesCodeDirectoryPanel() {
   const [data, setData] = useState<DirectoryResponse | null>(null);
@@ -135,6 +136,8 @@ export function SalesCodeDirectoryPanel() {
   }
 
   const rows = useMemo(() => data?.codes ?? [], [data]);
+  const canAdd = data?.canAddEmail === true;
+  const canRemove = data?.canRemoveEmail === true;
   const counts = useMemo(
     () => ({
       with_vda: rows.filter((r) => r.vdas.length > 0).length,
@@ -159,7 +162,6 @@ export function SalesCodeDirectoryPanel() {
           !q ||
           r.code.toLowerCase().includes(q) ||
           r.name.toLowerCase().includes(q) ||
-          (r.masterEmail ?? "").includes(q) ||
           r.manual.some((m) => m.email.includes(q)) ||
           r.vdas.some((v) => v.includes(q))
       );
@@ -186,15 +188,6 @@ export function SalesCodeDirectoryPanel() {
   function renderEmailCell(r: CodeRow) {
     return (
       <div className="flex flex-wrap items-center gap-1.5">
-        {r.masterEmail && !r.manual.some((m) => m.email === r.masterEmail) && (
-          <span
-            className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300"
-            title="จากไฟล์ cross_salesman — จับคู่อัตโนมัติ แก้ที่นี่ไม่ได้"
-          >
-            {r.masterEmail}
-            <span className="ml-1 text-[10px] text-slate-400">อัตโนมัติ</span>
-          </span>
-        )}
         {r.manual.map((m) => (
           <span
             key={m.id}
@@ -202,16 +195,20 @@ export function SalesCodeDirectoryPanel() {
             title="อีเมลอ้างอิงที่แอดมินกำหนด"
           >
             {m.email}
-            <button
-              type="button"
-              onClick={() => void removeEmail(m.id)}
-              disabled={busy}
-              className="rounded-full p-0.5 text-teal-500 hover:bg-red-100 hover:text-red-600 disabled:opacity-50 dark:hover:bg-red-950/40"
-              aria-label={`เอา ${m.email} ออกจาก ${r.code}`}
-              title="เอาอีเมลนี้ออก (มีผลทันที)"
-            >
-              <X className="h-3 w-3" />
-            </button>
+            {canRemove ? (
+              <button
+                type="button"
+                onClick={() => void removeEmail(m.id)}
+                disabled={busy}
+                className="rounded-full p-0.5 text-teal-500 hover:bg-red-100 hover:text-red-600 disabled:opacity-50 dark:hover:bg-red-950/40"
+                aria-label={`เอา ${m.email} ออกจาก ${r.code}`}
+                title="เอาอีเมลนี้ออก (มีผลทันที)"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            ) : (
+              <span className="w-1.5" />
+            )}
           </span>
         ))}
         {!hasEmail(r) && addingTo !== r.code && (
@@ -264,7 +261,7 @@ export function SalesCodeDirectoryPanel() {
             </Button>
           </form>
         ) : (
-          <button
+          canAdd && <button
             type="button"
             onClick={() => {
               setAddingTo(r.code);
@@ -301,8 +298,8 @@ export function SalesCodeDirectoryPanel() {
       <CardHeader>
         <CardTitle className="text-base">รหัสเซลล์ · อีเมล · VDA</CardTitle>
         <CardDescription>
-          หนึ่งแถวต่อรหัสเซลล์ · อีเมลสีเขียว = อีเมลอ้างอิงที่แอดมินกำหนด ใช้เข้าสู่ระบบในฐานะรหัสนั้นได้
-          (แม้รหัสไม่อยู่ใน cross_salesman) มีผลทันที · อีเมลสีเทา = จับคู่อัตโนมัติจาก cross_salesman
+          หนึ่งแถวต่อรหัสเซลล์ · อีเมลที่ผูกไว้ = ใช้เข้าสู่ระบบในฐานะรหัสนั้น มีผลทันที ·
+          อีเมลที่ยังไม่ได้ผูกกับรหัสใดจะ login ฝั่งเซลล์ไม่ได้ · ผูกหลายรหัสให้อีเมลเดียว = เห็นออเดอร์ทุกรหัส
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -313,6 +310,7 @@ export function SalesCodeDirectoryPanel() {
         )}
 
         {/* เพิ่มรหัสที่ยังไม่อยู่ในตาราง หรือใส่หลายอีเมลทีเดียว */}
+        {canAdd && (
         <form
           className="grid gap-2 rounded-xl border border-slate-200 p-3 sm:grid-cols-[8rem_1fr_auto] sm:items-end dark:border-slate-700"
           onSubmit={async (e) => {
@@ -352,6 +350,12 @@ export function SalesCodeDirectoryPanel() {
             </p>
           )}
         </form>
+        )}
+        {canAdd && !canRemove && (
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            เพิ่มอีเมลให้รหัสเซลล์ได้ · เอาอีเมลออก และกำหนดรหัสให้อีเมลของผู้ดูแลระบบ ติดต่อ Creator
+          </p>
+        )}
 
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-0 flex-1 sm:max-w-sm">
@@ -410,8 +414,7 @@ export function SalesCodeDirectoryPanel() {
           </div>
           {data && (
             <span className="ml-auto text-[11px] text-slate-400">
-              cross_salesman {data.loaded.salesmanMaster ? "✓" : "—"} · ทะเบียน VDA{" "}
-              {data.loaded.vdaAosBill ? "✓" : "—"}
+              ทะเบียน VDA {data.loaded.vdaAosBill ? "✓" : "—"}
             </span>
           )}
         </div>

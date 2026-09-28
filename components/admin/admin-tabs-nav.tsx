@@ -5,12 +5,13 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Database, Eye, Shield, Store, Tag } from "lucide-react";
 import {
-  ADMIN_GROUPS,
   matchAdminNav,
+  visibleAdminGroups,
   type AdminBadgeKey,
   type AdminGroupDef,
   type AdminIconKey,
 } from "@/lib/admin/admin-nav";
+import { useSalesSession } from "@/hooks/use-sales-session";
 import { appPath } from "@/lib/paths";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
@@ -69,7 +70,10 @@ function groupBadge(group: AdminGroupDef, badges: AdminBadges | null) {
 export function AdminTabsNav() {
   const pathname = usePathname();
   const [badges, setBadges] = useState<AdminBadges | null>(null);
+  const { session, loading } = useSalesSession();
   const active = matchAdminNav(pathname)?.group.key ?? null;
+  // ระหว่างโหลด session ยังไม่รู้ตำแหน่ง — อย่าวาดเมนูเต็มของ creator ให้ admin เห็นแวบหนึ่ง
+  const groups = loading ? [] : visibleAdminGroups(session);
 
   useEffect(() => {
     // endpoint เดียวสำหรับตัวเลขบนแท็บ — เดิมทุกแท็บยิง /api/admin/store-accounts
@@ -87,7 +91,7 @@ export function AdminTabsNav() {
       aria-label="เมนู Admin"
       className="grid grid-cols-2 gap-1 rounded-xl border border-slate-200 bg-slate-100/80 p-1 sm:grid-cols-3 lg:flex dark:border-slate-700 dark:bg-slate-800/60"
     >
-      {ADMIN_GROUPS.map((group) => {
+      {groups.map((group) => {
         const Icon = ICONS[group.iconKey];
         const isActive = active === group.key;
         const { count, warn } = groupBadge(group, badges);

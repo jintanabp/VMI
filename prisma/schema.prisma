@@ -176,7 +176,7 @@ model PoSequence {
 model StoreNotification {
   id        String    @id @default(cuid())
   storeId   String
-  /// approved | rejected | deleted | price_changed | qty_changed | po_issued
+  /// ชนิดทั้งหมด + ป้ายภาษาไทย ดูที่ lib/orders/store-notify-display.ts (เพิ่มชนิดใหม่ไม่ต้อง migrate)
   kind      String
   title     String
   detail    String    @default("")
@@ -198,17 +198,30 @@ model StoreNotification {
 model SalesNotification {
   id             String    @id @default(cuid())
   storeId        String
-  /// order_created | order_cancelled
+  /// ชนิดทั้งหมด + ป้ายภาษาไทย ดูที่ lib/orders/sales-notify-display.ts (เพิ่มชนิดใหม่ไม่ต้อง migrate)
   kind           String
   title          String
   detail         String    @default("")
   orderId        String?
   createdAt      DateTime  @default(now())
+  /// รับทราบแบบรวม (ทุกคนใน VDA) — ใช้กับแถวก่อน 28 ก.ย. 2569 เท่านั้น · ตอนนี้เก็บต่อผู้ใช้ใน SalesNotificationRead
   acknowledgedAt DateTime?
   store          Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  reads          SalesNotificationRead[]
 
   @@index([storeId, acknowledgedAt])
   @@index([createdAt])
+}
+
+/// เซลล์คนไหนรับทราบแจ้งเตือนไหนแล้ว — เดิมคนหนึ่งเปิดกระดิ่ง = ทุกคนใน VDA เห็นว่าอ่านแล้ว (QA 28 ก.ย. 69)
+model SalesNotificationRead {
+  notificationId String
+  email          String
+  readAt         DateTime          @default(now())
+  notification   SalesNotification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@id([notificationId, email])
+  @@index([email])
 }
 
 model OrderItem {
@@ -323,6 +336,12 @@ model StoreAccount {
   canManageMinMax  Boolean   @default(false)
   resetRequestedAt DateTime?
   approvedBy       String    @default("")
+  /// รหัสตั้งค่าครั้งแรก (ใช้ครั้งเดียว) — เก็บแต่ sha256 ของรหัส · แอดมินเห็นตัวรหัสครั้งเดียวตอนออก
+  /// แล้วส่งต่อให้ร้าน · ตั้งรหัสผ่านครั้งแรก/หลังรีเซ็ตต้องมีรหัสนี้ (เดิมรู้แค่อีเมลก็ยึดบัญชีได้ — QA 28 ก.ย. 69)
+  setupCodeHash      String?
+  setupCodeExpiresAt DateTime?
+  /// เพิ่มทุกครั้งที่สิทธิ์/รหัสผ่านของบัญชีเปลี่ยน — session ร้านที่ออกก่อนหน้า (เลขไม่ตรง) ใช้ไม่ได้ทันที
+  sessionVersion     Int       @default(0)
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
@@ -353,12 +372,24 @@ model StoreSkuBlock {
   effectiveTo    DateTime?                 // สิ้นสุดการหยุดสั่ง (null = หยุดถาวร)
   createdBy      String    @default("")
   createdAt      DateTime  @default(now())
-  acknowledgedAt DateTime?                 // เซลล์กดรับทราบเมื่อไหร่ (null = ยังไม่อ่าน)
+  acknowledgedAt DateTime?                 // รับทราบแบบรวม — แถวก่อน 28 ก.ย. 69 · ตอนนี้ต่อผู้ใช้ใน StoreSkuBlockRead
   store          Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
   sku            Sku       @relation(fields: [skuId], references: [id], onDelete: Cascade)
+  reads          StoreSkuBlockRead[]
 
   @@unique([storeId, skuId])
   @@index([storeId])
+}
+
+/// เซลล์คนไหนรับทราบการหยุดสั่งไหนแล้ว (ต่อผู้ใช้ — เหตุผลเดียวกับ SalesNotificationRead)
+model StoreSkuBlockRead {
+  blockId String
+  email   String
+  readAt  DateTime      @default(now())
+  block   StoreSkuBlock @relation(fields: [blockId], references: [id], onDelete: Cascade)
+
+  @@id([blockId, email])
+  @@index([email])
 }
 
 /// ทะเบียนคลัง VDA — "vda1 คือลูกค้ารหัสไหน" แก้ได้จากหน้าแอดมิน ไม่ต้องแตะ .env

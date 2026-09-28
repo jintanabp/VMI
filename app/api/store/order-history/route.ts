@@ -56,6 +56,16 @@ export interface OrderHistoryItem {
   /** finalQty ที่ร้านส่งมาตอนแรก — 0 = พนักงานเพิ่มสินค้านี้เข้ามาเอง ร้านไม่เคยขอเลย */
   requestedQty: number | null;
   agreedQty: number | null;
+  /** พนักงานปฏิเสธบรรทัดนี้ (finalQty ถูกตั้งเป็น 0) — ต้องโชว์ว่า "ปฏิเสธ" ไม่ใช่เลข 0 เฉย ๆ */
+  rejected: boolean;
+  rejectReason: string | null;
+}
+
+/** PO ของออเดอร์พร้อมสถานะ — PO ที่ถูกยกเลิกต้องไม่ดูเหมือนยังเดินอยู่ */
+export interface OrderHistoryPo {
+  poNumber: string;
+  /** ค่าดิบจาก DB — หน้าจอแปลงเป็นป้ายด้วย poStatusMeta() */
+  status: string;
 }
 
 export interface OrderHistoryEntry {
@@ -75,6 +85,8 @@ export interface OrderHistoryEntry {
   orderTotal: number | null;
   /** เลข PO ที่ออกให้ออเดอร์นี้ — ร้านใช้อ้างอิงเวลาตามของ (1 ออเดอร์อาจได้หลาย PO) */
   poNumbers: string[];
+  /** PO เดียวกับ poNumbers แต่มีสถานะ (เรียงตามเลข PO) */
+  purchaseOrders: OrderHistoryPo[];
   /** วันที่ออก PO ใบแรก — ใช้ทำ timeline */
   poIssuedAt: string | null;
   /** ของแถมทั้งออเดอร์ที่ dedupe โปรกลุ่มแล้ว — ห้ามบวกเองจาก items */
@@ -137,7 +149,9 @@ export async function GET(request: Request) {
           purchaseOrder: { select: { status: true } },
         },
       },
-      purchaseOrders: { select: { poNumber: true, issuedAt: true } },
+      purchaseOrders: {
+        select: { poNumber: true, issuedAt: true, status: true },
+      },
     },
     orderBy: { createdAt: "desc" },
     take: summary ? undefined : MAX_ORDERS,
@@ -158,6 +172,8 @@ export async function GET(request: Request) {
       const orderInFlight =
         order.status === "pending_approval" || daysAgo < LEAD_TIME_DAYS;
       for (const item of order.items) {
+        // บรรทัดที่พนักงานปฏิเสธ = ของไม่มาเหมือนออเดอร์ที่ถูกปฏิเสธ
+        if (item.rejectedAt) continue;
         const code = item.sku.code;
         // สถานะ PO ชนะการเดาจากปฏิทิน: ยกเลิก = ของไม่มาแน่ · รับของแล้ว = มาถึงแล้ว
         // (เข้า stock_cover_day เรียบร้อย) ทั้งสองกรณีต้องเลิกกดยอด "แนะนำ" ทันที
@@ -229,10 +245,16 @@ export async function GET(request: Request) {
         qtyIncreasePendingConfirm: i.qtyIncreasePendingConfirm,
         requestedQty: i.requestedQty,
         agreedQty: i.agreedQty,
+        rejected: i.rejectedAt != null,
+        rejectReason: i.rejectedAt ? i.rejectReason : null,
       };
     });
-    const withPrice = items.filter((i) => i.lineTotal != null);
-    const pos = order.purchaseOrders ?? [];
+    // บรรทัดที่ถูกปฏิเสธไม่นับในยอด — finalQty เป็น 0 อยู่แล้ว แต่กันไว้เผื่อแถวเก่าที่ยังค้างจำนวน
+    const liveItems = items.filter((i) => !i.rejected);
+    const withPrice = liveItems.filter((i) => i.lineTotal != null);
+    const pos = [...(order.purchaseOrders ?? [])].sort((a, b) =>
+      a.poNumber.localeCompare(b.poNumber)
+    );
     return {
       id: order.id,
       createdAt: order.createdAt.toISOString(),
@@ -242,14 +264,16 @@ export async function GET(request: Request) {
       status: order.status,
       rejectReason: order.rejectReason,
       itemCount: order.items.length,
-      totalQty: order.items.reduce((s, i) => s + i.finalQty, 0),
+      totalQty: liveItems.reduce((s, i) => s + i.finalQty, 0),
       orderTotal:
         withPrice.length > 0
           ? withPrice.reduce((s, i) => s + (i.lineTotal ?? 0), 0)
           : null,
-      poNumbers: pos
-        .map((po) => po.poNumber)
-        .sort((a, b) => a.localeCompare(b)),
+      poNumbers: pos.map((po) => po.poNumber),
+      purchaseOrders: pos.map((po) => ({
+        poNumber: po.poNumber,
+        status: po.status,
+      })),
       poIssuedAt:
         pos.length > 0
           ? new Date(
@@ -259,7 +283,7 @@ export async function GET(request: Request) {
       // ส่ง finalQty เป็น qty ให้ตัวรวมของแถมด้วย — บรรทัดที่พนักงานตัดเหลือ 0
       // ไม่ควรขึ้นว่าร้านยังได้ของแถมของบรรทัดนั้น
       freeGoods: collectOwedFreeGoods(
-        items.map((i) => ({ ...i, qty: i.finalQty }))
+        liveItems.map((i) => ({ ...i, qty: i.finalQty }))
       ),
       items,
     };

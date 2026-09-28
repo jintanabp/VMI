@@ -11,6 +11,7 @@ import {
 import { ThemeToggle } from "@/components/theme-toggle";
 import { getCustomerStoreFromCookie } from "@/lib/auth/customer-session";
 import { getRawSalesSession } from "@/lib/auth/sales-session";
+import { homePathFor, isStaffAdmin } from "@/lib/auth/permissions";
 import { CustomerLoginForm } from "@/components/auth/customer-login-form";
 import { StoreLoginForm } from "@/components/auth/store-login-form";
 import { SalesLoginButton } from "@/components/auth/sales-login-button";
@@ -33,7 +34,13 @@ export default async function LoginPage({
   // ครอบทุก role ที่ล็อกอินได้ — เดิมเช็คแค่ "sales" กับ "admin" ทำให้ supervisor
   // และ manager ที่มี session อยู่แล้วยังเห็นปุ่มล็อกอินซ้ำ เหมือนเข้าระบบไม่ได้
   if (mode === "sales" && salesSession) {
-    redirect(salesSession.role === "admin" ? "/admin" : "/sales");
+    redirect(
+      salesSession.role === "admin"
+        ? "/admin"
+        : isStaffAdmin(salesSession)
+          ? homePathFor(salesSession)
+          : "/sales"
+    );
   }
   if (mode === "customer" && customerStore && !salesSession) {
     redirect("/stock");

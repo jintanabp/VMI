@@ -164,10 +164,16 @@ export function SalesOrdersClient() {
   });
 
 
+  // ตั้ง VDA แรกเป็นค่าเริ่มต้น **ครั้งเดียว** ตอนโหลด — เดิมตั้งซ้ำทุกครั้งที่ตัวกรองว่าง ผลคือ
+  // (1) เลือก «ทุก VDA ที่ดูแล» ไม่ได้เลย เด้งกลับ VDA แรกทันที (2) กดแจ้งเตือนของออเดอร์ใน VDA อื่น
+  // ตัวกรองถูกล้างแล้วเด้งกลับ ใบนั้นไม่อยู่ในลิสต์ ขึ้น "ไม่พบออเดอร์" ทั้งที่ยังอยู่ (QA 28 ก.ย. 69)
+  const vdaDefaultApplied = useRef(false);
   useEffect(() => {
-    if (isAdmin || availableVdas.length === 0 || vdaFilter) return;
-    setVdaFilter(availableVdas[0]);
-  }, [availableVdas, vdaFilter, isAdmin]);
+    if (vdaDefaultApplied.current || isAdmin || availableVdas.length === 0) return;
+    vdaDefaultApplied.current = true;
+    if (focusOrderId) return; // มาจากแจ้งเตือน — effect ด้านล่างจัดตัวกรองเอง
+    if (!vdaFilter) setVdaFilter(availableVdas[0]);
+  }, [availableVdas, vdaFilter, isAdmin, focusOrderId]);
 
   async function handleSalesCodeChange(code: string) {
     if (!code || code === vdaAccess?.salesmanCode || switchingCode) return;
@@ -405,6 +411,8 @@ export function SalesOrdersClient() {
     if (!focusOrderId) return;
     setStatusFilter(focusStatus ?? "");
     setVdaFilter("");
+    // เซลล์หลายรหัส: ถ้าใบนั้นอยู่ใน VDA ของรหัสอื่น effect ด้านล่างจะขยายเป็น "ทุก VDA ของฉัน" ให้เอง
+    vdaDefaultApplied.current = true;
     setSalesRepFilter("");
     setPendingFocus(focusOrderId);
     router.replace("/sales/orders", { scroll: false });
@@ -419,13 +427,18 @@ export function SalesOrdersClient() {
           .getElementById(`sales-order-${pendingFocus}`)
           ?.scrollIntoView({ block: "nearest", behavior: "smooth" })
       );
+    } else if (!isFetching && canViewAllPersonVdas && !allPersonVdas) {
+      // ยังไม่เจอในรหัสที่เลือกอยู่ — ขยายเป็นทุกรหัสของฉันแล้วลองอีกรอบก่อนบอกว่าไม่พบ
+      setAllPersonVdas(true);
+      setVdaFilter("");
+      return;
     } else if (!isFetching) {
       toast({ title: "ไม่พบออเดอร์นี้แล้ว — อาจถูกลบหรือเคลียร์ไปแล้ว", tone: "warn" });
     } else {
       return; // ลิสต์ของตัวกรองใหม่ยังโหลดไม่เสร็จ รอรอบหน้า
     }
     setPendingFocus(null);
-  }, [pendingFocus, showLoading, isFetching, orders, toast]);
+  }, [pendingFocus, showLoading, isFetching, orders, toast, canViewAllPersonVdas, allPersonVdas]);
 
   // สลับออเดอร์แล้วต้องล้างการติ๊ก ไม่งั้น id ของใบเก่าจะค้างไปย้ายกลุ่มในใบใหม่
   useEffect(() => {
@@ -529,11 +542,13 @@ export function SalesOrdersClient() {
     onSuccess: (data) => {
       // ลบสำเร็จบางใบก็ยังเข้าทางนี้ — ต้องบอกว่าใบไหนตกหล่น ไม่ใช่เงียบ
       const hasPoCount = data.skipped.filter((s) => s.reason === "has_po").length;
-      const otherCount = data.skipped.length - hasPoCount;
+      const inErpCount = data.skipped.filter((s) => s.reason === "in_erp").length;
+      const otherCount = data.skipped.length - hasPoCount - inErpCount;
       setActionError(
         data.skipped.length > 0
           ? `เคลียร์แล้ว ${data.deletedIds.length} ใบ` +
               (hasPoCount > 0 ? ` · ข้าม ${hasPoCount} ใบที่ออก PO แล้ว` : "") +
+              (inErpCount > 0 ? ` · ข้าม ${inErpCount} ใบที่ส่งเข้า ERP แล้ว` : "") +
               (otherCount > 0
                 ? ` · อีก ${otherCount} ใบลบไม่ได้ (ไม่มีสิทธิ์ หรือถูกลบไปก่อนแล้ว)`
                 : "")
@@ -558,8 +573,11 @@ export function SalesOrdersClient() {
    */
   const clearSkuMutation = useMutation({
     mutationFn: async ({ skuCode, notify }: { skuCode: string; notify: boolean }) => {
+      // ขอบเขตเดียวกับลิสต์ที่เห็นอยู่ (และที่กล่องยืนยันนับให้ดู) — เดิมไม่ส่ง VDA ไป server เลยเคลียร์
+      // ทุก VDA ของทุกรหัส ทั้งที่ผู้ใช้กำลังดู VDA เดียว (QA 28 ก.ย. 69)
+      const scope = !allPersonVdas && vdaFilter ? `&vdaCode=${encodeURIComponent(vdaFilter)}` : "";
       const res = await apiFetch(
-        `${appPath("/api/orders/clear-sku")}?skuCode=${encodeURIComponent(skuCode)}${notify ? "" : "&notify=0"}`,
+        `${appPath("/api/orders/clear-sku")}?skuCode=${encodeURIComponent(skuCode)}${scope}${notify ? "" : "&notify=0"}`,
         { method: "DELETE" }
       );
       const body = (await res.json().catch(() => null)) as {
@@ -731,10 +749,10 @@ export function SalesOrdersClient() {
           <div className="mb-2 shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800/50 dark:bg-amber-950/30 dark:text-amber-200">
             <p className="font-semibold">รหัสนี้ไม่มี VDA ที่ดูแล</p>
             <p className="mt-1 text-amber-800 dark:text-amber-300/90">
-              รหัส {vdaAccess?.salesmanCode} ไม่มีในทะเบียน VDA (VDA_SALESMAN_MAP)
+              รหัส {vdaAccess?.salesmanCode} ยังไม่ได้ดูแลคลัง VDA ใด
               {canViewAllPersonVdas
                 ? " — กดปุ่มด้านล่างเพื่อดูออเดอร์ทุก VDA ของคุณ"
-                : " — ไม่มีออเดอร์ให้ตรวจสอบ"}
+                : " — ไม่มีออเดอร์ให้ตรวจสอบ ถ้าไม่ถูกต้องให้แจ้งแอดมิน"}
             </p>
           </div>
         )}

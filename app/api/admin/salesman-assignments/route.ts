@@ -2,13 +2,15 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getRawSalesSession } from "@/lib/auth/sales-session";
 import { prisma } from "@/lib/prisma";
-import { getSalesmanRegistry } from "@/lib/fabric";
+import { salesCodeLabel } from "@/lib/admin/vda-sales-directory";
 import { getVdaAosBillRegistry } from "@/lib/fabric/vda-aos-bill";
 import { listVdaWarehousesAsync } from "@/lib/fabric/vda-warehouse-registry";
 import {
   normalizeEmail,
   normalizeSalesmanCode,
 } from "@/lib/auth/manual-salesman-assignments";
+import { can, isCreator } from "@/lib/auth/permissions";
+import { isAdminEmailAsync } from "@/lib/auth/admin-registry";
 
 export const dynamic = "force-dynamic";
 
@@ -33,13 +35,11 @@ async function enrichRows() {
     where: { active: true },
     orderBy: [{ email: "asc" }, { salesmanCode: "asc" }],
   });
-  const salesmanReg = getSalesmanRegistry();
   const vdaReg = getVdaAosBillRegistry();
   const warehouses = await listVdaWarehousesAsync();
   const labelByVda = new Map(warehouses.map((w) => [w.code, w.label]));
 
   return rows.map((r) => {
-    const assignment = salesmanReg.getCurrentByCode(r.salesmanCode);
     const vdas = vdaReg.getVdasForSalesman(r.salesmanCode);
     return {
       id: r.id,
@@ -47,8 +47,7 @@ async function enrichRows() {
       salesmanCode: r.salesmanCode,
       createdBy: r.createdBy,
       createdAt: r.createdAt.toISOString(),
-      salesmanName: assignment ? salesmanReg.getDisplayName(assignment) : null,
-      foundInMaster: assignment != null,
+      salesmanName: salesCodeLabel(r.salesmanCode),
       vdas: vdas.map((v) => ({ code: v, label: labelByVda.get(v) || "" })),
     };
   });
@@ -62,9 +61,13 @@ export async function GET() {
   return NextResponse.json({ assignments: await enrichRows() });
 }
 
+/**
+ * creator เพิ่มได้ทุกอีเมล · admin เพิ่มได้ (`salesCodes.addEmail`) ยกเว้นอีเมลของผู้ดูแลระบบ —
+ * การตั้ง admin เป็นเซลล์เป็นของ creator ไม่งั้น admin ตั้งตัวเองเป็นเซลล์รหัสไหนก็ได้
+ */
 export async function POST(request: Request) {
   const session = await getRawSalesSession();
-  if (session?.role !== "admin") {
+  if (!session || !can(session, "salesCodes.addEmail")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -84,6 +87,21 @@ export async function POST(request: Request) {
       )
     ),
   ];
+
+  if (!isCreator(session)) {
+    const adminEmails: string[] = [];
+    for (const email of emails) {
+      if (await isAdminEmailAsync(email)) adminEmails.push(email);
+    }
+    if (adminEmails.length > 0) {
+      return NextResponse.json(
+        {
+          error: `${adminEmails.join(", ")} เป็นผู้ดูแลระบบ — ให้ Creator กำหนดรหัสเซลล์ที่หน้า «ระบบ › ผู้ดูแล»`,
+        },
+        { status: 403 }
+      );
+    }
+  }
 
   try {
     await prisma.$transaction(

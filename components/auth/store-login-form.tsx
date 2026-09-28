@@ -10,12 +10,23 @@ import { friendlyError } from "@/lib/error-message";
 
 type Step = "email" | "set-password" | "login" | "pending" | "rejected";
 
+const STEPS: readonly Step[] = ["email", "set-password", "login", "pending", "rejected"];
+
+/** step จากเซิร์ฟเวอร์ — ค่าที่ไม่รู้จักไม่เปลี่ยนหน้า (ไม่งั้นได้จอว่างเพราะไม่มี branch ไหนรับ) */
+function asStep(v: unknown): Step | null {
+  return typeof v === "string" && (STEPS as readonly string[]).includes(v)
+    ? (v as Step)
+    : null;
+}
+
 export function StoreLoginForm() {
   const router = useRouter();
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  /** รหัสตั้งค่าครั้งแรกที่แอดมินส่งให้ (XXXX-XXXX) — ต้องมีถึงจะตั้งรหัสผ่านได้ */
+  const [setupCode, setSetupCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
@@ -37,6 +48,7 @@ export function StoreLoginForm() {
   function reset(toStep: Step) {
     setPassword("");
     setConfirm("");
+    setSetupCode("");
     setError("");
     setNeedVda(false);
     setVdaCode("");
@@ -72,7 +84,7 @@ export function StoreLoginForm() {
         setError(friendlyError(data.error, "เกิดข้อผิดพลาด"));
         return;
       }
-      reset(data.step as Step);
+      reset(asStep(data.step) ?? "email");
       if (data.step === "pending" && data.message) setInfo(data.message);
     } finally {
       setLoading(false);
@@ -82,6 +94,10 @@ export function StoreLoginForm() {
   async function submitSetPassword(e?: React.FormEvent) {
     e?.preventDefault();
     setError("");
+    if (setupCode.replace(/[^A-Za-z0-9]/g, "").length < 8) {
+      setError("กรุณากรอกรหัสตั้งค่า 8 ตัวที่ได้รับจากแอดมิน");
+      return;
+    }
     if (password.length < 8) {
       setError("รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร");
       return;
@@ -95,7 +111,7 @@ export function StoreLoginForm() {
       const res = await fetch(appPath("/api/auth/store/set-password"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, setupCode }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -121,7 +137,9 @@ export function StoreLoginForm() {
       });
       const data = await res.json();
       if (!res.ok) {
-        if (data.step) reset(data.step as Step);
+        // step "rejected" ต้องไปหน้าปฏิเสธ ไม่ใช่หน้ารออนุมัติ
+        const next = asStep(data.step);
+        if (next) reset(next);
         setError(friendlyError(data.error, "เข้าสู่ระบบไม่สำเร็จ"));
         return;
       }
@@ -134,6 +152,7 @@ export function StoreLoginForm() {
 
   async function requestReset() {
     setError("");
+    setInfo("");
     setLoading(true);
     try {
       const res = await fetch(appPath("/api/auth/store/request-reset"), {
@@ -141,8 +160,15 @@ export function StoreLoginForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      // 400/429 ต้องบอกผู้ใช้ — เดิมขึ้น "ส่งคำขอแล้ว" ทุกกรณี ร้านเลยรอแอดมินที่ไม่เคยได้คำขอ
+      if (!res.ok) {
+        setError(friendlyError(data.error, "ส่งคำขอรีเซ็ตรหัสไม่สำเร็จ"));
+        return;
+      }
       setInfo(data.message ?? "ส่งคำขอรีเซ็ตรหัสแล้ว");
+    } catch {
+      setError("เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ — ลองใหม่อีกครั้ง");
     } finally {
       setLoading(false);
     }
@@ -185,7 +211,7 @@ export function StoreLoginForm() {
         <div className="flex flex-col items-center gap-3 rounded-2xl border border-red-200 bg-red-50/80 px-4 py-8 text-center dark:border-red-900/50 dark:bg-red-950/30">
           <ShieldX className="h-10 w-10 text-red-500" />
           <p className="text-sm font-medium text-red-900 dark:text-red-200">
-            บัญชีนี้ไม่ได้รับสิทธิเข้าใช้งาน
+            บัญชีนี้ไม่ได้รับสิทธิ์เข้าใช้งาน
           </p>
           <p className="text-xs text-red-800/80 dark:text-red-300/80">
             โปรดติดต่อแอดมิน
@@ -202,7 +228,32 @@ export function StoreLoginForm() {
     return (
       <form onSubmit={submitSetPassword} className="space-y-4">
         <div className="rounded-xl border border-teal-200 bg-teal-50/80 px-3 py-2 text-xs text-teal-800 dark:border-teal-900/50 dark:bg-teal-950/30 dark:text-teal-200">
-          ยินดีต้อนรับ {email} — ตั้งรหัสผ่านสำหรับเข้าใช้งานครั้งต่อไป
+          ยินดีต้อนรับ {email} — กรอกรหัสตั้งค่าที่ได้รับจากแอดมิน แล้วตั้งรหัสผ่านสำหรับเข้าใช้งานครั้งต่อไป
+        </div>
+        <div>
+          <label
+            htmlFor="setup-code"
+            className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400"
+          >
+            รหัสตั้งค่าจากแอดมิน (8 ตัว เช่น ABCD-2345)
+          </label>
+          <div className="relative">
+            <KeyRound className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <Input
+              id="setup-code"
+              name="setup-code"
+              autoComplete="one-time-code"
+              autoCapitalize="characters"
+              spellCheck={false}
+              className="pl-9 font-mono uppercase tracking-widest"
+              value={setupCode}
+              onChange={(e) => setSetupCode(e.target.value.toUpperCase())}
+              autoFocus
+            />
+          </div>
+          <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+            ยังไม่ได้รหัส หรือรหัสหมดอายุ (72 ชม.) — ติดต่อแอดมินให้ออกรหัสใหม่
+          </p>
         </div>
         <div>
           <label
@@ -221,7 +272,6 @@ export function StoreLoginForm() {
               className="pl-9"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              autoFocus
             />
           </div>
         </div>

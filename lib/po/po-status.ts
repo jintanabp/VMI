@@ -93,3 +93,57 @@ export const PO_STATUS_CLASS: Record<string, string> = {
     "bg-amber-100 text-amber-800 ring-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:ring-amber-900",
   teal: "bg-teal-100 text-teal-800 ring-teal-200 dark:bg-teal-950/50 dark:text-teal-300 dark:ring-teal-900",
 };
+
+/**
+ * สถานะที่ยังตั้งเองได้หลัง PO อาจอยู่ใน ERP แล้ว — มีแค่ "รับของแล้ว" ซึ่งเป็นขั้นหลัง ERP จริง
+ *
+ * ที่เหลือห้ามหมด: ยกเลิก = ฝั่งเราบอกร้านว่าของไม่มา แต่ ERP ยังเปิดบิลอยู่ ·
+ * ถอยกลับเป็น "ออกแล้ว/ส่งซัพแล้ว" = จอบอกว่ายังไม่เข้า ERP ทั้งที่เข้าแล้ว (QA 28 ก.ย. 69)
+ */
+export const PO_STATUSES_AFTER_ERP: readonly PoStatus[] = ["received"];
+
+export type ManualPoStatusVerdict =
+  | { ok: true; reopened: boolean }
+  | { ok: false; httpStatus: 400 | 409; error: string };
+
+/**
+ * ตรวจการเปลี่ยนสถานะ PO ด้วยมือ (PATCH จากหน้า PO) — แยกเป็นฟังก์ชันล้วนให้ทดสอบได้
+ *
+ * `mayBeInErp` ให้ผู้เรียกคำนวณจาก `poMayBeInErp()` (lib/orders/delete-orders.ts)
+ * ไม่ import ตรงนี้เพื่อให้ไฟล์นี้ยังใช้ฝั่ง client ได้ (ไฟล์นั้นลาก prisma มาด้วย)
+ */
+export function checkManualPoStatusChange(args: {
+  from: string;
+  to: PoStatus;
+  mayBeInErp: boolean;
+}): ManualPoStatusVerdict {
+  const { from, to, mayBeInErp } = args;
+  // สองค่านี้ต้องมาจาก send-erp เท่านั้น — ตั้งเองได้ = จอบอก "เข้า ERP แล้ว" ทั้งที่ไม่เคยส่ง
+  if (to === SENT_TO_ERP || to === SENDING_TO_ERP) {
+    return {
+      ok: false,
+      httpStatus: 400,
+      error: "สถานะนี้ระบบตั้งให้เองตอนส่งเข้า ERP — เปลี่ยนเองไม่ได้",
+    };
+  }
+  // กำลังยิงอยู่ = ยังไม่รู้ผล ถ้าเปลี่ยนตอนนี้ send-erp จะเขียนทับอยู่ดี หรือแย่กว่าคือยกเลิกใบที่เพิ่งเข้าไป
+  if (from === SENDING_TO_ERP) {
+    return {
+      ok: false,
+      httpStatus: 409,
+      error:
+        "ใบนี้กำลังส่งเข้า ERP อยู่ — รอผลก่อน ถ้าค้างนานผิดปกติให้ตรวจกับทีม ERP ก่อนเปลี่ยนสถานะ",
+    };
+  }
+  if (mayBeInErp && to !== from && !PO_STATUSES_AFTER_ERP.includes(to)) {
+    return {
+      ok: false,
+      httpStatus: 409,
+      error:
+        to === "cancelled"
+          ? "ใบนี้อยู่ใน ERP แล้ว (หรือส่งแล้วผลไม่ชัดเจน) — ต้องยกเลิกในระบบ ERP ก่อน แล้วค่อยแจ้งผู้ดูแลระบบให้ปรับสถานะที่นี่"
+          : "ใบนี้อยู่ใน ERP แล้ว (หรือส่งแล้วผลไม่ชัดเจน) — เปลี่ยนได้แค่เป็น \"รับของแล้ว\" · ถ้าต้องแก้อย่างอื่นให้แก้ในระบบ ERP ก่อน",
+    };
+  }
+  return { ok: true, reopened: from === "cancelled" && to !== "cancelled" };
+}

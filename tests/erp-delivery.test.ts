@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   ERP_ERROR_MAX_LEN,
   interpretErpResponse,
@@ -172,6 +172,23 @@ describe("postErpPayload", () => {
 });
 
 describe("erpEndpoint — เปิดแล้ว 14 ก.ย. 69 แต่ชี้ UAT เท่านั้น", () => {
+  // เครื่อง dev ตั้ง ERP_SEND_DISABLED=1 ไว้ใน .env — เทสต์ต้องไม่ขึ้นกับ env ของเครื่องที่รัน
+  const saved = process.env.ERP_SEND_DISABLED;
+  beforeEach(() => {
+    delete process.env.ERP_SEND_DISABLED;
+  });
+  afterEach(() => {
+    if (saved === undefined) delete process.env.ERP_SEND_DISABLED;
+    else process.env.ERP_SEND_DISABLED = saved;
+  });
+
+  it("เบรกฉุกเฉิน ERP_SEND_DISABLED=1 → null (ปิดได้อย่างเดียว ค่าอื่นไม่มีผล)", () => {
+    process.env.ERP_SEND_DISABLED = "1";
+    expect(erpEndpoint()).toBeNull();
+    process.env.ERP_SEND_DISABLED = "0";
+    expect(erpEndpoint()?.url).toBe(ERP_UAT_URL);
+  });
+
   it("คืนปลายทาง UAT ไม่ใช่ null อีกต่อไป", () => {
     expect(erpEndpoint()).not.toBeNull();
     expect(erpEndpoint()?.url).toBe(ERP_UAT_URL);

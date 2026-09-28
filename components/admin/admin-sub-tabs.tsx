@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { matchAdminNav } from "@/lib/admin/admin-nav";
+import { canSeeSubTab, matchAdminNav } from "@/lib/admin/admin-nav";
+import { useSalesSession } from "@/hooks/use-sales-session";
 import { appPath } from "@/lib/paths";
 import { cn } from "@/lib/utils";
 import { badgeState, type AdminBadges } from "./admin-tabs-nav";
@@ -18,7 +19,9 @@ import { apiFetch } from "@/lib/api-fetch";
 export function AdminSubTabs() {
   const pathname = usePathname();
   const [badges, setBadges] = useState<AdminBadges | null>(null);
+  const { session } = useSalesSession();
   const match = matchAdminNav(pathname);
+  const subTabs = match ? match.group.subTabs.filter((s) => canSeeSubTab(session, s)) : [];
 
   useEffect(() => {
     apiFetch(appPath("/api/admin/badges"))
@@ -28,14 +31,15 @@ export function AdminSubTabs() {
   }, []);
 
   // หมวดที่มีแท็บย่อยอันเดียว ไม่ต้องมีแถบ — chip ที่ active ตลอดเวลาไม่ได้บอกอะไร
-  if (!match || match.group.subTabs.length < 2) return null;
+  // กรองตามสิทธิ์ก่อนนับ — admin เห็นหมวดร้านค้าแค่แท็บเดียว จึงไม่มีแถบย่อย
+  if (!match || subTabs.length < 2) return null;
 
   return (
     <nav
       aria-label={`เมนูย่อย ${match.group.label}`}
       className="flex flex-wrap gap-1 px-0.5"
     >
-      {match.group.subTabs.map((sub) => {
+      {subTabs.map((sub) => {
         const isActive = match.sub?.href === sub.href;
         const { count, warn } = badgeState(badges, sub.badge);
         return (

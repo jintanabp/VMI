@@ -2,6 +2,7 @@ import type { Store } from "@prisma/client";
 import { getCustomerDirectory, fabricMastersReady, fabricStockReady } from "@/lib/fabric";
 import { listStockFromDbSources } from "@/lib/fabric/stock-rows";
 import { resolveVdaStoreName } from "@/lib/fabric/vda-store-name";
+import { isVdaStoreCode } from "@/lib/fabric/vda-aos-bill";
 import { getRepositories } from "@/lib/repositories";
 import {
   CUSTOMER_STORE_CODE_COOKIE,
@@ -25,7 +26,8 @@ export async function clearCustomerStoreCookies() {
 }
 
 function isVdaCode(code: string): boolean {
-  if (!fabricStockReady()) return false;
+  // ไม่มีข้อมูลสต็อก (sync ล้ม) ยังรู้ได้จากรูปแบบรหัส — ไม่งั้นหัวหน้าร้านขึ้นเป็นร้านทั่วไปไม่มีชื่อ
+  if (!fabricStockReady()) return isVdaStoreCode(code);
   const sources = listStockFromDbSources();
   return sources.some((s) => s.toLowerCase() === code.toLowerCase());
 }

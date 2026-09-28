@@ -214,8 +214,15 @@ export function ManageClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
       });
-      const data = await res.json();
-      setResetMsg(data.message ?? "ส่งคำขอรีเซ็ตรหัสแล้ว");
+      const data = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
+      // เดิมขึ้น "ส่งแล้ว" ทุกกรณี แม้ server ตอบ 400/429 — ร้านเข้าใจว่าส่งสำเร็จแล้วรอเก้อ
+      setResetMsg(
+        res.ok
+          ? (data.message ?? "ส่งคำขอรีเซ็ตรหัสแล้ว")
+          : friendlyError(data.error, `ส่งคำขอไม่สำเร็จ (${res.status})`)
+      );
+    } catch {
+      setResetMsg("ส่งคำขอไม่สำเร็จ — ตรวจการเชื่อมต่อแล้วลองใหม่");
     } finally {
       setResetting(false);
     }
@@ -393,7 +400,7 @@ export function ManageClient({
           {!canManage && (
             <div className="mt-3 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs text-amber-800 dark:border-amber-800/50 dark:bg-amber-950/30 dark:text-amber-200">
               <Lock className="h-3.5 w-3.5" />
-              บัญชีนี้ไม่มีสิทธิแก้ไข min/max (ติดต่อแอดมิน)
+              บัญชีนี้ไม่มีสิทธิ์แก้ไข min/max (ติดต่อแอดมิน)
             </div>
           )}
 

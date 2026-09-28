@@ -3,6 +3,7 @@ import { getRawSalesSession } from "@/lib/auth/sales-session";
 import { prisma } from "@/lib/prisma";
 import { readMasterRefreshStatus } from "@/lib/fabric/refresh-status";
 import { fabricPromoReady } from "@/lib/fabric";
+import { hasSettingsAccess, isCreator } from "@/lib/auth/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +13,7 @@ export const dynamic = "force-dynamic";
  */
 export async function GET() {
   const session = await getRawSalesSession();
-  if (session?.role !== "admin") {
+  if (!hasSettingsAccess(session)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -30,7 +31,8 @@ export async function GET() {
 
   return NextResponse.json({
     storePending: pending + resetRequests,
-    syncFailed,
+    // admin ไม่เห็นแท็บ Sync — จุดแดงบนแท็บที่กดเข้าไม่ได้มีแต่ทำให้งง
+    syncFailed: isCreator(session) && syncFailed,
     promoReady: fabricPromoReady(),
   });
 }

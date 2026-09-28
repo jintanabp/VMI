@@ -43,9 +43,24 @@
 | ขั้นตอน | API |
 |---|---|
 | ขอเปิดบัญชี | `POST /api/auth/store/request` |
-| ตั้งรหัสผ่าน | `POST /api/auth/store/set-password` |
+| ตั้งรหัสผ่าน | `POST /api/auth/store/set-password` `{ email, setupCode, password }` |
 | ล็อกอิน | `POST /api/auth/store/login` |
 | ขอรีเซ็ตรหัส | `POST /api/auth/store/request-reset` |
+
+login / ตั้งรหัสของร้าน**ไม่ต้องรอข้อมูลจาก Fabric** (อ่านแค่ `StoreAccount`) — เดิมดัก `fabricStockReady()`
+ไว้ sync ล้มครั้งเดียวร้านทุกร้านเข้าระบบไม่ได้ · หน้าสต็อกแสดงว่าข้อมูลยังไม่พร้อมเอง
+
+### รหัสตั้งค่าครั้งแรก (ตั้งแต่ 28 ก.ย. 2569)
+ตั้งรหัสผ่านครั้งแรก/หลังรีเซ็ต **ต้องมีรหัสตั้งค่า** ที่แอดมินส่งให้ — เดิมรู้แค่อีเมลของบัญชีที่เพิ่งสร้าง/รีเซ็ตก็ยึดบัญชีได้
+- ออกให้อัตโนมัติตอน เพิ่มบัญชี / อนุมัติคำขอ / รีเซ็ตรหัส (`lib/auth/store-account.ts`) · 8 ตัว `XXXX-XXXX`
+  ใช้ครั้งเดียว หมดอายุ 72 ชม. เก็บแค่ sha256 · แอดมินเห็นครั้งเดียวในกล่องสีเขียวแล้วส่งต่อร้านเอง (ระบบยังส่งอีเมลไม่ได้)
+- หาย/หมดอายุ → ปุ่ม «ออกรหัสตั้งค่าใหม่» (action `reset-password` เดิม) อันเก่าใช้ไม่ได้ทันที
+- `set-password` จำกัด 5 ครั้ง/15 นาที ต่ออีเมล และ 20 ครั้ง/15 นาที ต่อ IP · ไม่มีบัญชีกับรหัสผิดตอบข้อความเดียวกัน
+
+### session ร้านตรวจกับบัญชีทุก request
+token เก็บ `sessionVersion` ของบัญชี · `getStoreSession()` อ่านบัญชีทุกครั้ง (`reconcileStoreSession`) — ถูกปฏิเสธ / ลบ /
+รีเซ็ตรหัส / ย้าย VDA / เปลี่ยนรหัส / แก้อีเมล แล้ว token เดิมใช้ไม่ได้ทันที · สิทธิ์ min/max อ่านค่าปัจจุบันเสมอ
+· rate limit ใช้ IP จาก `x-real-ip` (nginx ตั้ง) → hop สุดท้ายของ `x-forwarded-for` — **แอปต้องอยู่หลัง nginx เท่านั้น**
 
 ## 3. เซลล์ / Admin — Microsoft Entra ID
 
@@ -67,7 +82,7 @@ sequenceDiagram
     B->>M: แลก code เป็น token (ในเบราว์เซอร์)
     B->>S: POST /api/auth/msal/session { idToken }
     S->>M: ดึงกุญแจสาธารณะ (JWKS) มาตรวจลายเซ็น + iss/aud/tid/exp
-    S->>S: buildSalesSessionWithAccess() → หา role/scope จาก master
+    S->>S: buildSalesSessionWithAccess() → หา role/scope จากอีเมลที่ผูกรหัสไว้
     S->>U: ตั้ง cookie ที่เซ็นแล้ว → เข้าหน้า /sales
 ```
 
@@ -87,15 +102,46 @@ sequenceDiagram
 อายุ 7 วัน · ตอน verify จะประกอบ object กลับ**ทีละฟิลด์** ไม่ spread
 เพื่อไม่ให้ฟิลด์แปลกปลอมใน token หลุดเข้ามาเป็นสิทธิ์
 
-### บทบาทถูกคำนวณ ไม่ได้เก็บไว้
-`buildSalesSessionWithAccess()` ดูจาก master `cross_salesman_reference_email`:
+### บทบาทถูกคำนวณ ไม่ได้เก็บไว้ — ไม่ใช้ cross_salesman master แล้ว (28 ก.ย. 2569)
+รหัส SXXX ที่ใช้จริงไม่มีใน master · `buildSalesSessionWithAccess()` ดูจาก**อีเมลที่ผูกไว้เท่านั้น**
+(ตาราง `SalesmanEmailAssignment` แก้ที่แท็บ «สิทธิ์เซลล์-VDA») · รหัส ↔ VDA ยังมาจากทะเบียน VDA (cross_target / `VDA_SALESMAN_MAP`)
 
-- มีลูกทีมที่ระบุ `managerCode` เป็นเรา → **manager**
-- มีลูกทีมที่ระบุ `superCode` เป็นเรา → **supervisor**
-- ไม่มีลูกทีม → **sales**
-- อีเมลอยู่ใน `ADMIN_EMAILS` → **admin** (ข้ามทุกเงื่อนไข)
+- อีเมลใน `ADMIN_EMAILS` (.env) → **creator** = `role: "admin"` + `adminAccess: "creator"` (ผูกรหัสไว้ก็ได้ ไม่ผูกก็ได้)
+- อีเมลที่ผูกรหัสไว้ → **sales** เสมอ · ผูกหลายรหัส = เห็นทุกรหัส (ใช้แทนสาย manager/supervisor เดิม ซึ่งไม่มีแล้ว)
+  รหัสหลัก = รหัสแรกที่ดูแลคลัง (`pickPrimaryCode`) · ชื่อที่แสดง = "รหัส SXXX" · ชื่อคนมาจากบัญชี Microsoft
+- อีเมลในตาราง `Admin` (ไม่อยู่ใน .env) → **admin** = `role: "sales"` + `adminAccess: "admin"` · ไม่ผูกรหัสก็ login ได้
+  (ขอบเขตว่าง เข้าได้แต่หน้าตั้งค่า)
+- ไม่ใช่ทั้งหมดข้างบน → **login ไม่ได้** ("อีเมลนี้ยังไม่ได้ผูกกับรหัสเซลล์ …")
+- cookie ที่ออกตอนยังใช้ master (รหัสที่ใช้อยู่ไม่ได้ผูกกับอีเมล หรือ role manager/supervisor) ถูกคำนวณใหม่ใน request แรก
+  — ผูกไว้แล้วได้สิทธิ์ตามที่ผูก · ไม่ได้ผูก = ต้อง login ใหม่ (`revalidateManualCodes`)
 
-manager/supervisor จะได้ `scopeSalesmanCodes` และ `scopeEmails` ของลูกทีมลึก 2 ชั้น
+### Creator กับ Admin (ตัดสิน 28 ก.ย. 2569)
+
+สิทธิ์ทั้งหมดอยู่ที่ `lib/auth/permissions.ts` (`can`, `hasSettingsAccess`, `hasSalesView`, `homePathFor`)
+
+| ตำแหน่ง | หน้าแรก | หน้าตั้งค่า (/admin) | หน้าเซลล์ |
+|---|---|---|---|
+| Creator (.env) | `/admin` | ทุกแท็บ ทุก action | ได้ เห็นทุกร้าน (เหมือนเดิม) |
+| Admin | `/admin/stores/accounts` | บัญชีร้านค้า + โปร C4 + สิทธิ์เซลล์-VDA | ไม่ได้ |
+| Admin + เซลล์ | `/sales/orders` | เหมือน Admin (ปุ่ม «ตั้งค่า» ใน header) | เฉพาะรหัสตัวเอง |
+
+- **`role === "admin"` = creator เท่านั้น** — โค้ดเดิมราว 75 จุดใช้เงื่อนไขนี้ให้สิทธิ์เต็ม admin ใหม่ถือ role
+  ของเซลล์แทน จุดไหนที่ไม่ได้เปิดให้ admin ไว้จึง "ทำไม่ได้" โดยปริยาย ไม่ใช่ "ได้เกิน"
+- แท็บร้านค้าของ admin: เห็นรออนุมัติ + อนุมัติแล้ว (ไม่เห็นที่ถูกปฏิเสธ) · ทำได้แค่ อนุมัติคำขอที่รออยู่ (เลือก VDA
+  ได้) · รีเซ็ตรหัส · เพิ่มบัญชีใหม่ (ไม่มีสิทธิ์ min/max) — ปฏิเสธ/ลบ/แก้ VDA/แก้อีเมล/min-max เป็นของ creator
+  ตรวจที่ `app/api/admin/store-accounts/route.ts` ไม่ใช่แค่ซ่อนปุ่ม
+- แท็บโปร: `resolvePromoVdaScope` ให้ทุกคลังเมื่อ `can(session, "promotions.view")`
+- แท็บสิทธิ์เซลล์-VDA: admin ดูได้และ**เพิ่ม**อีเมลให้รหัสเซลล์ได้ · เอาอีเมลออก (`DELETE`) เป็นของ creator ·
+  admin กำหนดรหัสให้อีเมลที่เป็นผู้ดูแลระบบไม่ได้ (403) — ตั้ง admin เป็นเซลล์เป็นของ creator เท่านั้น
+  ตรวจที่ `app/api/admin/salesman-assignments/route.ts` · หน้า «ระบบ › ผู้ดูแล» ยังเป็นของ creator
+  (กันที่ `app/admin/system/admins/layout.tsx`)
+- หมวดที่ creator เท่านั้น (ข้อมูล · MIN/MAX · มุมมองทดสอบ · ระบบ) กันด้วย `layout.tsx` ของหมวด
+  (`CreatorOnlyLayout`) · เพิ่มแท็บใหม่ให้ admin เห็นได้ต้องใส่ `permission` ใน `lib/admin/admin-nav.ts`
+  **และ** เปิด API ที่หน้านั้นเรียกด้วย `can()`
+- creator ตั้ง admin เป็นเซลล์ได้ที่ «ระบบ › ผู้ดูแล» (ปุ่ม «เป็นเซลล์» = เพิ่มแถว `SalesmanEmailAssignment`)
+- **มีผลทันที:** `revalidateManualCodes` เทียบระดับแอดมินตอนนี้กับใน cookie ด้วย — creator เพิ่ม/ลบ admin
+  แล้วไม่ต้องรอ login ใหม่ · cookie ก่อน 28 ก.ย. 69 ของ admin ใน DB (เคยถือ role admin) ถูกลดสิทธิ์ใน request แรก
+  เทส: `tests/permissions.test.ts`, `tests/sales-session-revalidate.test.ts`
 
 ### แอดมินกำหนดรหัสเซลล์ให้อีเมลเอง (ทับการจับคู่อัตโนมัติ)
 
@@ -117,7 +163,7 @@ manager/supervisor จะได้ `scopeSalesmanCodes` และ `scopeEmails` 
 - **แทนที่ ไม่ใช่เพิ่ม:** ทุกจุดที่ดึง "รหัสทั้งหมดของคนนี้" (`getPersonSalesCodes` → ปุ่มดูทุก VDA ของฉัน,
   ตัวสลับรหัส, `assertOrderAccess`, หน้า PO, แจ้งเตือน, ขอบเขตโปร) ส่ง `session.manualCodes` ไปด้วย
   มีค่า = ใช้เฉพาะรหัสที่แอดมินกำหนด · สลับรหัส (`/api/sales/active-code`) ได้เฉพาะในชุดนี้
-- แอดมินที่มี `salesmanCode` จะถูกพาไป `/sales` จาก `/` (ดู `app/page.tsx`) แอดมินล้วนไป `/admin` ตามเดิม
+- หน้าแรกหลัง login ดู `homePathFor()` — Creator `/admin` · Admin ที่มีรหัส `/sales/orders` · Admin ไม่มีรหัส `/admin/stores/accounts`
 
 ## สิทธิ์เข้าถึงออเดอร์
 
@@ -129,9 +175,10 @@ manager/supervisor จะได้ `scopeSalesmanCodes` และ `scopeEmails` 
 
 > สิทธิ์มาจาก **master ของ Fabric** ไม่ใช่ตารางใน DB — ย้ายเขตที่ต้นทางแล้วสิทธิ์ตามทันทีโดยไม่ต้อง sync
 
-## โหมดทดสอบของ Admin
+## โหมดทดสอบของ Creator
 
-Admin ดูระบบในมุมของคนอื่นได้โดยไม่ต้องรู้รหัสผ่านใคร
+Creator (ไม่ใช่ Admin) ดูระบบในมุมของคนอื่นได้โดยไม่ต้องรู้รหัสผ่านใคร · **มุมมองเซลล์ดูได้อย่างเดียว** —
+route เขียนทุกตัวฝั่งเซลล์ตอบ 403 (`salesPreviewReadOnly`, ตัดสินจาก `session.previewBy` ที่ไม่อยู่ใน cookie จึงปลอมไม่ได้)
 
 | อะไร | API | ผลลัพธ์ |
 |---|---|---|

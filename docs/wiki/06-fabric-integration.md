@@ -15,7 +15,7 @@
 | `cft_promotion_cash.csv` | โปรโมชัน C4 (เงินสด) | ขั้นโปร ส่วนลด ของแถม |
 | `cft_promotion_credit.csv` | โปรโมชัน C4 (เครดิต) | สำรอง/rollback |
 | `cft_assorted_mapping.csv` | ชื่อกลุ่มโปร (`ASSORTEDPRODUCTGROUP` → `DESCRIPTIONASSORTED`) | แสดงชื่อกลุ่มโปรแทนรหัส |
-| `cross_salesman_reference_email.csv` | ทะเบียนพนักงานขาย | บทบาท ลูกทีม สิทธิ์ |
+| `cross_salesman_reference_email.csv` | ทะเบียนพนักงานขาย | **ไม่ใช้แล้ว** (28 ก.ย. 2569) — ยัง sync มาแต่ไม่มีโค้ดอ่าน · สิทธิ์เซลล์มาจาก `SalesmanEmailAssignment` |
 | `dim_customer.csv` | ทะเบียนลูกค้า/ร้าน | ชื่อร้าน เขต |
 
 ## วงจรการโหลด

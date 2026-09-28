@@ -1,4 +1,4 @@
-import { PackagePlus, Trash2 } from "lucide-react";
+import { AlertTriangle, Bell, PackageCheck, PackagePlus, Trash2 } from "lucide-react";
 
 /**
  * หน้าตาของแจ้งเตือนฝั่งเซลล์ — ใช้ร่วมกันระหว่างกระดิ่งบน header กับหน้า /sales/notifications
@@ -38,4 +38,26 @@ export const ORDER_KIND_META: Record<
     icon: Trash2,
     className: "text-red-600 dark:text-red-400",
   },
+  // ส่ง PO เข้า ERP ไม่สำเร็จ — เซลล์ทุกคนของคลังนั้นต้องเห็น ไม่ใช่แค่คนที่กดส่ง
+  erp_failed: {
+    label: "ส่ง ERP ไม่สำเร็จ",
+    icon: AlertTriangle,
+    className: "text-red-600 dark:text-red-400",
+  },
+  // ร้านยกเลิกหยุดสั่ง — ไม่ผูกออเดอร์ (orderId = null) จอจึงไม่มีทางลัดเปิดออเดอร์
+  sku_unblocked: {
+    label: "ยกเลิกหยุดสั่ง",
+    icon: PackageCheck,
+    className: "text-sky-600 dark:text-sky-400",
+  },
+};
+
+/**
+ * ชนิดที่จอไม่รู้จัก (เพิ่มฝั่งเขียนแล้วแต่ลืมเพิ่มตรงนี้) — ป้ายกลาง ๆ
+ * เดิม fallback เป็น "ออเดอร์ใหม่" ทำให้แจ้งเตือนเรื่องอื่นดูเหมือนมีออเดอร์เข้ามา
+ */
+export const ORDER_KIND_FALLBACK = {
+  label: "แจ้งเตือน",
+  icon: Bell,
+  className: "text-slate-600 dark:text-slate-400",
 };

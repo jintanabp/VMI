@@ -27,7 +27,7 @@ const CHANGE_RULE = { limit: 10, windowMs: 15 * 60 * 1000 };
 export async function POST(request: Request) {
   const session = await getStoreSession();
   if (!session) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const body = await request.json().catch(() => ({}));

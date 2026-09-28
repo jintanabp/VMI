@@ -134,6 +134,15 @@ describe.skipIf(!hasPrisma)("cloneRejectedPoForErp", () => {
     }
     // ราคา/จำนวนที่ copy มาต้องตรงกับต้นฉบับ
     expect(newRow?.items.every((i) => i.c4UnitPrice === 500 && i.finalQty === 2)).toBe(true);
+
+    // ร้านต้องรู้ว่าเลขเดิมถูกแทนที่แล้ว (QA 28 ก.ย. 69 — เดิมเปลี่ยนเลขเงียบ ๆ)
+    const notes = await prisma.storeNotification.findMany({
+      where: { orderId: order.id, kind: "po_replaced" },
+    });
+    expect(notes).toHaveLength(1);
+    expect(notes[0]!.storeId).toBe(storeId);
+    expect(notes[0]!.poNumbers).toBe(`${po.poNumber},${result.poNumber}`);
+    expect(notes[0]!.title).toContain(result.poNumber);
   }, 15_000);
 
   it("ใบที่ยังไม่เคยส่งไม่สำเร็จ (erpError ว่าง) ขอเลขใหม่ไม่ได้", async () => {
@@ -224,5 +233,10 @@ describe.skipIf(!hasPrisma)("cloneRejectedPoForErp", () => {
     const siblings = await prisma.purchaseOrder.findMany({ where: { orderId: order.id } });
     // ใบเดิม + ใบใหม่ 1 ใบเท่านั้น — ไม่มีใบกำพร้าจากฝั่งที่แพ้
     expect(siblings).toHaveLength(2);
+    // ฝั่งที่แพ้ต้องไม่แจ้งร้าน — ไม่งั้นร้านได้เลขใหม่ที่ไม่มีอยู่จริง
+    const notes = await prisma.storeNotification.findMany({
+      where: { orderId: order.id, kind: "po_replaced" },
+    });
+    expect(notes).toHaveLength(1);
   });
 });

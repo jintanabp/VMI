@@ -32,7 +32,6 @@ async function loadResolver(opts: {
       contexts: () => opts.fileContexts ?? [],
     }),
     getCustomerDirectory: () => CUSTOMER_99,
-    getSalesmanRegistry: () => ({ getCurrentByEmail: () => null }),
   }));
   vi.doMock("@/lib/fabric/stock-cover", () => ({
     fabricStockReady: () => opts.sources.length > 0,

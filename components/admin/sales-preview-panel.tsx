@@ -111,17 +111,6 @@ export function SalesPreviewPanel() {
                 <span
                   className={cn(
                     "rounded-full px-2.5 py-1",
-                    salesDirectory.loaded?.salesmanMaster
-                      ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
-                      : "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
-                  )}
-                >
-                  cross_salesman:{" "}
-                  {salesDirectory.loaded?.salesmanMaster ? "โหลดแล้ว" : "ยังไม่มี"}
-                </span>
-                <span
-                  className={cn(
-                    "rounded-full px-2.5 py-1",
                     salesDirectory.loaded?.vdaAosBill
                       ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
                       : "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"

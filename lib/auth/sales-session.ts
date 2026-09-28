@@ -1,13 +1,11 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { cookies } from "next/headers";
-import { SALES_SESSION_COOKIE, isAdminEmail, type UserRole } from "./roles";
+import { SALES_SESSION_COOKIE, type UserRole } from "./roles";
+import { isAdminEmailAsync, isCreatorEmail } from "./admin-registry";
+import type { AdminAccess } from "./permissions";
 import { getSessionSecret } from "./session-secret";
-import { getSalesmanRegistry } from "@/lib/fabric";
 import { applySalesPreview, getSalesPreview } from "./sales-preview";
-import {
-  pickAssignmentForCodes,
-  pickDefaultSalesmanAssignment,
-} from "@/lib/admin/vda-sales-directory";
+import { pickPrimaryCode, salesCodeLabel } from "@/lib/admin/vda-sales-directory";
 import { getManualSalesmanCodes } from "./manual-salesman-assignments";
 
 export interface SalesSession {
@@ -27,6 +25,34 @@ export interface SalesSession {
    * ถ้าไม่ตรงกับในตารางตอนนี้ ระบบคำนวณสิทธิ์ใหม่ทันที ไม่รอให้ login ใหม่ (ดู getRawSalesSession)
    */
   manualCodes?: string[];
+  /**
+   * สิทธิ์หน้าตั้งค่า — "creator" คู่กับ role "admin" เสมอ · "admin" = แอดมินที่ creator เพิ่ม
+   * ซึ่ง role เป็นของเซลล์ตามปกติ · ไม่มี = ไม่มีสิทธิ์หน้าตั้งค่า (ดู lib/auth/permissions.ts)
+   */
+  adminAccess?: AdminAccess;
+  /**
+   * มีค่า = creator กำลังอยู่ในมุมมองทดสอบเซลล์ (อีเมลจริงของ creator) — ใส่โดย applySalesPreview เท่านั้น
+   * ไม่เคยอยู่ใน cookie ที่เซ็น (verifySalesSessionToken ไม่อ่านฟิลด์นี้) จึงปลอมไม่ได้
+   * route ที่เขียนข้อมูลต้องปฏิเสธเมื่อมีค่านี้ — ดู `salesPreviewReadOnly()`
+   */
+  previewBy?: string;
+}
+
+/**
+ * มุมมองทดสอบเซลล์ = ดูได้อย่างเดียว · คืน 403 เมื่อกำลังทดสอบ, null เมื่อเขียนได้
+ *
+ * เดิมเขียนได้ทุกอย่าง และบันทึกเป็นอีเมลของเซลล์ที่ถูกทดสอบ (หรือ `__code_preview__:SXXX`) —
+ * อนุมัติ/ปฏิเสธ/แก้ราคา/ลบ/ส่ง ERP ในโหมดทดสอบจึงดูเหมือนเซลล์คนนั้นทำเอง (QA 28 ก.ย. 69)
+ */
+export function salesPreviewReadOnly(session: SalesSession | null): Response | null {
+  if (!session?.previewBy) return null;
+  return Response.json(
+    {
+      error:
+        "มุมมองทดสอบดูได้อย่างเดียว — ออกจากมุมมองเซลล์ก่อน แล้วค่อยแก้ไขในบัญชีของคุณเอง",
+    },
+    { status: 403 }
+  );
 }
 
 interface SessionPayload extends SalesSession {
@@ -93,155 +119,84 @@ export function verifySalesSessionToken(
       scopeSalesmanCodes: payload.scopeSalesmanCodes,
       scopeEmails: payload.scopeEmails,
       manualCodes: payload.manualCodes,
+      adminAccess: payload.adminAccess,
     };
   } catch {
     return null;
   }
 }
 
-export function buildSalesSession(email: string, name?: string): SalesSession {
-  const registry = getSalesmanRegistry();
-  const assignment =
-    pickDefaultSalesmanAssignment(email) ?? registry.getCurrentByEmail(email);
-
-  return {
-    email,
-    name: name || assignment?.nameThai || assignment?.nameEnglish,
-    role: isAdminEmail(email) ? "admin" : "sales",
-    salesmanCode: assignment?.code,
-    salesmanName: assignment
-      ? registry.getDisplayName(assignment)
-      : undefined,
-    employeeNo: assignment?.employeeNo,
-    divisionCode: assignment?.divisionCode,
-  };
-}
-
-function normalizeCode(code: string) {
-  return code.trim().toUpperCase();
+/** ระดับสิทธิ์หน้าตั้งค่าของอีเมลนี้ ณ ตอนนี้ — .env ชนะ DB เสมอ */
+export async function resolveAdminAccess(email: string): Promise<AdminAccess | undefined> {
+  if (isCreatorEmail(email)) return "creator";
+  return (await isAdminEmailAsync(email)) ? "admin" : undefined;
 }
 
 /**
- * Access control:
- * - ต้องมีอีเมลใน cross_salesman master — หรือแอดมินกำหนดรหัสให้อีเมลนี้ไว้ (อีเมลอ้างอิง) ซึ่งใช้ได้
- *   แม้รหัสนั้นไม่มีใน cross_salesman
- * - สิทธิ์ดูออเดอร์ VDA มาจากทะเบียน VDA_SALESMAN_MAP (ไม่ใช้ allowlist)
- * - Manager/Supervisor ดูออเดอร์ VDA ของลูกทีม
+ * Access control (ตั้งแต่ 28 ก.ย. 2569 — ไม่ใช้ cross_salesman master แล้ว):
+ * - รหัสเซลล์ของอีเมล = ที่ผูกไว้ในตาราง SalesmanEmailAssignment (หน้า «สิทธิ์เซลล์-VDA») เท่านั้น
+ *   ไม่ได้ผูก = login ไม่ได้ (ยกเว้นผู้ดูแลระบบ ที่เข้าได้แต่หน้าตั้งค่า)
+ * - ผูกหลายรหัส = เห็นทุกรหัสที่ผูก (ใช้แทนสายหัวหน้า/ลูกทีมเดิมที่มาจาก master) · role เป็น "sales" เสมอ
+ * - สิทธิ์ดูออเดอร์ VDA มาจากทะเบียน VDA (cross_target / VDA_SALESMAN_MAP)
+ * - Creator (.env) ได้ role "admin" · admin ใน DB ได้ role "sales" + `adminAccess: "admin"`
  */
 export async function buildSalesSessionWithAccess(
   email: string,
   name?: string
 ): Promise<SalesSession> {
-  const registry = getSalesmanRegistry();
-  // แอดมินกำหนดทับได้เสมอ — ถ้าอีเมลนี้มีแถว active ในตาราง SalesmanEmailAssignment
-  // ใช้รหัสที่กำหนดไว้แทนผลอัตโนมัติจาก cross_target ทั้งหมด ไม่มีแถว = fallback แบบเดิม
-  const manualCodes = await getManualSalesmanCodes(email);
-  const assignment =
-    manualCodes.length > 0
-      ? pickAssignmentForCodes(manualCodes)
-      : (pickDefaultSalesmanAssignment(email) ?? registry.getCurrentByEmail(email));
+  const adminAccess = await resolveAdminAccess(email);
+  const session = await buildSalesSessionForAccess(email, name, adminAccess);
+  return adminAccess === "admin" ? { ...session, adminAccess } : session;
+}
 
-  if (isAdminEmail(email)) {
-    return {
-      email,
-      name: name || assignment?.nameThai || assignment?.nameEnglish,
-      role: "admin",
-      salesmanCode: assignment?.code,
-      salesmanName: assignment ? registry.getDisplayName(assignment) : undefined,
-      employeeNo: assignment?.employeeNo,
-      divisionCode: assignment?.divisionCode,
-      superCode: assignment?.superCode,
-      managerCode: assignment?.managerCode,
-      scopeSalesmanCodes: manualCodes.length > 0 ? manualCodes : undefined,
-      manualCodes: [...manualCodes].sort(),
-    };
-  }
+async function buildSalesSessionForAccess(
+  email: string,
+  name: string | undefined,
+  adminAccess: AdminAccess | undefined
+): Promise<SalesSession> {
+  const linkedCodes = [...(await getManualSalesmanCodes(email))].sort();
+  const primary = pickPrimaryCode(linkedCodes);
 
-  // แอดมินกำหนดรหัสไว้แต่รหัสนั้นไม่มีใน cross_salesman — ใช้ได้ (ผู้ใช้ตัดสิน 25 ก.ย. 69: ใช้อีเมลอ้างอิง
-  // ที่แอดมินกำหนดแทนการพึ่ง cross_salesman) · ไม่มีข้อมูลหัวหน้า/ลูกทีม จึงเป็น role sales ที่เห็นเฉพาะ
-  // รหัสที่กำหนด
-  if (!assignment?.code && manualCodes.length > 0) {
-    const code = manualCodes[0]!;
+  if (adminAccess === "creator") {
     return {
       email,
       name: name || email,
-      role: "sales",
-      salesmanCode: code,
-      salesmanName: `รหัส ${code}`,
-      scopeSalesmanCodes: [...manualCodes],
-      scopeEmails: [email.toLowerCase()],
-      manualCodes: [...manualCodes].sort(),
+      role: "admin",
+      adminAccess: "creator",
+      salesmanCode: primary,
+      salesmanName: primary ? salesCodeLabel(primary) : undefined,
+      scopeSalesmanCodes: linkedCodes.length > 0 ? linkedCodes : undefined,
+      manualCodes: linkedCodes,
     };
   }
 
-  if (!assignment?.code) {
+  if (!primary) {
+    // admin ที่ไม่ได้เป็นเซลล์ — เข้าได้แต่หน้าตั้งค่า · role sales ขอบเขตว่าง = ไม่เห็นออเดอร์ใครเลย
+    // (หน้า /sales ถูกกันที่ app/sales/layout.tsx ด้วย hasSalesView)
+    if (adminAccess === "admin") {
+      return {
+        email,
+        name: name || email,
+        role: "sales",
+        scopeSalesmanCodes: [],
+        scopeEmails: [email.toLowerCase()],
+        manualCodes: [],
+      };
+    }
     throw new Error(
-      "ไม่พบข้อมูลพนักงานใน master (cross_salesman) และแอดมินยังไม่ได้กำหนดรหัสเซลล์ให้อีเมลนี้"
+      "อีเมลนี้ยังไม่ได้ผูกกับรหัสเซลล์ — ให้แอดมินเพิ่มอีเมลที่แท็บ «สิทธิ์เซลล์-VDA» ก่อน"
     );
-  }
-
-  const current = registry.listCurrentAssignments();
-  const myCode = normalizeCode(assignment.code);
-
-  const directs = current.filter(
-    (a) =>
-      normalizeCode(a.superCode || "") === myCode ||
-      normalizeCode(a.managerCode || "") === myCode
-  );
-  const isManager = directs.some(
-    (a) => normalizeCode(a.managerCode || "") === myCode
-  );
-  const isSupervisor = !isManager && directs.length > 0;
-  const role: SalesSession["role"] = isManager
-    ? "manager"
-    : isSupervisor
-      ? "supervisor"
-      : "sales";
-
-  const scope = new Set<string>();
-  scope.add(myCode);
-  let frontier = new Set<string>([myCode]);
-  for (let depth = 0; depth < 2; depth++) {
-    const next = new Set<string>();
-    for (const a of current) {
-      const c = normalizeCode(a.code);
-      const sup = normalizeCode(a.superCode || "");
-      const mgr = normalizeCode(a.managerCode || "");
-      if (frontier.has(sup) || frontier.has(mgr)) {
-        if (!scope.has(c)) {
-          scope.add(c);
-          next.add(c);
-        }
-      }
-    }
-    frontier = next;
-    if (frontier.size === 0) break;
-  }
-  // แอดมินอาจกำหนดหลายรหัสให้อีเมลเดียว โดยรหัสอื่นไม่ได้เป็นหัวหน้า/ลูกทีมของ myCode
-  // เลย ไม่โผล่จากการไล่ต้นไม้ด้านบน — ใส่เพิ่มตรง ๆ กันสิทธิ์หายไปเงียบ ๆ
-  for (const c of manualCodes) scope.add(c);
-
-  const scopeEmails = new Set<string>();
-  scopeEmails.add(email.toLowerCase());
-  for (const a of current) {
-    if (scope.has(normalizeCode(a.code))) {
-      scopeEmails.add(a.email.toLowerCase());
-    }
   }
 
   return {
     email,
-    name: name || assignment.nameThai || assignment.nameEnglish,
-    role,
-    salesmanCode: assignment.code,
-    salesmanName: registry.getDisplayName(assignment),
-    employeeNo: assignment.employeeNo,
-    divisionCode: assignment.divisionCode,
-    superCode: assignment.superCode,
-    managerCode: assignment.managerCode,
-    scopeSalesmanCodes: [...scope],
-    scopeEmails: [...scopeEmails],
-    manualCodes: [...manualCodes].sort(),
+    name: name || email,
+    role: "sales",
+    salesmanCode: primary,
+    salesmanName: salesCodeLabel(primary),
+    scopeSalesmanCodes: linkedCodes,
+    scopeEmails: [email.toLowerCase()],
+    manualCodes: linkedCodes,
   };
 }
 
@@ -263,21 +218,45 @@ export async function getRawSalesSession(): Promise<SalesSession | null> {
  *
  * เทียบรหัสที่แอดมินกำหนดตอนนี้กับที่ติดมาใน session (query เดียว มี index ที่ email) —
  * ตรงกัน = ใช้ session เดิม · ไม่ตรง = คำนวณสิทธิ์ใหม่สำหรับ request นี้ · คำนวณไม่ได้แล้ว
- * (ไม่มีรหัสเหลือใน master) = ถือว่าไม่มี session ผู้ใช้จะถูกพาไปหน้า login
+ * (ไม่เหลือรหัสที่ผูกกับอีเมล) = ถือว่าไม่มี session ผู้ใช้จะถูกพาไปหน้า login
  *
  * ไม่เขียน cookie ใหม่ตรงนี้ (ห้ามแก้ cookie ระหว่าง render — ดูคอมเมนต์ด้านบน) จึงคำนวณซ้ำทุก
- * request จนกว่าจะ login ใหม่ ซึ่งเบา (อ่าน master ใน memory)
+ * request จนกว่าจะ login ใหม่ ซึ่งเบา (query ตาราง SalesmanEmailAssignment ที่มี index)
  */
 export async function revalidateManualCodes(session: SalesSession): Promise<SalesSession | null> {
   let current: string[];
+  let access: AdminAccess | undefined;
   try {
     current = [...(await getManualSalesmanCodes(session.email))].sort();
+    access = await resolveAdminAccess(session.email);
   } catch {
     // DB อ่านไม่ได้ชั่วคราว — อย่าเตะทุกคนออก ใช้สิทธิ์เดิมไปก่อน
     return session;
   }
   const before = session.manualCodes ?? [];
-  if (current.length === before.length && current.every((c, i) => c === before[i])) {
+  // ระดับแอดมินเปลี่ยน (creator เพิ่ม/ลบ admin หรือแก้ .env) ต้องมีผลทันทีเหมือนรหัสเซลล์ —
+  // cookie ก่อนแยกระดับ (28 ก.ย. 69) ไม่มีช่องนี้ จะถูกคำนวณใหม่ตรงนี้เองในรอบแรก
+  const sameAccess =
+    access === session.adminAccess && (session.role === "admin") === (access === "creator");
+  // cookie ที่ออกตอนยังจับคู่จาก master (ก่อน 28 ก.ย. 69) มีรหัสที่ไม่ได้ผูกกับอีเมล หรือเป็น
+  // manager/supervisor — ต้องคำนวณใหม่ ไม่งั้นยังเห็นออเดอร์ตาม master ต่อได้จนกว่า cookie หมดอายุ
+  // รวมถึงขอบเขตที่แช่ใน cookie ต้องไม่กว้างกว่ารหัสที่ผูกอยู่ตอนนี้ — cookie เก่าอาจมีรหัส/อีเมลของลูกทีม
+  // จาก master ติดมา และ /api/sales/active-code เซ็น cookie ใหม่ต่ออายุได้เรื่อย ๆ (QA 28 ก.ย. 69)
+  const activeCode = session.salesmanCode?.trim().toUpperCase();
+  const me = session.email.trim().toLowerCase();
+  const scopeCodes = (session.scopeSalesmanCodes ?? []).map((c) => c.trim().toUpperCase());
+  const fromMaster =
+    session.role === "manager" ||
+    session.role === "supervisor" ||
+    (activeCode != null && !current.includes(activeCode)) ||
+    scopeCodes.some((c) => !current.includes(c)) ||
+    (session.scopeEmails ?? []).some((e) => e.trim().toLowerCase() !== me);
+  if (
+    sameAccess &&
+    !fromMaster &&
+    current.length === before.length &&
+    current.every((c, i) => c === before[i])
+  ) {
     return session;
   }
   try {

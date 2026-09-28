@@ -135,8 +135,8 @@ Server จะ lookup โปร/ราคา C4 แล้ว**แช่ค่า�
 | GET | `/api/admin/promo/explain` | เหตุผลที่ SKU ได้/ไม่ได้โปร (รายงานรายเดือนย้ายไป `/api/promo/month`) |
 | GET | `/api/admin/customers/search` · `/resolve` | ค้นหา/แปลงรหัสลูกค้า |
 | GET | `/api/admin/salesmen` · `/api/admin/badges` | ข้อมูลประกอบหน้า admin |
-| GET | `/api/admin/vda-sales` | ทะเบียนเซลล์ ↔ VDA · `codes[]` = หนึ่งแถวต่อรหัส `{ code, name, masterEmail, manual[{id,email}], vdas }` (รวมอีเมลอ้างอิงจาก `SalesmanEmailAssignment`) ใช้ในหน้า `/admin/system/vda-sales` · `people[]` / `vdas[]` ยังมีให้หน้าทดสอบมุมมองเซลล์ |
-| GET·POST·DELETE | `/api/admin/salesman-assignments` | กำหนดอีเมล ↔ รหัสเซลล์เอง (`SalesmanEmailAssignment`) · POST `{ salesmanCode, emails: string[] }` (หรือ `email` เดี่ยว — ยังรับ) · มีแถว active = ทับการจับคู่อัตโนมัติจาก cross_target ทั้งหมด · มีผลตอน login ครั้งถัดไป |
+| GET | `/api/admin/vda-sales` | ทะเบียนเซลล์ ↔ VDA · `codes[]` = หนึ่งแถวต่อรหัส `{ code, name, manual[{id,email}], vdas }` (อีเมลจาก `SalesmanEmailAssignment` เท่านั้น) · `canAddEmail` / `canRemoveEmail` ตามตำแหน่ง ใช้ในหน้า `/admin/system/vda-sales` · `people[]` / `vdas[]` ยังมีให้หน้าทดสอบมุมมองเซลล์ |
+| GET·POST·DELETE | `/api/admin/salesman-assignments` | กำหนดอีเมล ↔ รหัสเซลล์เอง (`SalesmanEmailAssignment`) · POST `{ salesmanCode, emails: string[] }` (หรือ `email` เดี่ยว — ยังรับ) · **แหล่งเดียวของรหัสเซลล์ของอีเมล** (ไม่มีการจับคู่อัตโนมัติแล้ว) · มีผลใน request ถัดไป ไม่ต้อง login ใหม่ · POST: Creator + Admin (ห้ามอีเมลผู้ดูแลระบบ) · GET/DELETE: Creator |
 
 ## ทั่วไป
 

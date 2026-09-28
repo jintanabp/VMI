@@ -75,15 +75,25 @@ export function resetRateLimit() {
 
 /**
  * IP ของผู้เรียกจริง — nginx อยู่หน้าแอป ตัว request.ip จึงเป็น IP ของ proxy เสมอ
- * เอา hop แรกของ x-forwarded-for (ที่ nginx เติมให้) ไม่ใช่ตัวสุดท้าย
+ *
+ * **ห้ามใช้ hop แรกของ x-forwarded-for** — nginx ตั้งไว้เป็น `$proxy_add_x_forwarded_for` ซึ่ง
+ * *ต่อท้าย* ค่าที่ client ส่งมาเอง hop แรกจึงเป็นค่าที่ผู้โจมตีพิมพ์เองได้ แล้วเปลี่ยนทุกครั้งเพื่อหลบ
+ * rate limit (พบจาก QA 28 ก.ย. 69: ขอรีเซ็ตรหัส 9 ครั้งผ่านหมด ทั้งที่จำกัด 5)
+ *
+ * ลำดับที่เชื่อได้: `x-real-ip` (nginx ตั้งจาก `$remote_addr` ทับของ client เสมอ — docs/wiki/09) →
+ * hop **สุดท้าย** ของ x-forwarded-for (ตัวที่ proxy ของเราเติมเอง) → "unknown"
+ * ถ้าวันหนึ่งมี proxy มากกว่าหนึ่งชั้น ต้องกลับมาแก้ตรงนี้
  */
 export function clientIp(request: Request): string {
+  const real = request.headers.get("x-real-ip")?.trim();
+  if (real) return real;
   const xff = request.headers.get("x-forwarded-for");
   if (xff) {
-    const first = xff.split(",")[0]?.trim();
-    if (first) return first;
+    const hops = xff.split(",").map((h) => h.trim()).filter(Boolean);
+    const last = hops[hops.length - 1];
+    if (last) return last;
   }
-  return request.headers.get("x-real-ip")?.trim() || "unknown";
+  return "unknown";
 }
 
 /** 429 พร้อมข้อความไทยและ Retry-After — ใช้รูปแบบเดียวกันทุก route */

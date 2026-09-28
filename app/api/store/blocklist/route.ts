@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getStoreSession } from "@/lib/auth/store-session";
-import { getAuthorizedStoreId } from "@/lib/auth/store-context";
+import { getAuthorizedStore } from "@/lib/auth/store-context";
+import { getRawSalesSession } from "@/lib/auth/sales-session";
 import {
   listBlocks,
   removeBlocks,
@@ -15,13 +16,20 @@ async function resolveStore(): Promise<{
   if (session) {
     return { storeId: session.storeId, email: session.email };
   }
-  return { storeId: await getAuthorizedStoreId(), email: "" };
+  const store = await getAuthorizedStore();
+  if (!store) return { storeId: null, email: "" };
+  // โหมดเข้าดูร้าน — บันทึกอีเมลคนที่เข้าดูเป็นผู้ตั้ง เดิมเป็น "" ร้านเห็นรายการหยุดสั่ง
+  // ที่ตัวเองไม่ได้ตั้งโดยไม่รู้ว่าใครทำ
+  const email = store.viaAdminPreview
+    ? ((await getRawSalesSession())?.email ?? "")
+    : "";
+  return { storeId: store.storeId, email };
 }
 
 export async function GET() {
   const { storeId } = await resolveStore();
   if (!storeId) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   return NextResponse.json({ blocks: await listBlocks(storeId) });
 }
@@ -30,7 +38,7 @@ export async function POST(request: Request) {
   // การหยุดสั่งเป็นการจัดการ order suggestion ของร้านเอง — ร้านที่ล็อกอินจัดการได้ทุกบัญชี
   const { storeId, email } = await resolveStore();
   if (!storeId) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const body = await request.json().catch(() => ({}));
   const { status, body: payload } = await upsertBlocks(storeId, email, body);
@@ -40,7 +48,7 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
   const { storeId } = await resolveStore();
   if (!storeId) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const body = await request.json().catch(() => ({}));
   const { status, body: payload } = await removeBlocks(storeId, body);

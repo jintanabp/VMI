@@ -51,7 +51,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       status: "pending",
       step: "pending",
-      message: "ส่งคำขอแล้ว — รอแอดมินยืนยันสิทธิ",
+      message: "ส่งคำขอแล้ว — รอแอดมินยืนยันสิทธิ์",
     });
   }
 

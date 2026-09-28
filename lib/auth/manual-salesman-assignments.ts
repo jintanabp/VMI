@@ -9,13 +9,23 @@ export function normalizeSalesmanCode(code: string): string {
 }
 
 /**
- * รหัสเซลล์ (SXXX) ที่แอดมินกำหนดทับให้อีเมลนี้ใช้ได้ — ว่าง = ไม่มีการกำหนดทับ
- * ให้ผู้เรียก fallback ไปใช้ผลอัตโนมัติจาก cross_target เหมือนเดิม
+ * รหัสเซลล์ (SXXX) ที่ผูกกับอีเมลนี้ — แหล่งเดียวของ "อีเมลนี้คือเซลล์รหัสไหน" ตั้งแต่เลิกใช้
+ * cross_salesman master (28 ก.ย. 2569) · ว่าง = อีเมลนี้ไม่ใช่เซลล์
  */
 export async function getManualSalesmanCodes(email: string): Promise<string[]> {
   const rows = await prisma.salesmanEmailAssignment.findMany({
     where: { email: normalizeEmail(email), active: true },
     select: { salesmanCode: true },
   });
-  return rows.map((r) => normalizeSalesmanCode(r.salesmanCode));
+  return [...new Set(rows.map((r) => normalizeSalesmanCode(r.salesmanCode)))];
+}
+
+/** อีเมลทั้งหมดที่ผูกกับรหัสนี้ — ใช้หาเจ้าของร้าน VDA (Store.salesRep) */
+export async function getLinkedEmailsForCode(code: string): Promise<string[]> {
+  const rows = await prisma.salesmanEmailAssignment.findMany({
+    where: { salesmanCode: normalizeSalesmanCode(code), active: true },
+    select: { email: true },
+    orderBy: { createdAt: "asc" },
+  });
+  return [...new Set(rows.map((r) => normalizeEmail(r.email)))];
 }

@@ -1,35 +1,40 @@
 import { NextResponse } from "next/server";
-import { getSalesmanRegistry } from "@/lib/fabric";
 import { getRawSalesSession } from "@/lib/auth/sales-session";
 import { prisma } from "@/lib/prisma";
 
+/**
+ * ตัวเลือก "กรองตามเซลล์" ในหน้าออเดอร์ของ creator — SalesRep ที่ผูกกับร้าน VDA อยู่
+ * รหัสของแต่ละคนมาจากอีเมลที่ผูกไว้ในหน้า «สิทธิ์เซลล์-VDA» (ไม่ใช้ cross_salesman แล้ว)
+ */
 export async function GET() {
-  const rawSession = await getRawSalesSession();
-  const session = rawSession;
-  if (!session || !["admin", "manager", "supervisor"].includes(session.role)) {
+  const session = await getRawSalesSession();
+  if (session?.role !== "admin") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const reps = await prisma.salesRep.findMany({ orderBy: { name: "asc" } });
-  const registry = getSalesmanRegistry();
+  const [reps, links] = await Promise.all([
+    prisma.salesRep.findMany({ orderBy: { name: "asc" } }),
+    prisma.salesmanEmailAssignment.findMany({
+      where: { active: true },
+      select: { email: true, salesmanCode: true },
+    }),
+  ]);
+  const codesByEmail = new Map<string, string[]>();
+  for (const l of links) {
+    const key = l.email.toLowerCase();
+    codesByEmail.set(key, [...(codesByEmail.get(key) ?? []), l.salesmanCode.toUpperCase()]);
+  }
 
   return NextResponse.json(
     reps
-      .filter((r) => {
-        if (session.role === "admin") return true;
-        const allowed = new Set(
-          (session.scopeEmails ?? []).map((e) => e.toLowerCase())
-        );
-        return allowed.has(r.email.toLowerCase());
-      })
       .map((r) => {
-        const fabric = registry.getCurrentByEmail(r.email);
+        const codes = (codesByEmail.get(r.email.toLowerCase()) ?? []).sort();
         return {
           id: r.id,
           email: r.email,
-          code: fabric?.code ?? r.email.split("@")[0],
-          name: fabric ? registry.getDisplayName(fabric) : r.name,
-          employeeNo: fabric?.employeeNo ?? "",
+          code: codes.join(", ") || r.email.split("@")[0],
+          name: r.name,
+          employeeNo: "",
         };
       })
       .sort((a, b) =>

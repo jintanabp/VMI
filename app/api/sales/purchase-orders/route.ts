@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
-import { getSalesSession } from "@/lib/auth/sales-session";
+import { getSalesSession, salesPreviewReadOnly } from "@/lib/auth/sales-session";
 import { isPoStatus } from "@/lib/po/po-status";
 import { prisma } from "@/lib/prisma";
 import {
@@ -96,14 +96,21 @@ export async function GET(request: Request) {
   const status = searchParams.get("status")?.trim();
   if (status && status !== "all" && isPoStatus(status)) where.status = status;
 
-  const from = dateFrom ? new Date(dateFrom) : null;
-  const to = dateTo ? new Date(dateTo) : null;
-  if (from && !Number.isNaN(from.getTime())) {
+  // วันที่ล้วน (YYYY-MM-DD) = ทั้งวันตามเวลาไทย — เดิม new Date("YYYY-MM-DD") เป็นเที่ยงคืน UTC และ
+  // setHours() ใช้โซนของเซิร์ฟเวอร์ ช่วงวันจึงเลื่อน 7 ชม. PO ที่ออกเช้าตรู่หลุดจากวันที่เลือก
+  const dayBound = (d: string | null | undefined, end: boolean) => {
+    if (!d) return null;
+    const t = /^\d{4}-\d{2}-\d{2}$/.test(d)
+      ? new Date(`${d}T${end ? "23:59:59.999" : "00:00:00.000"}+07:00`)
+      : new Date(d);
+    return Number.isNaN(t.getTime()) ? null : t;
+  };
+  const from = dayBound(dateFrom, false);
+  const to = dayBound(dateTo, true);
+  if (from) {
     where.issuedAt = { ...(where.issuedAt as object), gte: from };
   }
-  if (to && !Number.isNaN(to.getTime())) {
-    // dateTo เป็นวันที่ล้วน — ครอบทั้งวันนั้น ไม่งั้นเลือกวันเดียวแล้วได้ 0 แถว
-    to.setHours(23, 59, 59, 999);
+  if (to) {
     where.issuedAt = { ...(where.issuedAt as object), lte: to };
   }
 
@@ -133,8 +140,11 @@ export async function GET(request: Request) {
         summary: { count: 0, totalQty: 0, totalAmount: 0, nonC4Count: 0 },
       });
     }
-    const filtered =
-      vdaCode && allowed.includes(vdaCode) ? [vdaCode] : allowed;
+    // ขอ VDA นอกขอบเขต = 403 (เดิมเงียบแล้วคืนของ VDA ตัวเองแทน)
+    if (vdaCode && !allowed.includes(vdaCode)) {
+      return NextResponse.json({ error: "ไม่มีสิทธิ์ดู PO ของคลังนี้" }, { status: 403 });
+    }
+    const filtered = vdaCode ? [vdaCode] : allowed;
     where.order = { ...(where.order as object), store: { code: { in: filtered } } };
   } else if (vdaCode) {
     where.order = { ...(where.order as object), store: { code: vdaCode } };
@@ -221,6 +231,8 @@ export async function DELETE(request: Request) {
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const previewBlock = salesPreviewReadOnly(session);
+  if (previewBlock) return previewBlock;
 
   const { searchParams } = new URL(request.url);
   const poNumbers = (searchParams.get("poNumbers") ?? "")
@@ -247,6 +259,16 @@ export async function DELETE(request: Request) {
     notifyStores: searchParams.get("notify") !== "0",
   });
   if (result.deletedOrderIds.length === 0) {
+    if (result.skipped.some((s) => s.reason === "in_erp")) {
+      return NextResponse.json(
+        {
+          error:
+            "ลบไม่ได้ — PO ที่เลือกส่งเข้า ERP แล้ว (หรือส่งแล้วผลไม่ชัดเจน) ต้องยกเลิกที่ฝั่ง ERP ก่อน",
+          skipped: result.skipped,
+        },
+        { status: 409 }
+      );
+    }
     return NextResponse.json(
       { error: "ไม่มีสิทธิ์ลบ PO ที่เลือก" },
       { status: 403 }

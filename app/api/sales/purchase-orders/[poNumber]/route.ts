@@ -1,14 +1,15 @@
 import { readFile } from "fs/promises";
 import { NextResponse } from "next/server";
 import ExcelJS from "exceljs";
-import { getSalesSession } from "@/lib/auth/sales-session";
+import { getSalesSession, salesPreviewReadOnly } from "@/lib/auth/sales-session";
 import { prisma } from "@/lib/prisma";
 import { assertOrderAccess } from "@/lib/orders/access";
 import { VAT_RATE, type PoDocument } from "@/lib/po/po-document";
 import { sanitizePoNumber } from "@/lib/po/po-number";
 import { rebuildPoDocumentFromDb } from "@/lib/po/po-from-db";
-import { isPoStatus } from "@/lib/po/po-status";
+import { checkManualPoStatusChange, isPoStatus, poStatusMeta } from "@/lib/po/po-status";
 import { notifyStore } from "@/lib/orders/store-notify";
+import { poMayBeInErp } from "@/lib/orders/delete-orders";
 import { collectOwedFreeGoods } from "@/lib/promo/order-free-goods";
 import { buildErpPayload, checkErpReadiness } from "@/lib/po/erp-payload";
 import { buildErpContext } from "@/lib/po/erp-context";
@@ -22,6 +23,8 @@ import {
  *
  * ไม่มี state machine บังคับลำดับ — flow จริงยังไม่นิ่ง และของจริงมีเคสข้ามขั้น
  * (เช่น ออกแล้วยกเลิกเลย) บันทึกว่าใครเปลี่ยนเมื่อไรไว้แทน
+ * ยกเว้นเรื่อง ERP ที่กันไว้ใน `checkManualPoStatusChange` (สถานะ ERP ตั้งเองไม่ได้ ·
+ * ใบที่อาจอยู่ใน ERP แล้วห้ามยกเลิก/ถอยสถานะ)
  */
 export async function PATCH(
   request: Request,
@@ -31,6 +34,8 @@ export async function PATCH(
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const previewBlock = salesPreviewReadOnly(session);
+  if (previewBlock) return previewBlock;
 
   const { poNumber: raw } = await ctx.params;
   const poNumber = sanitizePoNumber(decodeURIComponent(raw));
@@ -53,6 +58,10 @@ export async function PATCH(
     select: {
       orderId: true,
       status: true,
+      erpSentAt: true,
+      erpAttemptedAt: true,
+      erpError: true,
+      erpFailureKind: true,
       order: { select: { storeId: true } },
     },
   });
@@ -65,14 +74,34 @@ export async function PATCH(
     return NextResponse.json({ error: "ไม่มีสิทธิ์แก้ PO นี้" }, { status: 403 });
   }
 
-  const updated = await prisma.purchaseOrder.update({
-    where: { poNumber },
+  const verdict = checkManualPoStatusChange({
+    from: po.status,
+    to: body.status,
+    mayBeInErp: poMayBeInErp(po),
+  });
+  if (!verdict.ok) {
+    return NextResponse.json({ error: verdict.error }, { status: verdict.httpStatus });
+  }
+
+  // compare-and-set กับสถานะที่เพิ่งตรวจ — send-erp ปัก "กำลังส่ง" ได้ระหว่างที่เราตรวจอยู่
+  // ถ้าไม่ล็อกไว้ ยกเลิกทับใบที่กำลังยิงเข้า ERP ได้ (ด่านข้างบนก็ไร้ความหมาย)
+  const cas = await prisma.purchaseOrder.updateMany({
+    where: { poNumber, status: po.status, erpSentAt: po.erpSentAt ? undefined : null },
     data: {
       status: body.status,
       statusAt: new Date(),
       statusBy: session.email,
       statusNote: note,
     },
+  });
+  if (cas.count !== 1) {
+    return NextResponse.json(
+      { error: "สถานะใบนี้ถูกเปลี่ยนระหว่างทาง — โหลดหน้าใหม่แล้วลองอีกครั้ง" },
+      { status: 409 }
+    );
+  }
+  const updated = await prisma.purchaseOrder.findUnique({
+    where: { poNumber },
     select: { poNumber: true, status: true, statusAt: true, statusBy: true },
   });
 
@@ -89,10 +118,19 @@ export async function PATCH(
         : body.status === "received"
           ? {
               kind: "po_received" as const,
-              title: `รับของครบแล้ว ${poNumber}`,
+              title: `รับของแล้ว ${poNumber}`,
               detail: note || "ของตามใบสั่งซื้อนี้เข้าคลังครบแล้ว",
             }
-          : null;
+          : verdict.reopened
+            ? {
+                // ร้านเคยได้ "ยกเลิก PO" ไปแล้ว — ถ้าไม่บอกว่ากลับมา ร้านจะไม่รอของใบนี้
+                kind: "po_reopened" as const,
+                title: `ใบสั่งซื้อ ${poNumber} กลับมาใช้งาน`,
+                detail:
+                  note ||
+                  `ใบสั่งซื้อที่เคยแจ้งยกเลิก กลับมาเป็นสถานะ "${poStatusMeta(body.status).label}" — ของจะถูกส่งตามปกติ`,
+              }
+            : null;
 
     if (notify) {
       await notifyStore({
@@ -244,7 +282,7 @@ export async function GET(
   const head: [string, string][] = [
     ["ร้าน / คลัง", `${doc.storeCode.toUpperCase()} · ${doc.storeName}`],
     ["กลุ่ม PO", `${doc.groupKey} (${doc.priceKind})`],
-    ["อนุมัติเมื่อ", new Date(doc.approvedAt).toLocaleString("th-TH")],
+    ["อนุมัติเมื่อ", new Date(doc.approvedAt).toLocaleString("th-TH", { timeZone: "Asia/Bangkok" })],
     ["อนุมัติโดย", doc.approvedBy || "-"],
     ["อ้างอิงออเดอร์", doc.orderId],
   ];

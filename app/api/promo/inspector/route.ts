@@ -2,9 +2,11 @@ import { NextResponse } from "next/server";
 import { getAuthorizedStore } from "@/lib/auth/store-context";
 import { getSalesSession } from "@/lib/auth/sales-session";
 import {
+  resolveAllPersonVdaCodes,
   resolveSalesmanCodesForFilter,
   resolveVdaCodesForSalesmanCodes,
 } from "@/lib/orders/access";
+import { can } from "@/lib/auth/permissions";
 import { isVdaStoreCode } from "@/lib/fabric/vda-aos-bill";
 import { buildPromoInspector } from "@/lib/promo/promo-inspector";
 
@@ -19,13 +21,17 @@ async function assertStoreAccess(storeCode: string) {
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (session.role !== "admin" && isVdaStoreCode(storeCode)) {
-    const allowed = resolveVdaCodesForSalesmanCodes(
-      resolveSalesmanCodesForFilter(session)
-    );
-    if (allowed.length > 0 && !allowed.includes(storeCode)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+  // creator + admin ที่มีสิทธิ์ดูโปร เห็นทุกคลัง (เหมือน /api/promo/month)
+  if (can(session, "promotions.view")) return null;
+
+  // เซลล์: เฉพาะคลังของรหัสที่ผูกไว้ · เดิม `allowed.length > 0 && …` — คนที่ไม่มีคลังเลยผ่านด่านไปดู
+  // คลังไหนก็ได้ (fail open) และร้านที่ไม่ใช่ VDA ไม่ถูกตรวจเลย (QA 28 ก.ย. 69)
+  const allowed = new Set([
+    ...resolveVdaCodesForSalesmanCodes(resolveSalesmanCodesForFilter(session)),
+    ...resolveAllPersonVdaCodes(session.email, session.manualCodes),
+  ]);
+  if (!isVdaStoreCode(storeCode) || !allowed.has(storeCode)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   return null;
 }

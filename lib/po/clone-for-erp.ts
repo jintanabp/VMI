@@ -7,6 +7,7 @@ import { nextPoSequence } from "./po-sequence";
 import { buildPoDocument, writePoDocument } from "./po-document";
 import { orderItemToDocLine } from "./order-item-doc-line";
 import type { PoPriceKind } from "./split-plan";
+import { notifyPoReplaced } from "./erp-notify";
 
 /**
  * ขอเลขใหม่ให้ใบที่ ERP ปฏิเสธไปแล้ว — ทำตามแนวเดียวกับ ocr-po-matching (clone-for-erp)
@@ -170,6 +171,16 @@ export async function cloneRejectedPoForErp(
     }
     throw err;
   }
+
+  // ร้านเคยได้แจ้ง "ออก PO <เลขเดิม>" — เปลี่ยนเลขเงียบ ๆ ร้านจะรอ/อ้างอิงเลขที่ใช้ไม่ได้แล้ว
+  // (หลัง transaction สำเร็จเท่านั้น — แพ้การแข่งแล้วแจ้งไป = บอกเลขที่ไม่มีอยู่จริง)
+  await notifyPoReplaced({
+    storeId: old.order.storeId,
+    orderId: old.orderId,
+    oldPoNumber: poNumber,
+    newPoNumber,
+    actorEmail,
+  });
 
   return { poNumber: newPoNumber, replaces: poNumber, exportPath };
 }

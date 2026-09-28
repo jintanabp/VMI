@@ -16,12 +16,12 @@ export interface PersonVdaRow {
   allVdas: string[];
   multipleCodes: boolean;
   hasVdaAccess: boolean;
-  /** รหัสมีในทะเบียน VDA แต่ไม่พบอีเมลใน cross_salesman */
+  /** รหัสมีในทะเบียน VDA แต่ยังไม่มีอีเมลใดผูกไว้ */
   unmapped?: boolean;
 }
 
 export interface VdaSalesDirectory {
-  loaded: { salesmanMaster: boolean; vdaAosBill: boolean };
+  loaded: { vdaAosBill: boolean };
   people: PersonVdaRow[];
   peopleWithVda?: PersonVdaRow[];
   vdas?: Array<{
@@ -40,8 +40,7 @@ export interface VdaSalesDirectory {
     totalPeople: number;
     peopleWithVda: number;
     withVdaAccess: number;
-    totalSalesmen?: number;
-    withoutVdaAccess?: number;
+    totalCodes?: number;
   };
 }
 

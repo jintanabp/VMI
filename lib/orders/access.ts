@@ -2,7 +2,6 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { SalesSession } from "@/lib/auth/sales-session";
 import { getPersonSalesCodes } from "@/lib/admin/vda-sales-directory";
-import { getSalesmanRegistry } from "@/lib/fabric";
 import {
   getVdaAosBillRegistry,
   isVdaStoreCode,
@@ -47,7 +46,7 @@ export async function assertOrderAccess(
 
   const order = await prisma.order.findUnique({
     where: { id: orderId },
-    include: { store: { include: { salesRep: true } } },
+    select: { store: { select: { code: true } } },
   });
 
   if (!order) {
@@ -56,36 +55,18 @@ export async function assertOrderAccess(
 
   const storeCode = order.store.code;
 
-  if (isVdaStoreCode(storeCode) && getVdaAosBillRegistry().isLoaded) {
-    if (salesmanCanAccessVda(session, storeCode)) return;
-    if (
-      session.role === "sales" &&
-      salesmanCanAccessVda(session, storeCode, { allPersonCodes: true })
-    ) {
-      return;
-    }
+  // ตัดสินจาก รหัสที่ผูกกับอีเมล → VDA อย่างเดียว (QA 28 ก.ย. 69) · เดิมถ้าร้านไม่ใช่ VDA หรือทะเบียน VDA
+  // ยังไม่โหลด จะถอยไปเทียบ `Store.salesRep` ซึ่งค้างเก่าได้ = คนผิดคนเข้าออเดอร์ได้ · ตอนนี้ปิดไว้ก่อน (fail closed)
+  if (!isVdaStoreCode(storeCode) || !getVdaAosBillRegistry().isLoaded) {
     throw new Error("FORBIDDEN");
   }
-
-  const email = session.email.toLowerCase();
-  const scope = new Set(
-    (session.scopeEmails ?? [email]).map((e) => e.toLowerCase())
-  );
-
-  if (
-    order.store.salesRep?.email &&
-    scope.has(order.store.salesRep.email.toLowerCase())
-  ) {
-    return;
-  }
-
+  if (salesmanCanAccessVda(session, storeCode)) return;
   if (
     session.role === "sales" &&
-    order.store.salesRep?.email?.toLowerCase() === email
+    salesmanCanAccessVda(session, storeCode, { allPersonCodes: true })
   ) {
     return;
   }
-
   throw new Error("FORBIDDEN");
 }
 
@@ -152,24 +133,6 @@ export function resolveOrderStoreScope(
     vdas = resolveAllPersonVdaCodes(email, session.manualCodes);
   }
 
-  if (vdas.length > 0) return { code: { in: vdas } };
-  if (session.role === "sales") return "none";
-
-  const emails = (session.scopeEmails ?? [email]).map((e) => e.toLowerCase());
-  return { salesRep: { is: { email: { in: emails } } } };
-}
-
-export function resolveSalesRepEmailsForFilter(
-  session: SalesSession
-): string[] {
-  const registry = getSalesmanRegistry();
-  const emails = new Set<string>();
-  emails.add(session.email.toLowerCase());
-
-  for (const code of resolveSalesmanCodesForFilter(session)) {
-    const a = registry.getCurrentByCode(code);
-    if (a?.email) emails.add(a.email.toLowerCase());
-  }
-
-  return [...emails];
+  // ไม่มี VDA = ไม่เห็นอะไร ทุก role (เดิม manager/supervisor ถอยไปใช้ Store.salesRep — role นี้ไม่มีแล้ว)
+  return vdas.length > 0 ? { code: { in: vdas } } : "none";
 }

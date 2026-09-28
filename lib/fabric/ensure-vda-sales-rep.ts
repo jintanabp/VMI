@@ -1,17 +1,13 @@
 import { prisma } from "@/lib/prisma";
-import { getSalesmanRegistry } from "./index";
-import {
-  getVdaAosBillRegistry,
-  isVdaStoreCode,
-} from "./vda-aos-bill";
-import { syncFabricSalesReps } from "./sync-sales-reps";
-
-function normSalesman(code: string) {
-  return code.trim().toUpperCase();
-}
+import { getVdaAosBillRegistry, isVdaStoreCode } from "./vda-aos-bill";
+import { getLinkedEmailsForCode } from "@/lib/auth/manual-salesman-assignments";
 
 /**
- * ผูก Store (VDA) กับ SalesRep จาก salesmancode ในทะเบียน VDA (VDA_SALESMAN_MAP)
+ * ผูก Store (VDA) กับ SalesRep — รหัสเซลล์หลักของ VDA มาจากทะเบียน VDA (VDA_SALESMAN_MAP) ·
+ * อีเมลของรหัสนั้นมาจากที่แอดมินผูกไว้ในหน้า «สิทธิ์เซลล์-VDA» (ไม่ใช้ cross_salesman master แล้ว)
+ *
+ * สิทธิ์ดูออเดอร์ของร้าน VDA ไม่ได้ขึ้นกับค่านี้ (ตัดสินจากรหัส ↔ VDA) — ใช้กับตัวกรอง "ตามเซลล์"
+ * ในหน้าออเดอร์ของ creator เป็นหลัก
  */
 export async function ensureVdaStoreSalesRep(
   storeId: string,
@@ -25,26 +21,19 @@ export async function ensureVdaStoreSalesRep(
     return null;
   }
 
-  await syncFabricSalesReps();
-  const registry = getSalesmanRegistry();
-  const assignment =
-    registry.getCurrentByCode(salesmanCode) ??
-    registry.getCurrentByCode(normSalesman(salesmanCode));
-
-  if (!assignment?.email) {
+  const [email] = await getLinkedEmailsForCode(salesmanCode);
+  if (!email) {
     console.warn(
-      `[VdaSalesRep] salesmancode ${salesmanCode} not in cross_salesman master`
+      `[VdaSalesRep] รหัส ${salesmanCode} ของ ${vdaCode} ยังไม่ได้ผูกอีเมล — เพิ่มที่แท็บ «สิทธิ์เซลล์-VDA»`
     );
     return null;
   }
 
+  const name = `รหัส ${salesmanCode.trim().toUpperCase()}`;
   const rep = await prisma.salesRep.upsert({
-    where: { email: assignment.email.toLowerCase() },
-    create: {
-      email: assignment.email.toLowerCase(),
-      name: registry.getDisplayName(assignment),
-    },
-    update: { name: registry.getDisplayName(assignment) },
+    where: { email },
+    create: { email, name },
+    update: {},
   });
 
   await prisma.store.update({

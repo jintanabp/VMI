@@ -16,7 +16,11 @@ export type SalesNotificationKind =
   | "qty_increase_confirmed"
   | "qty_increase_rejected"
   | "item_added_confirmed"
-  | "item_added_rejected";
+  | "item_added_rejected"
+  // ส่ง PO เข้า ERP ไม่สำเร็จ (lib/po/erp-notify.ts) — orderId = ออเดอร์ต้นทางของใบนั้น
+  | "erp_failed"
+  // ร้านยกเลิกหยุดสั่ง — ไม่ผูกออเดอร์ (orderId = null)
+  | "sku_unblocked";
 
 export async function notifySales(args: {
   storeId: string;

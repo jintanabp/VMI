@@ -36,7 +36,13 @@ export function isAdminEmailFromEnv(email: string | null | undefined): boolean {
   return parseAdminEmailsFromEnv().includes(email.toLowerCase());
 }
 
-/** ตรวจ admin — env + DB (cache อัปเดตตอน bootstrap / CRUD) */
+/**
+ * Creator (dev) = อีเมลใน .env เท่านั้น — สิทธิ์เต็มทุกอย่าง
+ * (อีเมลในตาราง Admin ที่ไม่ได้มาจาก .env เป็น admin ที่มีสิทธิ์จำกัด ดู lib/auth/permissions.ts)
+ */
+export const isCreatorEmail = isAdminEmailFromEnv;
+
+/** ตรวจ admin ทุกระดับ — env + DB (cache อัปเดตตอน bootstrap / CRUD) */
 export function isAdminEmail(email: string | null | undefined): boolean {
   if (!email) return false;
   const e = email.toLowerCase();

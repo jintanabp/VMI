@@ -26,6 +26,30 @@ export function parseSkuIds(value: unknown): string[] {
   ];
 }
 
+/** ย้อนหลังได้ไม่เกินเท่านี้ — เผื่อเขตเวลา/ร้านตั้งช่วงดึกของเมื่อวาน */
+export const MAX_BACKDATE_MS = 86_400_000;
+
+/**
+ * วันเริ่มหยุดสั่งที่ย้อนหลังเกิน 1 วันไม่รับ — เดิมพิมพ์ปีผิด (เช่น 2025) ก็บันทึกได้
+ * แล้วรายการกลายเป็น "หยุดมานานแล้ว" ทันที
+ *
+ * ยกเว้นเมื่อเป็นวันเริ่มเดิมของรายการที่มีอยู่ (แก้เหตุผล/วันสิ้นสุดของรายการเก่า
+ * ฟอร์มส่งวันเริ่มเดิมกลับมา — ห้ามทำให้แก้รายการเก่าไม่ได้)
+ * ช่อง datetime-local ตัดวินาทีทิ้ง จึงเทียบระดับนาที
+ */
+export function effectiveFromError(
+  from: Date,
+  now: Date,
+  existingFroms: Date[] = []
+): string | null {
+  if (from.getTime() >= now.getTime() - MAX_BACKDATE_MS) return null;
+  const minute = (d: Date) => Math.floor(d.getTime() / 60_000);
+  if (existingFroms.length > 0 && existingFroms.every((d) => minute(d) === minute(from))) {
+    return null;
+  }
+  return "วันที่เริ่มหยุดสั่งย้อนหลังได้ไม่เกิน 1 วัน";
+}
+
 export async function listBlocks(storeId: string): Promise<BlockRow[]> {
   const blocks = await prisma.storeSkuBlock.findMany({
     where: { storeId },
@@ -67,10 +91,13 @@ export async function upsertBlocks(
     return { status: 400, body: { error: "ต้องระบุเหตุผล" } };
   }
 
-  const parsed = body.effectiveFrom
+  // วันที่อ่านไม่ออกต้องตอบ 400 — เดิมแอบแทนเป็น "ตอนนี้" แล้วตอบสำเร็จ
+  const effectiveFrom = body.effectiveFrom
     ? new Date(String(body.effectiveFrom))
     : new Date();
-  const effectiveFrom = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+  if (Number.isNaN(effectiveFrom.getTime())) {
+    return { status: 400, body: { error: "วันที่เริ่มไม่ถูกต้อง" } };
+  }
 
   // permanent = true หรือไม่ระบุวันสิ้นสุด → หยุดถาวร (effectiveTo = null)
   let effectiveTo: Date | null = null;
@@ -94,8 +121,34 @@ export async function upsertBlocks(
     select: { id: true },
   });
   const validIds = existing.map((s) => s.id);
-  if (validIds.length === 0) {
-    return { status: 400, body: { error: "ไม่พบสินค้า" } };
+  // มีรหัสที่ไม่รู้จักปนมา = บอกผู้ใช้ ไม่ใช่บันทึกเฉพาะตัวที่เจอแล้วตอบว่าสำเร็จ
+  if (validIds.length !== skuIds.length) {
+    const missing = skuIds.length - validIds.length;
+    return {
+      status: 400,
+      body: {
+        error:
+          validIds.length === 0
+            ? "ไม่พบสินค้า"
+            : `ไม่พบสินค้า ${missing} รายการ — รีเฟรชหน้าแล้วลองใหม่`,
+      },
+    };
+  }
+
+  const existingBlocks = await prisma.storeSkuBlock.findMany({
+    where: { storeId, skuId: { in: validIds } },
+    select: { effectiveFrom: true },
+  });
+  const fromError = effectiveFromError(
+    effectiveFrom,
+    new Date(),
+    // ต้องมีรายการเดิมครบทุกตัวถึงจะอนุโลม — ตัวใหม่ห้ามย้อนหลัง
+    existingBlocks.length === validIds.length
+      ? existingBlocks.map((b) => b.effectiveFrom)
+      : []
+  );
+  if (fromError) {
+    return { status: 400, body: { error: fromError } };
   }
 
   await prisma.$transaction(
@@ -115,7 +168,9 @@ export async function upsertBlocks(
           effectiveFrom,
           effectiveTo,
           createdBy: actorEmail,
+          // ร้านตั้งหยุดสั่งซ้ำ/แก้ช่วงเวลา = เรื่องใหม่ ทุกคนต้องเห็นเป็นยังไม่อ่านอีกครั้ง
           acknowledgedAt: null,
+          reads: { deleteMany: {} },
         },
       })
     )
@@ -133,9 +188,25 @@ export async function removeBlocks(
   if (skuIds.length === 0) {
     return { status: 400, body: { error: "ต้องเลือกอย่างน้อย 1 สินค้า" } };
   }
+  const removing = await prisma.storeSkuBlock.findMany({
+    where: { storeId, skuId: { in: skuIds } },
+    select: { sku: { select: { code: true, name: true } } },
+  });
   const result = await prisma.storeSkuBlock.deleteMany({
     where: { storeId, skuId: { in: skuIds } },
   });
+  // ยกเลิกหยุดสั่ง = สั่งได้อีกแล้ว — เดิมรายการแค่หายไปจากกระดิ่งเซลล์เงียบ ๆ ไม่มีใครรู้ (QA 28 ก.ย. 69)
+  if (removing.length > 0) {
+    const names = removing.map((b) => `${b.sku.code} ${b.sku.name}`);
+    await prisma.salesNotification.create({
+      data: {
+        storeId,
+        kind: "sku_unblocked",
+        title: `ร้านยกเลิกหยุดสั่ง ${removing.length} รายการ`,
+        detail: names.slice(0, 5).join(" · ") + (names.length > 5 ? ` · และอีก ${names.length - 5}` : ""),
+      },
+    });
+  }
   bumpStoreDataVersion(storeId);
   return { status: 200, body: { success: true, count: result.count } };
 }

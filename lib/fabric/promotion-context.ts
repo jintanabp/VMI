@@ -3,7 +3,6 @@ import {
   fabricPromoReady,
   getCustomerDirectory,
   getPromotionCreditDirectory,
-  getSalesmanRegistry,
 } from "./index";
 import { getStockFilterConfig, resolveActiveFromDb } from "./stock-filter-config";
 import { getVdaAosBillRegistry } from "./vda-aos-bill";
@@ -166,7 +165,7 @@ export function resolvePromoContext(
   // ไม่มีคลังในระบบให้อ้างอิง (stock cover ยังไม่โหลด) — ถอยไปใช้ข้อมูลลูกค้าแบบเดิม
   let cusgroup = defaultCusgroup;
   let region = fallbackRegion;
-  let division = defaultDivision;
+  const division = defaultDivision;
 
   if (fabricMastersReady()) {
     const customer = getCustomerDirectory().getByCode(code);
@@ -174,10 +173,8 @@ export function resolvePromoContext(
     if (customer?.area) region = customer.area;
   }
 
-  if (options?.salesRepEmail) {
-    const rep = getSalesmanRegistry().getCurrentByEmail(options.salesRepEmail);
-    if (rep?.divisionCode) division = rep.divisionCode;
-  }
+  // เดิมเอา division จากแถวพนักงานใน cross_salesman master ของเซลล์เจ้าของร้าน — เลิกใช้ master แล้ว
+  // (28 ก.ย. 69) ร้าน non-VDA จึงใช้ defaultDivision · ร้าน VDA ไม่ผ่านทางนี้ (คืนค่าไปข้างบนแล้ว)
 
   return {
     division,

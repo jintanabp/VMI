@@ -2,8 +2,15 @@
 
 import { appPath } from "@/lib/paths";
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import { ArrowLeft, LogOut, Package, User } from "lucide-react";
+import { ArrowLeft, Briefcase, LogOut, Package, Settings, User } from "lucide-react";
+import {
+  STAFF_ADMIN_SETTINGS_HOME,
+  adminAccessLabel,
+  hasSalesView,
+  isStaffAdmin,
+} from "@/lib/auth/permissions";
 import { Button } from "@/components/ui/button";
 import { StoreNotificationBell } from "@/components/layout/store-notification-bell";
 import { SalesNotificationBell } from "@/components/layout/sales-notification-bell";
@@ -141,13 +148,47 @@ export function AppHeader({
         : "ร้านค้า"
       : role === "sales"
         ? "เซลล์"
-        : role === "supervisor"
-          ? "Supervisor"
-          : role === "manager"
-            ? "Manager"
-            : role === "admin"
-              ? "Admin"
-              : null;
+        // supervisor/manager ไม่มีแล้ว (มาจาก master ที่เลิกใช้) — cookie เก่าถูกคำนวณใหม่เป็น sales ก่อนถึงหน้าจอ
+        : role === "admin"
+          ? (adminAccessLabel(session) ?? "Admin")
+          : null;
+
+  /**
+   * admin ที่เป็นเซลล์ด้วยมีสองหน้าต่าง: หน้าเซลล์ (หน้าแรก) ⇄ หน้าตั้งค่า
+   * creator ใช้ลิงก์ "กลับศูนย์ Admin" ด้านบนเหมือนเดิม จึงไม่ต้องมีปุ่มนี้
+   */
+  const staffAdmin = isStaffAdmin(session);
+  const onSales = normalizePathname(pathname).startsWith("/sales");
+  const modeSwitch =
+    staffAdmin && onSales
+      ? { href: STAFF_ADMIN_SETTINGS_HOME, label: "ตั้งค่า", Icon: Settings }
+      : staffAdmin && isAdminHub && hasSalesView(session)
+        ? { href: "/sales/orders", label: "หน้าเซลล์", Icon: Briefcase }
+        : null;
+
+  /**
+   * คำขอร้านค้าที่รออยู่ (สมัครใหม่ + ขอรีเซ็ตรหัส) บนปุ่ม «ตั้งค่า» — admin ที่เป็นเซลล์ด้วยอยู่หน้าเซลล์ทั้งวัน
+   * เดิมเห็นตัวเลขนี้เฉพาะตอนเปิดหน้าตั้งค่าเท่านั้น ร้านที่ขอเข้าใช้งานจึงค้างรอไม่มีใครรู้ (QA 28 ก.ย. 69)
+   */
+  const [settingsPending, setSettingsPending] = useState(0);
+  const watchSettings = staffAdmin && onSales;
+  useEffect(() => {
+    if (!watchSettings) return;
+    let alive = true;
+    const load = () =>
+      apiFetch(appPath("/api/admin/badges"))
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d: { storePending?: number } | null) => {
+          if (alive) setSettingsPending(d?.storePending ?? 0);
+        })
+        .catch(() => {});
+    void load();
+    const t = window.setInterval(load, 120_000);
+    return () => {
+      alive = false;
+      window.clearInterval(t);
+    };
+  }, [watchSettings]);
 
   const toolbar = (
     <div className="flex w-full flex-wrap items-center gap-1.5 sm:gap-2 md:w-auto md:flex-nowrap md:justify-end">
@@ -194,6 +235,23 @@ export function AppHeader({
       {role !== "customer" && normalizePathname(pathname).startsWith("/sales") && (
         <SalesNotificationBell />
       )}
+      {modeSwitch && (
+        <Link
+          href={modeSwitch.href}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:border-teal-300 hover:text-teal-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-teal-700 dark:hover:text-teal-400"
+        >
+          <modeSwitch.Icon className="h-3.5 w-3.5" />
+          {modeSwitch.label}
+          {watchSettings && settingsPending > 0 && (
+            <span
+              className="inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white"
+              title={`คำขอร้านค้ารอดำเนินการ ${settingsPending} รายการ`}
+            >
+              {settingsPending}
+            </span>
+          )}
+        </Link>
+      )}
       <ThemeToggle />
       {actions}
       {(session || role === "customer") && (
@@ -230,7 +288,7 @@ export function AppHeader({
               โหมดทดสอบ Admin
               {adminPreview && " · มุมมอง VDA"}
               {salesPreview &&
-                ` · มุมมองเซลล์ ${salesPreview.asCode} (${salesPreview.asName})`}
+                ` · มุมมองเซลล์ ${salesPreview.asCode} (${salesPreview.asName}) · ดูอย่างเดียว แก้ไขไม่ได้`}
             </span>
             <Button
               type="button"
@@ -354,7 +412,7 @@ export function AppHeader({
                   <p className="truncate text-[11px] leading-tight text-slate-500 dark:text-slate-400">
                     {session.salesmanName ?? session.name ?? session.email}
                     {session.salesmanCode ? ` · ${session.salesmanCode}` : ""}
-                    {session.role === "admin" ? " · Admin" : ""}
+                    {adminAccessLabel(session) ? ` · ${adminAccessLabel(session)}` : ""}
                   </p>
                 )}
                 {subtitle && !compact && (

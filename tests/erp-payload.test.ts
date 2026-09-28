@@ -285,6 +285,18 @@ describe("checkErpReadiness", () => {
     ).toContain("missing_unit_price");
   });
 
+  it("ราคา 0 = ส่งไม่ได้ และบอกรหัสสินค้าที่เป็นต้นเหตุ (QA 28 ก.ย. 69)", () => {
+    const r = checkErpReadiness(
+      doc([line(), line({ skuCode: "888888", unitPrice: 0, netUnitPrice: 0 })]),
+      ctx
+    );
+    expect(r.ok).toBe(false);
+    expect(reasonsOf(r)).toContain("unit_price_zero");
+    expect(r.offendingSkus.unit_price_zero).toEqual(["888888"]);
+    // ไม่มีราคา กับ ราคา 0 เป็นคนละเรื่อง — ไม่ติดทั้งสองอันพร้อมกัน
+    expect(reasonsOf(r)).not.toContain("missing_unit_price");
+  });
+
   it("ใบเปล่า = ส่งไม่ได้", () => {
     expect(reasonsOf(checkErpReadiness(doc([]), ctx))).toContain("empty_lines");
   });
@@ -301,6 +313,7 @@ describe("checkErpReadiness", () => {
       "vat_unknown",
       "qty_not_positive_integer",
       "missing_unit_price",
+      "unit_price_zero",
       "price_off_c4",
     ];
     for (const r of all) {

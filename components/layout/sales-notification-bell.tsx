@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 import { Ban, Bell, BellOff } from "lucide-react";
 import { AnchoredPanel, PanelHeader } from "@/components/ui/anchored-panel";
 import { useToast } from "@/components/ui/toast";
-import { ORDER_KIND_META } from "@/lib/orders/sales-notify-display";
+import { ORDER_KIND_FALLBACK, ORDER_KIND_META } from "@/lib/orders/sales-notify-display";
 import { relativeTime } from "@/lib/orders/store-notify-display";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api-fetch";
@@ -87,7 +87,13 @@ export function SalesNotificationBell() {
         key: n.id,
         title: `${n.storeCode.toUpperCase()} · ${n.title}`,
         detail: n.detail || undefined,
-        tone: n.kind.endsWith("rejected") || n.kind === "order_cancelled" ? "warn" : "info",
+        // ส่ง ERP ไม่สำเร็จ = ต้องมีคนจัดการ (ขอเลขใหม่ / ตรวจกับทีม ERP) — เด่นกว่าแจ้งเตือนทั่วไป
+        tone:
+          n.kind === "erp_failed"
+            ? "error"
+            : n.kind.endsWith("rejected") || n.kind === "order_cancelled"
+              ? "warn"
+              : "info",
       });
     }
   }, [data, toast]);
@@ -198,7 +204,7 @@ export function SalesNotificationBell() {
         ) : (
           <ul className="vmi-scroll min-h-0 flex-1 divide-y divide-slate-100 overflow-y-auto dark:divide-slate-800">
             {visible.map((n) => {
-              const meta = ORDER_KIND_META[n.kind] ?? ORDER_KIND_META.order_created;
+              const meta = ORDER_KIND_META[n.kind] ?? ORDER_KIND_FALLBACK;
               const Icon = meta.icon;
               const isNew = highlighted.current.has(n.id);
               const clickable = !!n.orderId && !!n.orderStatus;

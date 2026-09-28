@@ -110,6 +110,7 @@ export type ErpReason =
   | "vat_unknown"
   | "qty_not_positive_integer"
   | "missing_unit_price"
+  | "unit_price_zero"
   | "price_off_c4";
 
 export interface ErpReadiness {
@@ -245,6 +246,10 @@ export function checkErpReadiness(
     if (!Number.isFinite(l.qty) || toCases(l.qty) <= 0)
       add("qty_not_positive_integer", l.skuCode);
     if (l.unitPrice == null) add("missing_unit_price", l.skuCode);
+    // ราคา 0 (หรือติดลบ/NaN) = ERP จะรับเป็นของแถมเงียบ ๆ ทั้งที่ไม่ใช่บรรทัด F — ต้องกันไว้
+    // (QA 28 ก.ย. 69 พบว่าเซลล์ตั้งราคา 0 ได้ แล้วหน้าตรวจความพร้อมยังขึ้นว่าส่งได้)
+    else if (!Number.isFinite(l.unitPrice) || l.unitPrice <= 0)
+      add("unit_price_zero", l.skuCode);
   }
 
   // ราคาที่ไม่ตรง C4 = special deal (isSpecial/isErrorC4 = Y ใน buildErpPayload) — ไม่กันส่ง
@@ -269,6 +274,7 @@ const REASON_LABEL: Record<ErpReason, string> = {
     "ไม่รู้ว่าสินค้ามี VAT หรือไม่ (master ไม่ได้ระบุ VatStatus) — ส่งบางส่วนไม่ได้ ต้องกันทั้งใบ",
   qty_not_positive_integer: "จำนวนสั่งไม่ใช่จำนวนหีบที่มากกว่า 0",
   missing_unit_price: "ไม่มีราคาต่อหีบ",
+  unit_price_zero: "ราคา 0 — ราคาต่อหีบต้องมากกว่า 0 (ของแถมให้ส่งผ่านโปร ไม่ใช่ตั้งราคา 0)",
   price_off_c4:
     "ราคาบนใบนี้ไม่ตรง C4 — ส่งเป็น special deal (isSpecial=Y) พร้อมของแถมที่ต้องส่งเอง จะเข้ากระบวนการอนุมัติของ marketing ฝั่ง ERP เพิ่มอีกขั้น",
 };

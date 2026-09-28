@@ -64,6 +64,20 @@ export const NOTIF_META: Record<string, { label: string; className: string }> = 
     className:
       "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-200",
   },
+  po_reopened: {
+    label: "PO กลับมาใช้งาน",
+    className: "bg-sky-100 text-sky-800 dark:bg-sky-500/15 dark:text-sky-200",
+  },
+  po_replaced: {
+    label: "เปลี่ยนเลข PO",
+    className:
+      "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200",
+  },
+  po_sent_erp: {
+    label: "เข้า ERP แล้ว",
+    className:
+      "bg-teal-100 text-teal-800 dark:bg-teal-500/15 dark:text-teal-200",
+  },
 };
 
 export function fmtDateTime(iso: string): string {
@@ -73,6 +87,8 @@ export function fmtDateTime(iso: string): string {
     year: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
+    // เวลาในแจ้งเตือนต้องเป็นเวลาไทยเสมอ ไม่ขึ้นกับ timezone ของเครื่องที่เปิดดู
+    timeZone: "Asia/Bangkok",
   });
 }
 
@@ -95,14 +111,17 @@ export function notifTone(kind: string): "success" | "warn" | "info" {
     kind === "po_cancelled" ||
     kind === "qty_increase_pending" ||
     kind === "item_added_pending" ||
-    kind === "item_cleared"
+    kind === "item_cleared" ||
+    kind === "po_replaced"
   ) {
     return "warn";
   }
   if (
     kind === "approved" ||
     kind === "po_issued" ||
-    kind === "po_received"
+    kind === "po_received" ||
+    kind === "po_reopened" ||
+    kind === "po_sent_erp"
   ) {
     return "success";
   }
