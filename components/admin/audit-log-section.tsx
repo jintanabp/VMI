@@ -85,7 +85,8 @@ export function AuditLogSection() {
 
   return (
     <Card>
-      <CardContent className="space-y-3 pt-4">
+      {/* ไม่มี CardHeader — ต้องทับ sm:pt-0 ของ CardContent เอง ไม่งั้นจอ ≥640px ช่องค้นหาชิดขอบบนการ์ด */}
+      <CardContent className="space-y-3 pt-4 sm:pt-6">
         <div className="flex flex-wrap items-center gap-2">
           <Input
             value={q}
