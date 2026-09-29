@@ -806,7 +806,7 @@ export function OrderPageClient({
         icon: <AlertTriangle className="h-3.5 w-3.5" />,
         label: "โหลดโปรไม่สำเร็จ",
         count: pendingPromoLines.length,
-        summary: `${pendingPromoLines.length} รายการในโปรกลุ่มยังคำนวณส่วนลดไม่ได้ (โหลดข้อมูลไม่สำเร็จ) — ลองแก้จำนวนอีกครั้งเพื่อให้ระบบลองใหม่ ก่อนส่งคำสั่งซื้อ`,
+        summary: `${pendingPromoLines.length} รายการในโปรกลุ่มยังคำนวณส่วนลดไม่ได้ (โหลดข้อมูลไม่สำเร็จ) — ลองแก้จำนวนอีกครั้งเพื่อให้ระบบลองใหม่ ก่อนส่งออเดอร์`,
         skuCodes: pendingPromoLines.map((l) => l.row.skuCode),
         items: pendingPromoLines.map((l) => ({
           key: l.row.skuCode,
@@ -1028,7 +1028,7 @@ export function OrderPageClient({
         throw new Error(
           typeof data?.error === "string"
             ? data.error
-            : `ส่งคำสั่งซื้อไม่สำเร็จ (${res.status})`
+            : `ส่งออเดอร์ไม่สำเร็จ (${res.status})`
         );
       }
       return res.json();
@@ -1041,7 +1041,7 @@ export function OrderPageClient({
     },
     onError: (err) => {
       setSubmitError(
-        err instanceof Error ? err.message : "ส่งคำสั่งซื้อไม่สำเร็จ"
+        err instanceof Error ? err.message : "ส่งออเดอร์ไม่สำเร็จ"
       );
     },
   });
@@ -1089,9 +1089,9 @@ export function OrderPageClient({
             <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400">
               <CheckCircle2 className="h-8 w-8" />
             </div>
-            <h2 className="text-xl font-bold">ส่งคำสั่งซื้อแล้ว</h2>
+            <h2 className="text-xl font-bold">ส่งออเดอร์แล้ว</h2>
             <p className="mt-2 text-slate-600 dark:text-slate-400">
-              คำสั่งซื้อของคุณถูกส่งไปยังเซลล์เพื่อตรวจสอบและอนุมัติ
+              ออเดอร์ของคุณถูกส่งไปยังเซลล์เพื่อตรวจสอบและอนุมัติ
             </p>
             <div className="mt-6 flex justify-center">
               <Button onClick={() => router.push("/stock")}>
@@ -1355,7 +1355,7 @@ export function OrderPageClient({
             ส่งต่อไปให้พนักงานตรวจได้ — พนักงานจะเห็นธงเตือนนี้ด้วย
           </>
         }
-        confirmLabel="ส่งคำสั่งซื้อ"
+        confirmLabel="ส่งออเดอร์"
         onConfirm={() => submitOrder()}
         onClose={() => setConfirmRiskyOpen(false)}
       />

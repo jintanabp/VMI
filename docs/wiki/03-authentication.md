@@ -15,7 +15,7 @@
 `POST /api/auth/customer/login` → ตั้ง cookie เก็บ `storeId`
 
 **เดิมเส้นทางนี้ไม่มีการตรวจสอบสิทธิ์ใด ๆ** การส่งค่า `{vda: "vda1"}` เข้ามาจะได้รับ session
-ของร้านค้าโดยสมบูรณ์ ซึ่งสามารถสั่งสินค้า แก้ไขราคา และยกเลิกคำสั่งซื้อได้
+ของร้านค้าโดยสมบูรณ์ ซึ่งสามารถสั่งสินค้า แก้ไขราคา และยกเลิกออเดอร์ได้
 ประกอบกับ `GET /api/vda` เปิดให้เรียกดูรายชื่อ VDA ได้โดยไม่ต้องยืนยันตัวตน
 เอกสารฉบับเดิมระบุว่าออกแบบไว้สำหรับเครื่อง kiosk ภายในคลัง ซึ่งไม่สอดคล้องกับระบบ
 ที่เปิดให้เข้าถึงผ่าน hostname สาธารณะ
@@ -134,7 +134,8 @@ sequenceDiagram
 - แท็บสิทธิ์เซลล์-VDA: admin ดูได้และ**เพิ่ม**อีเมลให้รหัสเซลล์ได้ · เอาอีเมลออก (`DELETE`) เป็นของ creator ·
   admin กำหนดรหัสให้อีเมลที่เป็นผู้ดูแลระบบไม่ได้ (403) — ตั้ง admin เป็นเซลล์เป็นของ creator เท่านั้น
   ตรวจที่ `app/api/admin/salesman-assignments/route.ts` · หน้า «ระบบ › ผู้ดูแล» ยังเป็นของ creator
-  (กันที่ `app/admin/system/admins/layout.tsx`)
+  (กันที่ `app/admin/system/admins/layout.tsx`) · «ระบบ › บันทึกการทำงาน» ก็ของ creator เท่านั้น
+  (`app/admin/system/audit/layout.tsx` + API ตรวจ `isCreator` เอง)
 - หมวดที่ creator เท่านั้น (ข้อมูล · MIN/MAX · มุมมองทดสอบ · ระบบ) กันด้วย `layout.tsx` ของหมวด
   (`CreatorOnlyLayout`) · เพิ่มแท็บใหม่ให้ admin เห็นได้ต้องใส่ `permission` ใน `lib/admin/admin-nav.ts`
   **และ** เปิด API ที่หน้านั้นเรียกด้วย `can()`
@@ -169,9 +170,10 @@ sequenceDiagram
 
 อยู่ที่ `lib/orders/access.ts` — `assertOrderAccess(orderId, session)`
 
-1. admin ผ่านหมด
-2. ถ้าร้านเป็น VDA → เช็คจากทะเบียนที่จับคู่จาก `cross_target_current_month` ว่ารหัสเซลล์ของเราดูแล VDA นั้นไหม
-3. ถ้าไม่ใช่ VDA → เช็คว่า `store.salesRep.email` อยู่ใน scope ของเราไหม
+1. Creator ผ่านหมด
+2. ร้าน VDA → เช็คจากทะเบียนที่จับคู่จาก `cross_target_current_month` ว่ารหัสเซลล์ของเราดูแล VDA นั้นไหม
+3. ร้านที่ไม่ใช่ VDA หรือทะเบียน VDA ยังไม่โหลด → **ปฏิเสธ** (fail closed · เดิมถอยไปเทียบ `Store.salesRep`
+   ซึ่งค้างเก่าได้ — เลิกใช้ `Store.salesRep` ทั้งระบบแล้วตั้งแต่ 29 ก.ย. 2569)
 
 > สิทธิ์มาจาก **master ของ Fabric** ไม่ใช่ตารางใน DB — ย้ายเขตที่ต้นทางแล้วสิทธิ์ตามทันทีโดยไม่ต้อง sync
 

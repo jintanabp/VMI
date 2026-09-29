@@ -10,7 +10,7 @@ import {
   erpEndpoint,
   ERP_SEND_DISABLED_REASON,
 } from "@/lib/po/erp-endpoint";
-import { SENT_TO_ERP, SENDING_TO_ERP } from "@/lib/po/po-status";
+import { ERP_RESULT_UNKNOWN, SENT_TO_ERP, SENDING_TO_ERP } from "@/lib/po/po-status";
 import { notifyErpSendResult } from "@/lib/po/erp-notify";
 
 /**
@@ -123,10 +123,19 @@ export async function POST(
   const outcome = await deliverPoToErp({ doc, ctx: erpCtx, endpoint });
 
   if (!outcome.ok) {
-    // ถอยสถานะกลับจาก "กำลังส่ง" — ไม่งั้นใบค้างอยู่ในสถานะที่ไม่มีใครทำอะไรต่อ
+    // ถอยสถานะออกจาก "กำลังส่ง" — ไม่งั้นใบค้างอยู่ในสถานะที่ไม่มีใครทำอะไรต่อ
+    // ยังไม่ได้ยิง (not_ready) หรือ ERP ปฏิเสธชัดเจน = ไม่ได้เข้า → "ออกแล้ว" ตามเดิม ·
+    // ที่เหลือ (timeout/เน็ต/HTTP error) อาจเข้าไปแล้ว → ป้ายต้องไม่บอกว่ายังไม่เคยส่ง
+    // (นิยามเดียวกับ poMayBeInErp ใน lib/po/po-status.ts)
+    const definitelyNotIn =
+      outcome.failure === "not_ready" || outcome.failure === "rejected";
     await prisma.purchaseOrder.updateMany({
       where: { poNumber, erpSentAt: null },
-      data: { status: "issued", statusAt: new Date(), statusBy: session.email },
+      data: {
+        status: definitelyNotIn ? "issued" : ERP_RESULT_UNKNOWN,
+        statusAt: new Date(),
+        statusBy: session.email,
+      },
     });
     // หลังรู้ผลแล้วเท่านั้น — ให้เซลล์คนอื่นของคลังเห็นด้วย ไม่ใช่แค่คนที่กดแล้วอาจปิดจอไป
     await notifyErpSendResult({

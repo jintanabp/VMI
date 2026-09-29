@@ -29,8 +29,7 @@ import {
 import type { OrderItemInput } from "@/lib/repositories/types";
 import { getSalesSession, salesPreviewReadOnly } from "@/lib/auth/sales-session";
 import { prisma } from "@/lib/prisma";
-import { ensureVdaStoreSalesRep } from "@/lib/fabric/ensure-vda-sales-rep";
-import { isVdaStoreCode, getVdaAosBillRegistry } from "@/lib/fabric/vda-aos-bill";
+import { getVdaAosBillRegistry } from "@/lib/fabric/vda-aos-bill";
 import { getSkuMasterDirectory } from "@/lib/fabric";
 import { getCrossTargetRegistry } from "@/lib/fabric/cross-target";
 import {
@@ -74,7 +73,7 @@ const createOrderSchema = z.object({
     .min(1, "ต้องมีสินค้าอย่างน้อย 1 รายการ")
     .superRefine((items, ctx) => {
       if (new Set(items.map((i) => i.skuId)).size !== items.length) {
-        ctx.addIssue({ code: "custom", message: "มีสินค้าซ้ำในคำสั่งซื้อ — รวมเป็นบรรทัดเดียว" });
+        ctx.addIssue({ code: "custom", message: "มีสินค้าซ้ำในออเดอร์ — รวมเป็นบรรทัดเดียว" });
       }
     }),
   /**
@@ -158,25 +157,38 @@ const patchOrderSchema = z.discriminatedUnion("action", [
  *
  * `orders.listOrders()` ประกาศคืน `unknown[]` โดยตั้งใจ (route ส่งต่อเป็น JSON ตรง ๆ
  * ไม่เคยอ่านฟิลด์เอง) จึงต้อง cast รูปร่างที่รู้แน่ว่ามี (items[].sku.code) ตรงนี้เอง
+ *
+ * `withSalesCodes` (creator เท่านั้น) แปะรหัสเซลล์ของคลังนั้นจากทะเบียน VDA ให้การ์ดโชว์ว่าใครดูแล
  */
-function withPackSize(list: unknown[]) {
+function withPackSize(list: unknown[], opts: { withSalesCodes?: boolean } = {}) {
+  const vdaReg = getVdaAosBillRegistry();
   const skuDir = getSkuMasterDirectory();
   let targetCodes: Set<string> | null = null;
   try {
     targetCodes = new Set(
-      getCrossTargetRegistry().productsForSalesmen(
-        getVdaAosBillRegistry().listAllSalesmanCodes()
-      )
+      getCrossTargetRegistry().productsForSalesmen(vdaReg.listAllSalesmanCodes())
     );
   } catch {
     // เป้าขายเป็นฟีเจอร์เสริม — ขาดได้โดยไม่ทำให้ลิสต์ออเดอร์ทั้งหน้าพัง
     targetCodes = null;
   }
   return list.map((orderRaw) => {
-    const order = orderRaw as { items: { sku: { code: string } }[] } &
-      Record<string, unknown>;
+    const order = orderRaw as {
+      items: { sku: { code: string } }[];
+      store: { code: string } & Record<string, unknown>;
+    } & Record<string, unknown>;
     return {
       ...order,
+      ...(opts.withSalesCodes
+        ? {
+            store: {
+              ...order.store,
+              salesCodes: vdaReg.getSalesmanCodesForVda(order.store.code).map((c) =>
+                c.trim().toUpperCase()
+              ),
+            },
+          }
+        : {}),
       items: order.items.map((item) => ({
         ...item,
         packSize: skuDir.packSizeForSku(item.sku.code),
@@ -192,7 +204,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const status = searchParams.get("status") ?? undefined;
   const storeId = searchParams.get("storeId") ?? undefined;
-  const salesRepId = searchParams.get("salesRepId") ?? undefined;
+  const salesCode = searchParams.get("salesCode")?.trim().toUpperCase() || undefined;
   const vdaCode = searchParams.get("vdaCode") ?? undefined;
   const allPersonVdas = searchParams.get("allPersonVdas") === "true";
 
@@ -207,13 +219,20 @@ export async function GET(request: Request) {
     const role = salesSession.role;
 
     if (role === "admin") {
+      // กรองตามรหัสเซลล์ = คลังของรหัสนั้นตามทะเบียน VDA — กฎเดียวกับที่ตัดสินสิทธิ์ของเซลล์
+      // (เดิมกรองด้วย Store.salesRep ซึ่งเก็บได้อีเมลเดียว รหัสที่ผูกหลายอีเมลจึงกรองไม่ตรง)
+      let vdaCodes: string[] | undefined;
+      if (salesCode) {
+        vdaCodes = resolveVdaCodesForSalesmanCodes([salesCode]);
+        const requested = vdaCode?.trim().toLowerCase();
+        if (requested) vdaCodes = vdaCodes.filter((v) => v === requested);
+      }
       const list = await orders.listOrders({
         status,
         storeId,
-        salesRepId: salesRepId || undefined,
-        storeCode: vdaCode || undefined,
+        ...(vdaCodes ? { vdaCodes } : { storeCode: vdaCode || undefined }),
       });
-      return NextResponse.json(withPackSize(list));
+      return NextResponse.json(withPackSize(list, { withSalesCodes: true }));
     }
 
     const salesmanCodes = resolveSalesmanCodesForFilter(salesSession);
@@ -267,15 +286,12 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     // ข้อความไทยตัวแรก — เดิมส่ง object ของ zod กลับไป หน้าเว็บแสดงให้ร้านอ่านไม่ได้
     return NextResponse.json(
-      { error: parsed.error.issues[0]?.message ?? "ข้อมูลคำสั่งซื้อไม่ถูกต้อง" },
+      { error: parsed.error.issues[0]?.message ?? "ข้อมูลออเดอร์ไม่ถูกต้อง" },
       { status: 400 }
     );
   }
 
   const store = await prisma.store.findUnique({ where: { id: storeId } });
-  if (store && isVdaStoreCode(store.code)) {
-    await ensureVdaStoreSalesRep(store.id, store.code);
-  }
 
   const items = parsed.data.items;
 
@@ -401,7 +417,7 @@ export async function POST(request: Request) {
   await notifySales({
     storeId,
     kind: "order_created",
-    title: `${storeCode || store?.name || "ร้านค้า"} ส่งคำสั่งซื้อใหม่`,
+    title: `${storeCode || store?.name || "ร้านค้า"} ส่งออเดอร์ใหม่`,
     detail:
       `${items.length} รายการ · ${totalQty} หีบ` +
       (flaggedCount > 0 ? ` · มีราคาไม่ตรง C4 ${flaggedCount} รายการ` : ""),
@@ -534,28 +550,25 @@ export async function PATCH(request: Request) {
       const pos = result.purchaseOrders;
       const totalQty = pos.reduce((s, po) => s + po.totalQty, 0);
       const totalItems = pos.reduce((s, po) => s + po.itemCount, 0);
+      // แจ้งเตือนเดียว — อนุมัติกับออกเลข PO เกิดพร้อมกันเสมอ เดิมแยกสองอันร้านเห็นซ้ำซ้อน
+      // เลข PO (ไว้อ้างอิงตอนรับของ) โชว์เป็นชิปจาก poNumbers อยู่แล้ว · หลายใบต้องบอกยอดรายใบด้วย
       await notifyStore({
         storeId: order.storeId,
         kind: "approved",
-        title: "อนุมัติคำสั่งซื้อแล้ว",
-        detail: `รวม ${totalItems} รายการ · ${totalQty} หีบ`,
-        poNumbers: pos.map((po) => po.poNumber),
-        orderId,
-        actorEmail: salesSession.email,
-      });
-      // แยกเป็นอีกใบ เพราะ "อนุมัติ" กับ "ออกเลข PO" เป็นคนละข้อมูลที่ร้านใช้คนละเรื่อง
-      // (อันหลังเอาไว้อ้างอิงตอนรับของ) และเวลาแบ่งหลายใบต้องเห็นยอดแยกรายใบ
-      await notifyStore({
-        storeId: order.storeId,
-        kind: "po_issued",
         title:
-          pos.length > 1 ? `ออก PO แล้ว ${pos.length} ใบ` : "ออก PO แล้ว",
-        detail: pos
-          .map(
-            (po) =>
-              `${po.poNumber} · ${po.label} · ${po.itemCount} รายการ ${po.totalQty} หีบ`
-          )
-          .join(" | "),
+          pos.length > 1
+            ? `อนุมัติออเดอร์และออก PO แล้ว ${pos.length} ใบ`
+            : "อนุมัติออเดอร์และออก PO แล้ว",
+        detail:
+          pos.length > 1
+            ? `รวม ${totalItems} รายการ · ${totalQty} หีบ | ` +
+              pos
+                .map(
+                  (po) =>
+                    `${po.poNumber} · ${po.label} · ${po.itemCount} รายการ ${po.totalQty} หีบ`
+                )
+                .join(" | ")
+            : `${totalItems} รายการ · ${totalQty} หีบ`,
         poNumbers: pos.map((po) => po.poNumber),
         orderId,
         actorEmail: salesSession.email,
@@ -566,7 +579,7 @@ export async function PATCH(request: Request) {
           storeId: order.storeId,
           kind: "order_split",
           title: "อนุมัติบางส่วน — ที่เหลือแยกเป็นอีกใบรออนุมัติ",
-          detail: `${remainderCount} รายการที่ยังไม่อนุมัติ ย้ายไปคำสั่งซื้อใบใหม่`,
+          detail: `${remainderCount} รายการที่ยังไม่อนุมัติ ย้ายไปออเดอร์ใบใหม่`,
           orderId: remainderOrderId,
           actorEmail: salesSession.email,
         });
@@ -630,7 +643,7 @@ export async function PATCH(request: Request) {
     await notifyStore({
       storeId: order.storeId,
       kind: "rejected",
-      title: "คำสั่งซื้อถูกปฏิเสธ",
+      title: "ออเดอร์ถูกปฏิเสธ",
       detail: body.reason?.trim() || "ไม่ได้ระบุเหตุผล",
       orderId,
       actorEmail: salesSession.email,
@@ -672,7 +685,7 @@ export async function PATCH(request: Request) {
     await notifyStore({
       storeId: order.storeId,
       kind: "price_changed",
-      title: "พนักงานปรับราคาในคำสั่งซื้อ",
+      title: "พนักงานปรับราคาในออเดอร์",
       detail:
         body.unitPriceOverride == null
           ? `${priceLabel}ยกเลิกราคาที่ตั้งไว้ กลับไปใช้ราคาระบบ${
@@ -722,7 +735,7 @@ export async function PATCH(request: Request) {
     await notifyStore({
       storeId: order.storeId,
       kind: "item_rejected",
-      title: "พนักงานปฏิเสธรายการในคำสั่งซื้อ",
+      title: "พนักงานปฏิเสธรายการในออเดอร์",
       detail:
         (before ? `${before.skuCode} ${before.skuName}` : "รายการนี้") +
         (body.reason ? ` · ${body.reason}` : ""),
@@ -824,7 +837,7 @@ export async function PATCH(request: Request) {
       kind: pendingConfirm ? "qty_increase_pending" : "qty_changed",
       title: pendingConfirm
         ? "พนักงานขอเพิ่มจำนวน — รอร้านยืนยัน"
-        : "พนักงานปรับจำนวนในคำสั่งซื้อ",
+        : "พนักงานปรับจำนวนในออเดอร์",
       detail: before
         ? `${skuLabel} · ${before.finalQty} → ${body.finalQty} หีบ`
         : `ปรับเป็น ${body.finalQty} หีบ`,
@@ -838,7 +851,7 @@ export async function PATCH(request: Request) {
 }
 
 /**
- * พนักงานลบคำสั่งซื้อ — ทีละใบ (`?orderId=`) หรือหลายใบ (`?orderIds=a,b,c`)
+ * พนักงานลบออเดอร์ — ทีละใบ (`?orderId=`) หรือหลายใบ (`?orderIds=a,b,c`)
  *
  * ค่าเริ่มต้นยังลบได้เฉพาะที่ยังไม่ออก PO เพื่อกันเผลอลบใบที่ส่งต่อฝ่ายจัดซื้อไปแล้ว
  * ต้องส่ง `?withPo=1` มาด้วยถึงจะลบใบที่ออก PO แล้ว — ฝั่ง UI ใช้ตอนล้างประวัติ

@@ -1,6 +1,6 @@
 # VMI Project Wiki — หน้าแรก
 
-> **Vendor Managed Inventory (VMI)** — ระบบจัดการสต็อกคลัง VDA แนะนำการสั่งสินค้า และ workflow อนุมัติคำสั่งซื้อโดยทีมเซลล์
+> **Vendor Managed Inventory (VMI)** — ระบบจัดการสต็อกคลัง VDA แนะนำการสั่งสินค้า และ workflow อนุมัติออเดอร์โดยทีมเซลล์
 
 ---
 

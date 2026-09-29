@@ -20,12 +20,3 @@ export async function getManualSalesmanCodes(email: string): Promise<string[]> {
   return [...new Set(rows.map((r) => normalizeSalesmanCode(r.salesmanCode)))];
 }
 
-/** อีเมลทั้งหมดที่ผูกกับรหัสนี้ — ใช้หาเจ้าของร้าน VDA (Store.salesRep) */
-export async function getLinkedEmailsForCode(code: string): Promise<string[]> {
-  const rows = await prisma.salesmanEmailAssignment.findMany({
-    where: { salesmanCode: normalizeSalesmanCode(code), active: true },
-    select: { email: true },
-    orderBy: { createdAt: "asc" },
-  });
-  return [...new Set(rows.map((r) => normalizeEmail(r.email)))];
-}

@@ -81,13 +81,13 @@ export default async function LoginPage({
               <>
                 เซลล์ / Admin
                 <br />
-                อนุมัติคำสั่งซื้อ
+                อนุมัติออเดอร์
               </>
             )}
           </h2>
           <p className="max-w-sm text-teal-50/90">
             {mode === "customer"
-              ? "เลือกคลัง VDA แล้วเข้าดูสต็อกและส่งคำสั่งซื้อ"
+              ? "เลือกคลัง VDA แล้วเข้าดูสต็อกและส่งออเดอร์"
               : "เข้าด้วยบัญชี Microsoft ของบริษัท"}
           </p>
         </div>

@@ -5,7 +5,6 @@ import { fabricStockReady } from "@/lib/fabric";
 import { getRawSalesSession } from "@/lib/auth/sales-session";
 import { setAdminPreviewCookie } from "@/lib/auth/admin-preview";
 import { syncStockCoverForStore } from "@/lib/fabric/sync-stock-cover";
-import { ensureVdaStoreSalesRep } from "@/lib/fabric/ensure-vda-sales-rep";
 import { listStockFromDbSources } from "@/lib/fabric/stock-rows";
 import {
   CUSTOMER_STORE_COOKIE,
@@ -66,7 +65,6 @@ export async function POST(request: Request) {
 
   const dbStore = await ensurePrismaStore(code, formatVdaName(code));
   await syncStockCoverForStore(dbStore.id, code);
-  await ensureVdaStoreSalesRep(dbStore.id, code);
 
   await setAdminPreviewCookie();
 

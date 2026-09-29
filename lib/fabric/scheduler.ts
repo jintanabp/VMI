@@ -14,7 +14,6 @@ import {
   writeMasterRefreshStatus,
   type RefreshTrigger,
 } from "./refresh-status";
-import { syncFabricSalesReps } from "./sync-sales-reps";
 import { requiredRefreshSucceeded, type DatasetId } from "./datasets";
 import { maxDataAgeHours } from "./data-age";
 
@@ -134,7 +133,6 @@ async function doRefresh(
   const { datasets: results, ...flags } = all;
 
   reloadFabricMasters();
-  await syncFabricSalesReps();
   bumpDataVersion();
 
   // ต้องวัดหลัง reload — ไฟล์ใหม่เข้าหน่วยความจำแล้วเท่านั้นถึงจะบอกได้ว่ารอบนี้

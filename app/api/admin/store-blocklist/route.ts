@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getRawSalesSession } from "@/lib/auth/sales-session";
+import { getRawSalesSession, type SalesSession } from "@/lib/auth/sales-session";
+import { auditSkuCodes, recordAudit } from "@/lib/admin/audit-log";
 import { prisma } from "@/lib/prisma";
 import {
   listBlocks,
@@ -9,8 +10,14 @@ import {
 
 export const dynamic = "force-dynamic";
 
+/** เป้าหมายใน audit log เป็นรหัสร้านที่คนอ่านออก ไม่ใช่ cuid */
+async function storeCodeOf(storeId: string): Promise<string> {
+  const s = await prisma.store.findUnique({ where: { id: storeId }, select: { code: true } });
+  return s?.code ?? storeId;
+}
+
 async function requireAdminAndStore(request: Request): Promise<
-  | { ok: true; storeId: string; email: string }
+  | { ok: true; storeId: string; email: string; session: SalesSession }
   | { ok: false; res: NextResponse }
 > {
   const session = await getRawSalesSession();
@@ -45,7 +52,7 @@ async function requireAdminAndStore(request: Request): Promise<
       res: NextResponse.json({ error: "ไม่พบร้านค้านี้" }, { status: 404 }),
     };
   }
-  return { ok: true, storeId: store.id, email: session.email };
+  return { ok: true, storeId: store.id, email: session.email, session };
 }
 
 export async function GET(request: Request) {
@@ -66,6 +73,13 @@ export async function POST(request: Request) {
     guard.email,
     body
   );
+  if (status < 300) {
+    await recordAudit(guard.session, "blocklist.add", await storeCodeOf(guard.storeId), {
+      skus: await auditSkuCodes(body.skuIds),
+      reason: String(body.reason ?? ""),
+      until: body.permanent === true || !body.effectiveTo ? "ถาวร" : String(body.effectiveTo),
+    });
+  }
   return NextResponse.json(payload, { status });
 }
 
@@ -74,5 +88,10 @@ export async function DELETE(request: Request) {
   if (!guard.ok) return guard.res;
   const body = await request.json().catch(() => ({}));
   const { status, body: payload } = await removeBlocks(guard.storeId, body);
+  if (status < 300) {
+    await recordAudit(guard.session, "blocklist.remove", await storeCodeOf(guard.storeId), {
+      skus: await auditSkuCodes(body.skuIds),
+    });
+  }
   return NextResponse.json(payload, { status });
 }

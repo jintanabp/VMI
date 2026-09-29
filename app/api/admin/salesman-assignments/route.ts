@@ -11,6 +11,7 @@ import {
 } from "@/lib/auth/manual-salesman-assignments";
 import { can, isCreator } from "@/lib/auth/permissions";
 import { isAdminEmailAsync } from "@/lib/auth/admin-registry";
+import { recordAudit } from "@/lib/admin/audit-log";
 
 export const dynamic = "force-dynamic";
 
@@ -117,6 +118,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "บันทึกไม่สำเร็จ" }, { status: 500 });
   }
 
+  for (const email of emails) {
+    await recordAudit(session, "salesCode.assign", email, { salesmanCode });
+  }
+
   return NextResponse.json({ assignments: await enrichRows() });
 }
 
@@ -131,6 +136,16 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "ต้องระบุ id" }, { status: 400 });
   }
 
+  // อ่านก่อนลบ — บันทึกต้องบอกได้ว่าเอาอีเมลไหนออกจากรหัสไหน ไม่ใช่แค่ id
+  const removed = await prisma.salesmanEmailAssignment.findUnique({
+    where: { id },
+    select: { email: true, salesmanCode: true },
+  });
   await prisma.salesmanEmailAssignment.deleteMany({ where: { id } });
+  if (removed) {
+    await recordAudit(session, "salesCode.unassign", removed.email, {
+      salesmanCode: removed.salesmanCode,
+    });
+  }
   return NextResponse.json({ assignments: await enrichRows() });
 }

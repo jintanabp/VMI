@@ -25,7 +25,7 @@ export async function DELETE(request: Request) {
 
   const params = new URL(request.url).searchParams;
   const skuCode = params.get("skuCode")?.trim();
-  // ค่าเริ่มต้นแจ้งร้าน — ร้านต้องรู้ว่าของที่สั่งหายไปจากคำสั่งซื้อ (เหมือนเคลียร์ทั้งใบ)
+  // ค่าเริ่มต้นแจ้งร้าน — ร้านต้องรู้ว่าของที่สั่งหายไปจากออเดอร์ (เหมือนเคลียร์ทั้งใบ)
   const notify = params.get("notify") !== "0";
   if (!skuCode) {
     return NextResponse.json({ error: "ต้องระบุ skuCode" }, { status: 400 });
@@ -122,7 +122,7 @@ export async function DELETE(request: Request) {
         storeId: lines[0]!.order.storeId,
         kind: "item_cleared",
         title: "เคลียร์รายการสิ้นเดือน",
-        detail: `${skuCode} ${lines[0]!.sku.name} · นำออกจากคำสั่งซื้อแล้ว`,
+        detail: `${skuCode} ${lines[0]!.sku.name} · นำออกจากออเดอร์แล้ว`,
         orderId,
         actorEmail: session.email,
       });

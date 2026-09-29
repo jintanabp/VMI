@@ -171,9 +171,7 @@ export interface OrderRepository {
     deliveryDate?: string | null
   ): Promise<{ id: string; reused: boolean }>;
   listOrders(filters?: {
-    salesRepEmail?: string;
-    salesRepEmails?: string[];
-    salesRepId?: string;
+    /** ว่าง [] = ไม่มีคลังให้ดู คืนลิสต์ว่าง (ต่างจากไม่ส่ง = ไม่กรองตามคลัง) */
     vdaCodes?: string[];
     storeCode?: string;
     status?: string;

@@ -5,6 +5,7 @@ import {
   listAdmins,
   removeAdmin,
 } from "@/lib/auth/admin-registry";
+import { recordAudit } from "@/lib/admin/audit-log";
 
 export async function GET() {
   const session = await getRawSalesSession();
@@ -29,6 +30,7 @@ export async function POST(request: Request) {
 
   try {
     const row = await addAdmin(email, session.email);
+    await recordAudit(session, "admin.add", email.toLowerCase());
     return NextResponse.json(row, { status: 201 });
   } catch (err) {
     const message = err instanceof Error ? err.message : "เพิ่มไม่สำเร็จ";
@@ -52,6 +54,7 @@ export async function DELETE(request: Request) {
     if (!ok) {
       return NextResponse.json({ error: "ไม่พบอีเมล" }, { status: 404 });
     }
+    await recordAudit(session, "admin.remove", email.toLowerCase());
     return NextResponse.json({ success: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : "ลบไม่สำเร็จ";

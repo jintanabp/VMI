@@ -3,7 +3,9 @@ import { prisma } from "@/lib/prisma";
 import type { SalesSession } from "@/lib/auth/sales-session";
 import { assertOrderAccess } from "@/lib/orders/access";
 import { notifyStore } from "@/lib/orders/store-notify";
+import { recordAudit } from "@/lib/admin/audit-log";
 import { sanitizePoNumber } from "@/lib/po/po-number";
+import { poMayBeInErp } from "@/lib/po/po-status";
 
 /**
  * ลบออเดอร์ทิ้งทั้งใบ — ตัวกลางของทั้งหน้าตรวจออเดอร์และหน้า PO
@@ -23,22 +25,11 @@ import { sanitizePoNumber } from "@/lib/po/po-number";
 export type DeleteSkipReason = "not_found" | "forbidden" | "has_po" | "in_erp";
 
 /**
- * PO ใบนี้อาจอยู่ใน ERP แล้วหรือไม่ — ส่งสำเร็จ หรือเคยลองส่งแล้วผลไม่ชัดเจน (timeout/network/
- * แถวเก่าที่ไม่มี failureKind) · ถูก ERP ปฏิเสธชัดเจน (`rejected`) = ไม่ได้เข้า ลบได้
- *
  * ลบ PO ที่อยู่ใน ERP แล้ว = ฝั่งเราไม่มีหลักฐานเหลือ แต่ ERP ยังเปิดบิลอยู่ และเลข orderNo นั้นถูกล็อก
  * 6 เดือน (ดู lib/po/erp-endpoint.ts) — พบจาก QA 28 ก.ย. 69 ว่าเซลล์ลบได้ด้วย notify=0
+ * (ตัวจริงย้ายไป lib/po/po-status.ts ให้หน้า PO ใช้ปิดตัวเลือกสถานะได้ด้วย)
  */
-export function poMayBeInErp(po: {
-  erpSentAt: Date | null;
-  erpAttemptedAt?: Date | null;
-  erpError?: string | null;
-  erpFailureKind?: string | null;
-}): boolean {
-  if (po.erpSentAt) return true;
-  const attempted = po.erpAttemptedAt != null || po.erpError != null;
-  return attempted && po.erpFailureKind !== "rejected";
-}
+export { poMayBeInErp } from "@/lib/po/po-status";
 
 export interface DeleteOrdersResult {
   deletedOrderIds: string[];
@@ -70,6 +61,7 @@ export async function deleteOrdersForSession(
     select: {
       id: true,
       storeId: true,
+      store: { select: { code: true } },
       createdAt: true,
       _count: { select: { items: true } },
       purchaseOrders: {
@@ -149,6 +141,21 @@ export async function deleteOrdersForSession(
     `[orders:delete] by=${session.email} role=${session.role} notify=${opts.notifyStores} ` +
       `orders=${ids.join(",")} po=${deletedPoNumbers.join(",") || "-"}`
   );
+  // เก็บลงตารางด้วย — log ของ container หายเมื่อสร้างใหม่ (เดิมมีแค่บรรทัดข้างบน)
+  for (const o of targets) {
+    const pos = o.purchaseOrders.map((p) => p.poNumber);
+    // เป้าหมายเป็นร้าน + วันที่สั่ง (+ PO ถ้ามี) — id ของออเดอร์ไม่มีใครอ่านออก และแถวก็ถูกลบไปแล้ว
+    const ordered = o.createdAt.toLocaleDateString("th-TH", {
+      day: "numeric",
+      month: "short",
+      year: "2-digit",
+      timeZone: "Asia/Bangkok",
+    });
+    await recordAudit(session, "orders.delete", `${o.store.code.toUpperCase()} · สั่ง ${ordered}`, {
+      poNumbers: pos,
+      notifyStore: opts.notifyStores || pos.length > 0,
+    });
+  }
 
   for (const o of targets) {
     const pos = o.purchaseOrders.map((p) => p.poNumber);
@@ -157,7 +164,7 @@ export async function deleteOrdersForSession(
       await notifyStore({
         storeId: o.storeId,
         kind: "deleted",
-        title: "คำสั่งซื้อถูกลบโดยพนักงาน",
+        title: "ออเดอร์ถูกลบโดยพนักงาน",
         detail:
           `ออเดอร์ ${o._count.items} รายการ ที่ส่งเมื่อ ${o.createdAt.toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok" })} ถูกลบออกจากระบบ` +
           (pos.length > 0 ? ` · PO ${pos.join(", ")} ถูกยกเลิกด้วย` : ""),

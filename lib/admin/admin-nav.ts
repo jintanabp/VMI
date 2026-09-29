@@ -98,6 +98,7 @@ export const ADMIN_GROUPS: AdminGroupDef[] = [
         label: "สิทธิ์เซลล์-VDA",
         permission: "salesCodes.view",
       },
+      { href: "/admin/system/audit", label: "บันทึกการทำงาน" },
     ],
   },
 ];

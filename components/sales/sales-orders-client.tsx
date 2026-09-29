@@ -14,7 +14,8 @@ import { SalesNav } from "./sales-nav";
 import { StatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { SalesRepFilter } from "@/components/sales/sales-rep-filter";
+import { SalesCodeFilter } from "@/components/sales/sales-code-filter";
+import type { SalesCodeOption } from "@/app/api/admin/sales-codes/route";
 import {
   PoSplitPanel,
   poSplitCount,
@@ -40,13 +41,6 @@ import { friendlyError } from "@/lib/error-message";
 // ใช้ type เดียวกับตารางรีวิว เพื่อไม่ให้ฟิลด์สองที่หลุดกัน
 type OrderItem = ReviewOrderItem;
 
-interface SalesRep {
-  id: string;
-  name: string;
-  email: string;
-  code: string;
-}
-
 interface Order {
   id: string;
   status: string;
@@ -55,7 +49,8 @@ interface Order {
   store: {
     code: string;
     name: string;
-    salesRep?: { id: string; name: string; email: string } | null;
+    /** รหัสเซลล์ที่ดูแลคลังนี้ (ทะเบียน VDA) — API ส่งให้ creator เท่านั้น */
+    salesCodes?: string[];
   };
   items: OrderItem[];
 }
@@ -81,7 +76,7 @@ export function SalesOrdersClient() {
   const queryClient = useQueryClient();
   const isAdmin = session?.role === "admin";
   const [statusFilter, setStatusFilter] = useState("pending_approval");
-  const [salesRepFilter, setSalesRepFilter] = useState("");
+  const [salesCodeFilter, setSalesCodeFilter] = useState("");
   const [vdaFilter, setVdaFilter] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<"date" | "store">("date");
@@ -157,11 +152,17 @@ export function SalesOrdersClient() {
     personAllVdas.length > 0 &&
     Boolean(vdaAccess?.multipleCodes);
 
-  const { data: salesReps = [] } = useQuery<SalesRep[]>({
-    queryKey: ["admin-salesmen"],
-    queryFn: () => apiFetch(appPath("/api/admin/salesmen")).then((r) => r.json()),
+  const { data: salesCodeOptions = [] } = useQuery<SalesCodeOption[]>({
+    queryKey: ["admin-sales-codes"],
+    queryFn: () =>
+      apiFetch(appPath("/api/admin/sales-codes")).then((r) => (r.ok ? r.json() : [])),
     enabled: isAdmin,
   });
+  // เลือกรหัสแล้ว ตัวเลือก VDA เหลือเฉพาะคลังของรหัสนั้น — เลือกคลังอื่นได้จะได้ลิสต์ว่างเปล่าเฉย ๆ
+  const selectedCodeVdas = salesCodeOptions.find((o) => o.code === salesCodeFilter)?.vdas;
+  const vdaChoices = selectedCodeVdas
+    ? availableVdas.filter((v) => selectedCodeVdas.includes(v.toLowerCase()))
+    : availableVdas;
 
 
   // ตั้ง VDA แรกเป็นค่าเริ่มต้น **ครั้งเดียว** ตอนโหลด — เดิมตั้งซ้ำทุกครั้งที่ตัวกรองว่าง ผลคือ
@@ -207,13 +208,13 @@ export function SalesOrdersClient() {
   const ordersUrl = useMemo(() => {
     const params = new URLSearchParams();
     if (statusFilter) params.set("status", statusFilter);
-    if (isAdmin && salesRepFilter) params.set("salesRepId", salesRepFilter);
+    if (isAdmin && salesCodeFilter) params.set("salesCode", salesCodeFilter);
     if (allPersonVdas) params.set("allPersonVdas", "true");
     else if (vdaFilter) params.set("vdaCode", vdaFilter);
     const qs = params.toString();
     // ต้องผ่าน appPath() เพราะแอปเสิร์ฟใต้ basePath /vmi — ยิงตรงจะได้ 404
     return `${appPath("/api/orders")}${qs ? `?${qs}` : ""}`;
-  }, [statusFilter, salesRepFilter, vdaFilter, allPersonVdas, isAdmin]);
+  }, [statusFilter, salesCodeFilter, vdaFilter, allPersonVdas, isAdmin]);
 
   // ordersReady มาจาก useVdaOptions — isAdmin อยู่ใน queryKey และมาจาก session แบบ async
   // ถ้าไม่รอ session จะยิงสองครั้งทุกครั้งที่ mount
@@ -224,7 +225,7 @@ export function SalesOrdersClient() {
     isError,
     refetch,
   } = useQuery<Order[]>({
-    queryKey: ["orders", statusFilter, salesRepFilter, vdaFilter, allPersonVdas, isAdmin],
+    queryKey: ["orders", statusFilter, salesCodeFilter, vdaFilter, allPersonVdas, isAdmin],
     enabled: ordersReady,
     queryFn: async () => {
       const res = await apiFetch(ordersUrl);
@@ -413,7 +414,7 @@ export function SalesOrdersClient() {
     setVdaFilter("");
     // เซลล์หลายรหัส: ถ้าใบนั้นอยู่ใน VDA ของรหัสอื่น effect ด้านล่างจะขยายเป็น "ทุก VDA ของฉัน" ให้เอง
     vdaDefaultApplied.current = true;
-    setSalesRepFilter("");
+    setSalesCodeFilter("");
     setPendingFocus(focusOrderId);
     router.replace("/sales/orders", { scroll: false });
   }, [focusOrderId, focusStatus, router]);
@@ -845,7 +846,7 @@ export function SalesOrdersClient() {
                     <option value="">ทุก VDA ที่ดูแล</option>
                   )}
                   {isAdmin && <option value="">ทุก VDA</option>}
-                  {availableVdas.map((vda) => (
+                  {vdaChoices.map((vda) => (
                     <option key={vda} value={vda}>
                       {vda.toUpperCase()}
                     </option>
@@ -867,10 +868,14 @@ export function SalesOrdersClient() {
           </div>
 
           {isAdmin && (
-            <SalesRepFilter
-              reps={salesReps}
-              value={salesRepFilter}
-              onChange={setSalesRepFilter}
+            <SalesCodeFilter
+              options={salesCodeOptions}
+              value={salesCodeFilter}
+              onChange={(code) => {
+                setSalesCodeFilter(code);
+                // คลังที่เลือกไว้อาจไม่ใช่ของรหัสใหม่ — กลับไป "ทุก VDA" ของรหัสนั้น
+                setVdaFilter("");
+              }}
             />
           )}
           </div>
@@ -1065,9 +1070,9 @@ export function SalesOrdersClient() {
                     ธงแดง {redCount}
                   </span>
                 )}
-                {isAdmin && order.store.salesRep && (
-                  <p className="mt-0.5 truncate text-[11px] text-slate-400">
-                    {order.store.salesRep.name}
+                {isAdmin && order.store.salesCodes && order.store.salesCodes.length > 0 && (
+                  <p className="mt-0.5 break-words text-[11px] text-slate-400">
+                    เซลล์ {order.store.salesCodes.join(", ")}
                   </p>
                 )}
                 </button>
@@ -1096,9 +1101,9 @@ export function SalesOrdersClient() {
                       })}
                     </span>
                   </div>
-                  {isAdmin && selected.store.salesRep && (
+                  {isAdmin && selected.store.salesCodes && selected.store.salesCodes.length > 0 && (
                     <p className="mt-0.5 text-[11px] text-teal-700 dark:text-teal-400">
-                      เซลล์: {selected.store.salesRep.name}
+                      เซลล์ {selected.store.salesCodes.join(", ")}
                     </p>
                   )}
                 </div>

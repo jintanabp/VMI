@@ -7,7 +7,7 @@ import { checkManualPoStatusChange } from "@/lib/po/po-status";
  */
 describe("checkManualPoStatusChange", () => {
   it("สถานะ ERP ตั้งเองไม่ได้ (400) — ต้องมาจาก send-erp เท่านั้น", () => {
-    for (const to of ["sent_erp", "sending_erp"] as const) {
+    for (const to of ["sent_erp", "sending_erp", "erp_unknown"] as const) {
       const v = checkManualPoStatusChange({ from: "issued", to, mayBeInErp: false });
       expect(v.ok).toBe(false);
       if (!v.ok) expect(v.httpStatus).toBe(400);
@@ -30,6 +30,17 @@ describe("checkManualPoStatusChange", () => {
     }
     expect(
       checkManualPoStatusChange({ from: "sent_erp", to: "received", mayBeInErp: true }).ok
+    ).toBe(true);
+  });
+
+  it("ERP ไม่ตอบ (erp_unknown) ยกเลิก/ถอยกลับไม่ได้ ได้แค่ รับของแล้ว", () => {
+    for (const to of ["issued", "sent", "cancelled"] as const) {
+      expect(
+        checkManualPoStatusChange({ from: "erp_unknown", to, mayBeInErp: true }).ok
+      ).toBe(false);
+    }
+    expect(
+      checkManualPoStatusChange({ from: "erp_unknown", to: "received", mayBeInErp: true }).ok
     ).toBe(true);
   });
 

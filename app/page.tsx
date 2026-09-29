@@ -55,7 +55,7 @@ export default async function HomePage() {
           VMI
         </h1>
         <p className="mt-4 max-w-lg text-lg leading-relaxed text-slate-600 dark:text-slate-400">
-          ระบบจัดการสต็อก แนะนำการสั่งสินค้า และอนุมัติคำสั่งซื้อ
+          ระบบจัดการสต็อก แนะนำการสั่งสินค้า และอนุมัติออเดอร์
         </p>
 
         <div className="mt-8 flex flex-wrap items-center justify-center gap-2">

@@ -40,6 +40,9 @@ import { formatStoreLabel } from "@/lib/format-store-label";
 import {
   PO_STATUSES,
   PO_STATUS_CLASS,
+  PO_STATUSES_AFTER_ERP,
+  SYSTEM_ONLY_PO_STATUSES,
+  poMayBeInErp,
   poStatusMeta,
 } from "@/lib/po/po-status";
 import { cn } from "@/lib/utils";
@@ -722,7 +725,19 @@ export function SalesPoClient() {
                           )}
                         >
                           {PO_STATUSES.map((s) => (
-                            <option key={s.value} value={s.value}>
+                            <option
+                              key={s.value}
+                              value={s.value}
+                              // ปิดตัวเลือกที่ server จะปฏิเสธแน่ ๆ ให้ตรงกับ checkManualPoStatusChange:
+                              // สถานะที่ระบบตั้งเองตอนส่ง ERP (400) · ใบที่อาจอยู่ใน ERP แล้วเปลี่ยนได้แค่ "รับของแล้ว" (409)
+                              disabled={
+                                s.value !== po.status &&
+                                (SYSTEM_ONLY_PO_STATUSES.includes(s.value) ||
+                                  po.status === "sending_erp" ||
+                                  (poMayBeInErp(po) &&
+                                    !PO_STATUSES_AFTER_ERP.includes(s.value)))
+                              }
+                            >
                               {s.label}
                             </option>
                           ))}

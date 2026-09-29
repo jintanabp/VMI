@@ -67,7 +67,7 @@ export async function PATCH(request: Request) {
   // พนักงานปฏิเสธทั้งใบไปแล้วได้
   if (order.status !== "pending_approval") {
     return NextResponse.json(
-      { error: "คำสั่งซื้อนี้ถูกดำเนินการไปแล้ว — ไม่ต้องยืนยันรายการอีก" },
+      { error: "ออเดอร์นี้ถูกดำเนินการไปแล้ว — ไม่ต้องยืนยันรายการอีก" },
       { status: 409 }
     );
   }
@@ -136,7 +136,7 @@ export async function PATCH(request: Request) {
 }
 
 /**
- * ร้านยกเลิกคำสั่งซื้อของตัวเอง
+ * ร้านยกเลิกออเดอร์ของตัวเอง
  *
  * ยกเลิกได้เฉพาะที่พนักงานยังไม่แตะ (`pending_approval` และยังไม่มี PO)
  * — ถ้าอนุมัติ/ออก PO ไปแล้ว เลข PO ส่งต่อฝ่ายจัดซื้อไปแล้ว ร้านยกเลิกเองไม่ได้
@@ -210,7 +210,7 @@ export async function DELETE(request: Request) {
   await notifySales({
     storeId,
     kind: "order_cancelled",
-    title: `${order.store.code} ยกเลิกคำสั่งซื้อเอง`,
+    title: `${order.store.code} ยกเลิกออเดอร์เอง`,
     // เซิร์ฟเวอร์อาจรันเป็น UTC — ไม่ระบุโซนเวลา ชั่วโมงในข้อความจะคลาด 7 ชม.
     detail: `${itemCount} รายการ · ${totalQty} หีบ ที่ส่งเมื่อ ${order.createdAt.toLocaleString(
       "th-TH",

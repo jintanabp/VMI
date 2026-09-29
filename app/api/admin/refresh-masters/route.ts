@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getRawSalesSession } from "@/lib/auth/sales-session";
+import { recordAudit } from "@/lib/admin/audit-log";
 import { isDatasetId } from "@/lib/fabric/datasets";
 import { isRefreshRunning, runMasterRefreshNow } from "@/lib/fabric/scheduler";
 
@@ -40,6 +41,7 @@ export async function POST(request: Request) {
     );
   }
 
+  await recordAudit(session, "masters.refresh", requested.join(", ") || "ทุกชุดข้อมูล");
   const outcome = await runMasterRefreshNow(
     requested.length > 0 ? requested : undefined
   );

@@ -7,6 +7,8 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// ไม่ได้ใช้แล้ว (29 ก.ย. 2569) — ใครดูแลร้านไหนตัดสินจาก รหัสเซลล์ → VDA ตามทะเบียน VDA
+/// คงตาราง + Store.salesRepId ไว้เพื่อไม่ต้อง migrate · ลบได้ในรอบที่มี migration อื่นอยู่แล้ว
 model SalesRep {
   id     String  @id @default(cuid())
   email  String  @unique
@@ -424,4 +426,22 @@ model SalesmanEmailAssignment {
   @@unique([email, salesmanCode])
   @@index([email])
   @@index([salesmanCode])
+}
+
+/// บันทึกการกระทำของผู้ดูแลระบบ (Creator/Admin) และการลบออเดอร์ — ใคร ทำอะไร กับอะไร เมื่อไหร่
+///
+/// ไม่ผูก FK กับเป้าหมาย เพราะหลายอย่างที่ต้องจดคือ "การลบ" — แถวต้นทางหายไปแล้วบันทึกต้องยังอยู่
+/// **ห้ามเก็บความลับ** (รหัสตั้งค่า / รหัสผ่าน / hash) ลงใน detail
+model AdminAuditLog {
+  id         String   @id @default(cuid())
+  createdAt  DateTime @default(now())
+  actorEmail String                          // คนที่กดจริง (raw session — ไม่ใช่เซลล์ที่ถูกดูแทน)
+  actorRole  String                          // "creator" | "admin" | "sales"
+  action     String                          // เช่น "store.approve" ดูป้ายใน lib/admin/audit-log.ts
+  target     String   @default("")           // อีเมล / รหัส / เลขออเดอร์ ที่ถูกกระทำ
+  detail     String   @default("")           // JSON สั้น ๆ ของค่าที่เกี่ยวข้อง
+
+  @@index([createdAt])
+  @@index([actorEmail])
+  @@index([action])
 }

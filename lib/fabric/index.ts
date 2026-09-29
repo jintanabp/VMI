@@ -289,4 +289,3 @@ export * from "./sold-history";
 export * from "./vda-aos-bill";
 export * from "./vda-product-value";
 export * from "./cross-target";
-export * from "./ensure-vda-sales-rep";

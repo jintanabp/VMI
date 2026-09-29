@@ -14,6 +14,7 @@ import {
 } from "@/lib/auth/store-account";
 import { can, isCreator, type AdminPermission } from "@/lib/auth/permissions";
 import { prisma } from "@/lib/prisma";
+import { recordAudit } from "@/lib/admin/audit-log";
 
 /**
  * creator ทำได้ทุก action · admin (lib/auth/permissions.ts) ได้แค่ ดูรออนุมัติ+อนุมัติแล้ว ·
@@ -67,6 +68,10 @@ export async function POST(request: Request) {
       // สิทธิ์ min/max เป็นของ creator — admin เพิ่มบัญชีได้แต่ติ๊กให้ไม่ได้
       canManageMinMax: isCreator(admin) && !!body.canManageMinMax,
     });
+    await recordAudit(admin, "store.create", email, {
+      vdaCode: account.vdaCode ?? null,
+      canManageMinMax: account.canManageMinMax,
+    });
     // setupCode โชว์ครั้งเดียว — แอดมินต้องส่งต่อให้ร้านเอง (ระบบยังส่งอีเมลเองไม่ได้)
     return NextResponse.json({ success: true, account: toStoreAccountView(account), setupCode });
   } catch (err) {
@@ -119,22 +124,30 @@ export async function PATCH(request: Request) {
           await setStoreAccountVda(email, String(body.vdaCode));
         }
         const { account, setupCode } = await approveStoreAccount(email, admin.email);
+        await recordAudit(admin, "store.approve", email, { vdaCode: account.vdaCode ?? null });
         return NextResponse.json({ success: true, account: toStoreAccountView(account), setupCode });
       }
       case "reject": {
         const row = await rejectStoreAccount(email, admin.email);
+        await recordAudit(admin, "store.reject", email);
         return NextResponse.json({ success: true, account: toStoreAccountView(row) });
       }
       case "set-vda": {
         const row = await setStoreAccountVda(email, String(body.vdaCode ?? ""));
+        await recordAudit(admin, "store.setVda", email, { vdaCode: row.vdaCode ?? null });
         return NextResponse.json({ success: true, account: toStoreAccountView(row) });
       }
       case "set-can-manage": {
         const row = await setCanManageMinMax(email, !!body.canManageMinMax);
+        await recordAudit(admin, "store.setCanManage", email, {
+          canManageMinMax: row.canManageMinMax,
+        });
         return NextResponse.json({ success: true, account: toStoreAccountView(row) });
       }
       case "reset-password": {
         const { account, setupCode } = await adminResetPassword(email);
+        // ห้ามจด setupCode — ใครอ่านตารางนี้ได้จะตั้งรหัสแทนร้านได้
+        await recordAudit(admin, "store.resetPassword", email);
         return NextResponse.json({ success: true, account: toStoreAccountView(account), setupCode });
       }
       case "set-email": {
@@ -142,6 +155,7 @@ export async function PATCH(request: Request) {
           email,
           String(body.newEmail ?? "")
         );
+        await recordAudit(admin, "store.setEmail", email, { newEmail: row.email });
         return NextResponse.json({ success: true, account: toStoreAccountView(row) });
       }
       default:
@@ -164,5 +178,6 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "ต้องระบุอีเมล" }, { status: 400 });
   }
   const ok = await deleteStoreAccount(email);
+  if (ok && session) await recordAudit(session, "store.delete", email);
   return NextResponse.json({ success: ok });
 }

@@ -73,7 +73,7 @@ export const prismaStockRepository: StockRepository = {
 
 export const prismaOrderRepository: OrderRepository = {
   /**
-   * สร้างคำสั่งซื้อ — ส่งซ้ำด้วย clientRequestId เดิมจะได้ใบเดิม ไม่ใช่ใบใหม่
+   * สร้างออเดอร์ — ส่งซ้ำด้วย clientRequestId เดิมจะได้ใบเดิม ไม่ใช่ใบใหม่
    *
    * เคสจริงที่กันไว้: ร้านกดปุ่มส่งสองที · เน็ตกระตุกแล้วเบราว์เซอร์ retry · กด
    * ย้อนกลับแล้วกดส่งอีกรอบ — ทั้งหมดนี้เคยได้ออเดอร์ซ้ำที่เซลล์ต้องมานั่งไล่ปฏิเสธ
@@ -154,9 +154,7 @@ export const prismaOrderRepository: OrderRepository = {
       status?: string;
       storeId?: string;
       store?: {
-        salesRepId?: string;
         code?: string | { in: string[] };
-        salesRep?: { email?: { in: string[] } };
       };
     } = {};
 
@@ -169,26 +167,12 @@ export const prismaOrderRepository: OrderRepository = {
       storeWhere.code = filters.storeCode.trim().toLowerCase();
     }
 
-    if (filters.vdaCodes && filters.vdaCodes.length > 0) {
+    if (filters.vdaCodes) {
+      // ส่งมาแต่ว่าง = ตัวกรองตัดจนไม่เหลือคลัง (เช่น รหัสเซลล์ที่ไม่มีคลัง) — ต้องไม่กลายเป็น "ไม่กรอง"
+      if (filters.vdaCodes.length === 0) return [];
       storeWhere.code = {
         in: filters.vdaCodes.map((c) => c.trim().toLowerCase()),
       };
-    }
-
-    if (filters.salesRepId) {
-      storeWhere.salesRepId = filters.salesRepId;
-    } else if (filters.salesRepEmails && filters.salesRepEmails.length > 0) {
-      storeWhere.salesRep = {
-        email: { in: filters.salesRepEmails.map((e: string) => e.toLowerCase()) },
-      };
-    } else if (filters.salesRepEmail) {
-      const rep = await prisma.salesRep.findUnique({
-        where: { email: filters.salesRepEmail },
-      });
-      if (!rep) {
-        return [];
-      }
-      storeWhere.salesRepId = rep.id;
     }
 
     if (Object.keys(storeWhere).length > 0) {
@@ -198,7 +182,7 @@ export const prismaOrderRepository: OrderRepository = {
     return prisma.order.findMany({
       where,
       include: {
-        store: { include: { salesRep: true } },
+        store: true,
         items: { include: { sku: true } },
       },
       orderBy: { createdAt: "desc" },

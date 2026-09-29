@@ -35,6 +35,14 @@ export const PO_STATUSES = [
     tone: "teal",
   },
   {
+    // ส่งแล้วไม่รู้ผล (timeout / เน็ตหลุด / HTTP error) — เดิมถอยกลับเป็น "ออกแล้ว" ทำให้ดูเหมือน
+    // ยังไม่เคยส่ง ทั้งที่อาจเข้า ERP ไปแล้ว (QA 28 ก.ย. 69)
+    value: "erp_unknown",
+    label: "ERP ไม่ตอบ — รอตรวจ",
+    hint: "ส่งแล้วแต่ไม่รู้ผล อาจเข้า ERP ไปแล้ว — ห้ามส่งซ้ำ ให้ตรวจกับทีม ERP ก่อน",
+    tone: "orange",
+  },
+  {
     value: "received",
     label: "รับของแล้ว",
     hint: "ของเข้าคลังครบแล้ว",
@@ -61,6 +69,14 @@ export const DEFAULT_PO_STATUS: PoStatus = "issued";
  */
 export const SENDING_TO_ERP = "sending_erp";
 export const SENT_TO_ERP = "sent_erp";
+export const ERP_RESULT_UNKNOWN = "erp_unknown";
+
+/** สถานะที่ระบบตั้งเองตอนส่ง ERP — คนเลือกเองจาก dropdown ไม่ได้ */
+export const SYSTEM_ONLY_PO_STATUSES: readonly string[] = [
+  SENDING_TO_ERP,
+  SENT_TO_ERP,
+  ERP_RESULT_UNKNOWN,
+];
 
 export function isPoStatus(v: unknown): v is PoStatus {
   return (
@@ -92,6 +108,8 @@ export const PO_STATUS_CLASS: Record<string, string> = {
   amber:
     "bg-amber-100 text-amber-800 ring-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:ring-amber-900",
   teal: "bg-teal-100 text-teal-800 ring-teal-200 dark:bg-teal-950/50 dark:text-teal-300 dark:ring-teal-900",
+  orange:
+    "bg-orange-100 text-orange-800 ring-orange-200 dark:bg-orange-950/50 dark:text-orange-300 dark:ring-orange-900",
 };
 
 /**
@@ -102,6 +120,23 @@ export const PO_STATUS_CLASS: Record<string, string> = {
  */
 export const PO_STATUSES_AFTER_ERP: readonly PoStatus[] = ["received"];
 
+/**
+ * PO ใบนี้อาจอยู่ใน ERP แล้วหรือไม่ — ส่งสำเร็จ หรือเคยลองส่งแล้วผลไม่ชัดเจน (timeout/network/
+ * แถวเก่าที่ไม่มี failureKind) · ถูก ERP ปฏิเสธชัดเจน (`rejected`) = ไม่ได้เข้า
+ *
+ * ฟังก์ชันล้วน รับได้ทั้ง Date (ฝั่ง server) และ ISO string (แถวที่หน้า PO ได้จาก API)
+ */
+export function poMayBeInErp(po: {
+  erpSentAt: Date | string | null;
+  erpAttemptedAt?: Date | string | null;
+  erpError?: string | null;
+  erpFailureKind?: string | null;
+}): boolean {
+  if (po.erpSentAt) return true;
+  const attempted = po.erpAttemptedAt != null || po.erpError != null;
+  return attempted && po.erpFailureKind !== "rejected";
+}
+
 export type ManualPoStatusVerdict =
   | { ok: true; reopened: boolean }
   | { ok: false; httpStatus: 400 | 409; error: string };
@@ -109,8 +144,7 @@ export type ManualPoStatusVerdict =
 /**
  * ตรวจการเปลี่ยนสถานะ PO ด้วยมือ (PATCH จากหน้า PO) — แยกเป็นฟังก์ชันล้วนให้ทดสอบได้
  *
- * `mayBeInErp` ให้ผู้เรียกคำนวณจาก `poMayBeInErp()` (lib/orders/delete-orders.ts)
- * ไม่ import ตรงนี้เพื่อให้ไฟล์นี้ยังใช้ฝั่ง client ได้ (ไฟล์นั้นลาก prisma มาด้วย)
+ * `mayBeInErp` ให้ผู้เรียกคำนวณจาก `poMayBeInErp()` ด้านบน
  */
 export function checkManualPoStatusChange(args: {
   from: string;
@@ -119,7 +153,7 @@ export function checkManualPoStatusChange(args: {
 }): ManualPoStatusVerdict {
   const { from, to, mayBeInErp } = args;
   // สองค่านี้ต้องมาจาก send-erp เท่านั้น — ตั้งเองได้ = จอบอก "เข้า ERP แล้ว" ทั้งที่ไม่เคยส่ง
-  if (to === SENT_TO_ERP || to === SENDING_TO_ERP) {
+  if (SYSTEM_ONLY_PO_STATUSES.includes(to)) {
     return {
       ok: false,
       httpStatus: 400,

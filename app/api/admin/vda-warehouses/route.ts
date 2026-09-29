@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getRawSalesSession } from "@/lib/auth/sales-session";
+import { recordAudit } from "@/lib/admin/audit-log";
 import {
   listVdaWarehousesAsync,
   saveVdaWarehouses,
@@ -62,6 +63,13 @@ export async function PUT(request: Request) {
   // ทะเบียนเซลล์ผูกกับรหัสลูกค้า — แก้รหัสลูกค้าแล้วต้องจับคู่เซลล์ใหม่ทันที
   // ไม่งั้นสิทธิ์ดูออเดอร์ของคลังที่เพิ่งแก้จะยังเป็นของเดิมจนกว่าจะ restart
   reloadVdaAosBillRegistry();
+  await recordAudit(session, "warehouses.save", codes.join(", "), {
+    // สรุปเป็น "vda1 = รหัสลูกค้า" ต่อคลัง — body ดิบยาวและอ่านยาก
+    warehouses: parsed.data.warehouses.map(
+      (w) =>
+        `${w.code.toUpperCase()} = ${w.customerCodes.join("|")}${w.active === false ? " (ปิด)" : ""}`
+    ),
+  });
 
   return NextResponse.json({ success: true, warehouses });
 }

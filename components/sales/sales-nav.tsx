@@ -20,7 +20,7 @@ export function SalesNav() {
   // ไม่งั้นไม่มีแท็บไหนไฮไลต์เลย (ดู lib/paths.ts)
   const pathname = normalizePathname(usePathname());
 
-  // จำนวนออเดอร์รอตรวจ (badge บนแท็บคำสั่งซื้อ)
+  // จำนวนออเดอร์รอตรวจ (badge บนแท็บออเดอร์)
   // เดิมดึงลิสต์ออเดอร์ทั้งหมดพร้อม items มานับ .length ทุก 60 วิ ต่อแท็บที่เปิด
   // queryKey แยกจาก ["orders"] เพื่อไม่ให้ถูกล้างทุกครั้งที่หน้า invalidate ลิสต์
   const { data: counts } = useQuery<{ pending: number; priceFlagged: number }>({

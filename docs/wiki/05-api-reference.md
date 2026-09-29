@@ -13,7 +13,7 @@
 | PATCH | `/api/stock` | แก้ MIN/MAX ราย SKU |
 | POST | `/api/stock/refresh` | สั่งคำนวณสต็อกใหม่จาก cache |
 | GET·POST | `/api/stock/export` | Excel ตามตัวกรอง/การเรียงที่เห็นบนจอ (POST เมื่อส่งจำนวนที่แก้ไว้มาด้วย) |
-| GET | `/api/orders` | รายการออเดอร์ตามสิทธิ์ผู้เรียก · `status` `storeId` `salesRepId` `vdaCode` `allPersonVdas` |
+| GET | `/api/orders` | รายการออเดอร์ตามสิทธิ์ผู้เรียก · `status` `storeId` `vdaCode` `allPersonVdas` · `salesCode` (creator เท่านั้น — กรองเป็นคลังของรหัสนั้นตามทะเบียน VDA และแปะ `store.salesCodes` ให้แต่ละใบ) |
 | POST | `/api/orders` | ร้านส่งออเดอร์ใหม่ |
 | PATCH | `/api/orders` | เซลล์: `approve` · `reject` · `updateQty` · `updatePrice` · `rejectItem` · `addItem` · `assignPoGroup` (≤ 2000 บรรทัด — "รวมเป็น PO เดียว" ส่งทุกบรรทัด; การย้ายบางรายการส่งกลุ่มที่เสนอของบรรทัดที่เหลือไปด้วย) |
 | DELETE | `/api/orders?orderId=` | เซลล์ลบออเดอร์ · `?orderIds=` ลบหลายใบ · `?withPo=1` ลบที่ออก PO แล้วได้ · `?notify=0` ไม่แจ้งร้าน |
@@ -125,6 +125,7 @@ Server จะ lookup โปร/ราคา C4 แล้ว**แช่ค่า�
 | Method | Path | หน้าที่ |
 |---|---|---|
 | GET·POST·DELETE | `/api/admin/admins` | รายชื่อ admin |
+| GET | `/api/admin/audit-log?q=&action=&after=` | บันทึกการทำงาน (creator เท่านั้น) · ใหม่สุดก่อน ครั้งละ 100 · `after` = id แถวสุดท้ายของหน้าก่อน |
 | GET·POST·PATCH·DELETE | `/api/admin/store-accounts` | บัญชีร้านค้า |
 | GET·POST·DELETE | `/api/admin/store-blocklist` | หยุดสั่งระดับ admin |
 | GET·PATCH | `/api/admin/store-thresholds` | MIN/MAX ระดับกลุ่ม |
@@ -134,7 +135,8 @@ Server จะ lookup โปร/ราคา C4 แล้ว**แช่ค่า�
 | GET | `/api/admin/data-explorer/sources` · `/csv` · `/db` | เปิดดูไฟล์/ตารางที่ sync มา |
 | GET | `/api/admin/promo/explain` | เหตุผลที่ SKU ได้/ไม่ได้โปร (รายงานรายเดือนย้ายไป `/api/promo/month`) |
 | GET | `/api/admin/customers/search` · `/resolve` | ค้นหา/แปลงรหัสลูกค้า |
-| GET | `/api/admin/salesmen` · `/api/admin/badges` | ข้อมูลประกอบหน้า admin |
+| GET | `/api/admin/sales-codes` | ตัวเลือก "กรองตามรหัสเซลล์" ของ creator — รหัสที่ดูแลคลัง พร้อมคลังและอีเมลที่ผูกไว้ (แทน `/api/admin/salesmen` เดิม) |
+| GET | `/api/admin/badges` | ตัวเลขแจ้งเตือนบนเมนู admin |
 | GET | `/api/admin/vda-sales` | ทะเบียนเซลล์ ↔ VDA · `codes[]` = หนึ่งแถวต่อรหัส `{ code, name, manual[{id,email}], vdas }` (อีเมลจาก `SalesmanEmailAssignment` เท่านั้น) · `canAddEmail` / `canRemoveEmail` ตามตำแหน่ง ใช้ในหน้า `/admin/system/vda-sales` · `people[]` / `vdas[]` ยังมีให้หน้าทดสอบมุมมองเซลล์ |
 | GET·POST·DELETE | `/api/admin/salesman-assignments` | กำหนดอีเมล ↔ รหัสเซลล์เอง (`SalesmanEmailAssignment`) · POST `{ salesmanCode, emails: string[] }` (หรือ `email` เดี่ยว — ยังรับ) · **แหล่งเดียวของรหัสเซลล์ของอีเมล** (ไม่มีการจับคู่อัตโนมัติแล้ว) · มีผลใน request ถัดไป ไม่ต้อง login ใหม่ · POST: Creator + Admin (ห้ามอีเมลผู้ดูแลระบบ) · GET/DELETE: Creator |
 
