@@ -96,7 +96,7 @@ export async function POST(request: Request) {
     if (adminEmails.length > 0) {
       return NextResponse.json(
         {
-          error: `${adminEmails.join(", ")} เป็นผู้ดูแลระบบ — ให้ Creator กำหนดรหัสเซลล์ที่หน้า «ระบบ › ผู้ดูแล»`,
+          error: `${adminEmails.join(", ")} เป็นผู้ดูแลระบบ — ให้ Creator กำหนดรหัสเซลล์ให้ที่หน้า «ระบบ › สิทธิ์เซลล์-VDA»`,
         },
         { status: 403 }
       );
