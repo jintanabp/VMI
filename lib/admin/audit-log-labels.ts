@@ -23,6 +23,7 @@ export const AUDIT_ACTION_LABELS = {
   "blocklist.remove": "ยกเลิกหยุดสั่งสินค้า",
   "masters.refresh": "สั่งดึงข้อมูล Fabric",
   "orders.delete": "ลบออเดอร์",
+  "po.erpResolve": "แก้สถานะ ERP ไม่ตอบ",
 } as const;
 
 export type AuditAction = keyof typeof AUDIT_ACTION_LABELS;
@@ -51,6 +52,9 @@ export const AUDIT_DETAIL_LABELS: Record<string, string> = {
   maxDays: "MAX (วัน)",
   poNumbers: "PO",
   notifyStore: "แจ้งร้าน",
+  resolution: "ผลการตรวจ",
+  note: "บันทึก",
+  previousError: "ผลการส่งเดิม",
 };
 
 function fmtValue(v: unknown): string {

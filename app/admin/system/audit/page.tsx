@@ -5,7 +5,7 @@ export default function AdminSystemAuditPage() {
   return (
     <AdminShell
       title="บันทึกการทำงาน"
-      description="ใครทำอะไรในหน้าตั้งค่า และใครลบออเดอร์ เมื่อไหร่"
+      description="ใครทำอะไรในหน้าตั้งค่า ใครลบออเดอร์ และใครแก้สถานะ ERP เมื่อไหร่"
     >
       <AuditLogSection />
     </AdminShell>

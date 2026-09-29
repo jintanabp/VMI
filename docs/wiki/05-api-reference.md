@@ -135,6 +135,7 @@ Server จะ lookup โปร/ราคา C4 แล้ว**แช่ค่า�
 | GET | `/api/admin/data-explorer/sources` · `/csv` · `/db` | เปิดดูไฟล์/ตารางที่ sync มา |
 | GET | `/api/admin/promo/explain` | เหตุผลที่ SKU ได้/ไม่ได้โปร (รายงานรายเดือนย้ายไป `/api/promo/month`) |
 | GET | `/api/admin/customers/search` · `/resolve` | ค้นหา/แปลงรหัสลูกค้า |
+| POST | `/api/sales/purchase-orders/[poNumber]/erp-resolve` | แก้สถานะ "ERP ไม่ตอบ" หลังตรวจกับทีม ERP · `{ resolution: "in_erp" | "not_in_erp", note }` · **ไม่ยิงออกนอกเครื่อง** · สิทธิ์เท่าการส่ง ERP · จด audit |
 | GET | `/api/admin/sales-codes` | ตัวเลือก "กรองตามรหัสเซลล์" ของ creator — รหัสที่ดูแลคลัง พร้อมคลังและอีเมลที่ผูกไว้ (แทน `/api/admin/salesmen` เดิม) |
 | GET | `/api/admin/badges` | ตัวเลขแจ้งเตือนบนเมนู admin |
 | GET | `/api/admin/vda-sales` | ทะเบียนเซลล์ ↔ VDA · `codes[]` = หนึ่งแถวต่อรหัส `{ code, name, manual[{id,email}], vdas }` (อีเมลจาก `SalesmanEmailAssignment` เท่านั้น) · `canAddEmail` / `canRemoveEmail` ตามตำแหน่ง ใช้ในหน้า `/admin/system/vda-sales` · `people[]` / `vdas[]` ยังมีให้หน้าทดสอบมุมมองเซลล์ |

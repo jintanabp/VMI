@@ -23,6 +23,7 @@ import {
   type ErpReadiness,
   type ErpPayloadContext,
 } from "@/lib/po/erp-payload";
+import type { ErpResolution } from "@/lib/po/erp-resolve";
 
 /**
  * ส่วน "payload ที่จะส่งเข้า ERP" ในแผงรายละเอียด PO
@@ -72,6 +73,11 @@ export function PoErpPayloadSection({
   const [sendResult, setSendResult] = useState<string>("");
   const [cloneError, setCloneError] = useState("");
   const [cloneResult, setCloneResult] = useState<string>("");
+  /** กำลังยืนยันผลตรวจกับทีม ERP แบบไหน — null = ยังไม่ได้กดปุ่มใด */
+  const [resolving, setResolving] = useState<ErpResolution | null>(null);
+  const [resolveNote, setResolveNote] = useState("");
+  const [resolveError, setResolveError] = useState("");
+  const [resolveResult, setResolveResult] = useState("");
   const qc = useQueryClient();
 
   // ผูกกับ open เผื่อคนกดพับเก็บ — จะได้ไม่ต้องยิง query ซ้ำตอนพับอยู่
@@ -148,6 +154,39 @@ export function PoErpPayloadSection({
     },
   });
 
+  const resolveMutation = useMutation({
+    mutationFn: async (resolution: ErpResolution) => {
+      const res = await apiFetch(
+        appPath(
+          `/api/sales/purchase-orders/${encodeURIComponent(poNumber)}/erp-resolve/`
+        ),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ resolution, note: resolveNote }),
+        }
+      );
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? `บันทึกไม่สำเร็จ (${res.status})`);
+      return resolution;
+    },
+    onSuccess: (resolution) => {
+      setResolveError("");
+      setResolving(null);
+      setResolveNote("");
+      setResolveResult(
+        resolution === "in_erp"
+          ? "บันทึกแล้ว — ใบนี้เข้า ERP แล้ว"
+          : "บันทึกแล้ว — ใบนี้กลับมาส่งเข้า ERP ได้ด้วยเลขเดิม"
+      );
+      void qc.invalidateQueries({ queryKey: ["sales-purchase-orders"] });
+      void qc.invalidateQueries({ queryKey: ["po-erp-payload", poNumber] });
+    },
+    onError: (e) => {
+      setResolveError(e instanceof Error ? e.message : "บันทึกไม่สำเร็จ");
+    },
+  });
+
   // มาจาก response เดียวกับ payload — แผงแม่ไม่ต้องรู้เรื่องนี้เลย
   const erpSentAt = data?.erpSentAt ?? null;
   const alreadySent = Boolean(erpSentAt);
@@ -156,8 +195,9 @@ export function PoErpPayloadSection({
   // ขอเลขใหม่ได้เฉพาะเมื่อปลายทางปฏิเสธชัดเจน ("rejected") เท่านั้น — timeout/network
   // แปลว่ายังไม่รู้ว่าเข้าไปแล้วหรือไม่ ขอเลขใหม่ตอนนั้นเสี่ยงส่งซ้ำสองเลข
   const isConfirmedRejection = data?.erpFailureKind === "rejected";
+  // failureKind ว่าง = แถวเก่าก่อนมีคอลัมน์นี้ ถือว่าไม่รู้ผลเหมือนกัน (นิยามเดียวกับ poMayBeInErp)
   const isAmbiguousFailure = Boolean(
-    data?.erpError && data?.erpFailureKind && data.erpFailureKind !== "rejected"
+    data?.erpError && data.erpFailureKind !== "rejected"
   );
   const canRequestNewNumber = Boolean(
     isConfirmedRejection && !alreadySent && !replacedBy
@@ -318,7 +358,94 @@ export function PoErpPayloadSection({
                   <p className="mt-0.5 break-words text-[10px] text-red-600 dark:text-red-300/80">
                     {data.erpError}
                   </p>
+
+                  {/* ตรวจกับทีม ERP แล้ว → บอกระบบว่าผลจริงคืออะไร (ไม่ยิงอะไรออกไป แค่บันทึก) */}
+                  {resolving ? (
+                    <div className="mt-2 rounded-lg border border-red-200 bg-white px-3 py-2 dark:border-red-900/50 dark:bg-slate-900">
+                      <p className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                        {resolving === "in_erp"
+                          ? "ยืนยัน: ทีม ERP ตรวจแล้วว่ามีใบนี้ในระบบ"
+                          : "ยืนยัน: ทีม ERP ตรวจแล้วว่าไม่มีใบนี้ในระบบ"}
+                      </p>
+                      <p className="mt-0.5 text-[11px] text-slate-600 dark:text-slate-400">
+                        {resolving === "in_erp"
+                          ? "ใบนี้จะเปลี่ยนเป็น «เข้า ERP แล้ว» และร้านได้แจ้งเตือน — ส่งซ้ำไม่ได้อีก"
+                          : "ใบนี้จะกลับไปกดส่งเข้า ERP ได้อีกครั้งด้วยเลขเดิม (ถ้าที่จริงเข้าไปแล้ว ERP จะตีกลับเพราะเลขซ้ำ ไม่เกิดออเดอร์ซ้อน)"}
+                      </p>
+                      <label
+                        htmlFor={`erp-resolve-note-${poNumber}`}
+                        className="mt-2 block text-[11px] font-semibold text-slate-700 dark:text-slate-300"
+                      >
+                        ตรวจกับใคร / เมื่อไหร่ <span className="text-red-600 dark:text-red-400">*</span>
+                      </label>
+                      <input
+                        id={`erp-resolve-note-${poNumber}`}
+                        value={resolveNote}
+                        onChange={(e) => setResolveNote(e.target.value)}
+                        maxLength={300}
+                        placeholder="เช่น คุณสมชาย ทีม ERP ยืนยันทางไลน์ 29 ก.ย. 14:00"
+                        className="mt-1 h-9 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                      />
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          onClick={() => resolveMutation.mutate(resolving)}
+                          pending={resolveMutation.isPending}
+                          disabled={resolveNote.trim().length < 3}
+                          className="h-9"
+                        >
+                          บันทึกผลการตรวจ
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setResolving(null);
+                            setResolveError("");
+                          }}
+                          disabled={resolveMutation.isPending}
+                          className="h-9"
+                        >
+                          ยกเลิก
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-2">
+                      <p className="text-[11px] font-semibold text-red-800 dark:text-red-200">
+                        ตรวจกับทีม ERP แล้ว?
+                      </p>
+                      <div className="mt-1 flex flex-wrap gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setResolving("in_erp")}
+                          className="inline-flex items-center gap-1 rounded-lg border border-teal-400 bg-white px-2.5 py-1 text-[11px] font-semibold text-teal-800 hover:bg-teal-50 dark:border-teal-700 dark:bg-slate-900 dark:text-teal-200 dark:hover:bg-teal-950/40"
+                        >
+                          <Check className="h-3.5 w-3.5" />
+                          มีใบนี้ใน ERP แล้ว
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setResolving("not_in_erp")}
+                          className="inline-flex items-center gap-1 rounded-lg border border-slate-400 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                        >
+                          <RefreshCw className="h-3.5 w-3.5" />
+                          ไม่มีใน ERP — ส่งใหม่ได้
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {resolveError && (
+                    <p className="mt-1 text-[11px] text-red-600 dark:text-red-400">{resolveError}</p>
+                  )}
                 </div>
+              )}
+
+              {resolveResult && (
+                <p className="mt-1.5 flex items-center gap-1.5 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-semibold text-teal-700 dark:border-teal-900/50 dark:bg-teal-950/30 dark:text-teal-300">
+                  <Check className="h-4 w-4 shrink-0" />
+                  {resolveResult}
+                </p>
               )}
 
               {canRequestNewNumber && (
