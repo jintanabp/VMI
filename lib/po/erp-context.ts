@@ -11,8 +11,8 @@ import {
  *
  * PO ของ VMI รู้แค่ว่าเป็นของคลังไหน (`storeCode` = vda1..vda6) แต่ปลายทางถาม
  * "รหัสลูกค้า" กับ "รหัสเซลส์" ซึ่งเป็นรหัสในระบบ ERP — ทั้งสองอย่างมีทะเบียนอยู่แล้ว:
- *   - รหัสลูกค้า: `lib/fabric/vda-warehouse-registry` (แก้ได้จาก /admin/vda)
- *   - รหัสเซลส์: `lib/admin/vda-sales-directory` (มาจากทะเบียน salesman + vda_aos_bill)
+ *   - รหัสลูกค้า: `lib/fabric/vda-warehouse-registry` (แก้ได้จาก /admin/data/warehouses)
+ *   - รหัสเซลส์: `lib/admin/vda-sales-directory` (รหัส ↔ VDA จากทะเบียน vda_aos_bill / cross_target)
  *
  * ค่าที่หาไม่ได้จะคืนเป็นสตริงว่าง **ไม่ใช่เดา** — `checkErpReadiness` จะกันใบนั้นไว้
  * พร้อมบอกว่าไปตั้งค่าที่ไหน

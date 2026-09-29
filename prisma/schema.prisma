@@ -410,10 +410,9 @@ model VdaWarehouse {
 
 /// แอดมินกำหนดเองว่าอีเมลไหนเข้าใช้งานในฐานะรหัสเซลล์ (SXXX) ไหนได้บ้าง
 ///
-/// ปกติระบบจับคู่ อีเมล↔รหัสเซลล์ อัตโนมัติจาก cross_target_current_month.csv
-/// (ดู lib/fabric/vda-aos-bill.ts) ตารางนี้มีไว้ "กำหนดทับ" เฉพาะอีเมลที่มีแถว active
-/// อยู่จริง — ถ้าอีเมลไม่มีแถวในตารางนี้เลย ระบบ fallback ไปใช้ผลอัตโนมัติเหมือนเดิมทุกประการ
-/// ใช้กรณีแอดมินที่ต้องคีย์ในฐานะพนักงานจริงด้วย หรือคนที่ยังไม่เข้าไฟล์เป้าขาย
+/// **แหล่งเดียวของ อีเมล ↔ รหัสเซลล์** ตั้งแต่ 28 ก.ย. 2569 (เลิกใช้ cross_salesman master) —
+/// อีเมลที่ไม่มีแถว active ที่นี่ login ฝั่งเซลล์ไม่ได้ · รหัส ↔ VDA ยังมาจากทะเบียน VDA
+/// (lib/fabric/vda-aos-bill.ts) · เอาออก = ลบแถว (ประวัติอยู่ใน AdminAuditLog)
 model SalesmanEmailAssignment {
   id           String   @id @default(cuid())
   email        String                          // normalize เป็นตัวพิมพ์เล็กเสมอ
@@ -437,7 +436,7 @@ model AdminAuditLog {
   createdAt  DateTime @default(now())
   actorEmail String                          // คนที่กดจริง (raw session — ไม่ใช่เซลล์ที่ถูกดูแทน)
   actorRole  String                          // "creator" | "admin" | "sales"
-  action     String                          // เช่น "store.approve" ดูป้ายใน lib/admin/audit-log.ts
+  action     String                          // เช่น "store.approve" ดูป้ายใน lib/admin/audit-log-labels.ts
   target     String   @default("")           // อีเมล / รหัส / เลขออเดอร์ ที่ถูกกระทำ
   detail     String   @default("")           // JSON สั้น ๆ ของค่าที่เกี่ยวข้อง
 

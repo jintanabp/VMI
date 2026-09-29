@@ -9,7 +9,7 @@
 1. สร้าง **Workspace page** ใหม่ใน Notion ชื่อ `VMI Project Wiki`
 2. สร้าง **sub-page** ตามรายการด้านล่าง
 3. ในแต่ละ sub-page: `⋯` → **Import** → **Markdown** → เลือกไฟล์ที่ตรงกัน
-4. จัดลำดับหน้าให้ตรงกับตัวเลขนำหน้า (00–10)
+4. จัดลำดับหน้าให้ตรงกับตัวเลขนำหน้า (00–12)
 
 | ไฟล์ | ชื่อหน้าใน Notion |
 |------|-------------------|
@@ -18,13 +18,14 @@
 | `02-architecture.md` | 02 — สถาปัตยกรรม |
 | `03-authentication.md` | 03 — การยืนยันตัวตน |
 | `04-user-guide.md` | 04 — คู่มือผู้ใช้ |
-| `11-developer-guide.md` | 11 — คู่มือนักพัฒนา |
 | `05-api-reference.md` | 05 — API Reference |
 | `06-fabric-integration.md` | 06 — Fabric / OneLake |
 | `07-data-model.md` | 07 — Data Model |
 | `08-business-rules.md` | 08 — กฎทางธุรกิจ |
 | `09-deployment.md` | 09 — Production Deploy |
 | `10-operations-troubleshooting.md` | 10 — ปฏิบัติการ & แก้ปัญหา |
+| `11-developer-guide.md` | 11 — คู่มือนักพัฒนา |
+| `12-project-structure.md` | 12 — โครงสร้างโปรเจกต์ |
 
 ---
 
@@ -52,7 +53,9 @@
 ├── 🗄 07 — Data Model
 ├── 📐 08 — กฎทางธุรกิจ
 ├── 🚀 09 — Production Deploy
-└── 🛠 10 — ปฏิบัติการ & แก้ปัญหา
+├── 🛠 10 — ปฏิบัติการ & แก้ปัญหา
+├── 👩‍💻 11 — คู่มือนักพัฒนา
+└── 🗺 12 — โครงสร้างโปรเจกต์
 ```
 
 ---
@@ -63,3 +66,6 @@
 
 แหล่งความจริง (source of truth): `.env.example` และโค้ดใน `app/`, `lib/`
 (`README.md` เป็นเอกสารประกอบ ไม่ใช่แหล่งอ้างอิงหลัก)
+
+เอกสารแผนงาน [`docs/IMPROVEMENT-PLAN.md`](../IMPROVEMENT-PLAN.md) และ [`docs/ERP-PO-PLAN.md`](../ERP-PO-PLAN.md)
+อยู่นอก wiki — นำเข้าเป็นหน้าแยกได้ถ้าต้องการ แต่เนื้อหาเปลี่ยนบ่อย ควรลิงก์ไป GitHub แทน

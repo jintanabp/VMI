@@ -572,7 +572,7 @@ export function SalesPoClient() {
                 : "ยังไม่มี PO ที่ออก"}
             </p>
             <p className="mt-1 text-xs text-slate-500">
-              PO จะถูกสร้างเมื่ออนุมัติออเดอร์ที่หน้า &quot;ตรวจออเดอร์&quot;
+              PO จะถูกสร้างเมื่ออนุมัติออเดอร์ที่หน้า &quot;ตรวจสอบออเดอร์&quot;
             </p>
           </div>
         )}
@@ -987,7 +987,7 @@ export function SalesPoClient() {
                 </p>
               )}
               <p className="mt-1.5">
-                ประวัติที่ร้านเห็นในหน้า &quot;ประวัติการสั่งซื้อ&quot;
+                ประวัติที่ร้านเห็นในหน้า &quot;ประวัติสั่ง&quot;
                 และแจ้งเตือนเดิมของออเดอร์นี้จะถูกลบด้วย · ย้อนกลับไม่ได้
               </p>
               <NotifyStoreCheckbox

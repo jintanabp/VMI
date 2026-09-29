@@ -1,68 +1,92 @@
 # VMI - Vendor Managed Inventory
 
 เว็บแอปจัดการสต็อก แนะนำการสั่งสินค้า และอนุมัติออเดอร์ สำหรับคลัง **VDA** และทีมเซลล์
+ดึงยอดขาย/สต็อก/ราคา/โปร C4 จาก Microsoft Fabric (OneLake) มาคำนวณจำนวนแนะนำสั่ง
+ร้านส่งออเดอร์ → เซลล์ตรวจและอนุมัติ → ระบบออกเลข PO → ส่ง PO เข้า ERP
 
-## ฟีเจอร์หลัก
+> **สถานะ (29 ก.ย. 2569):** งานฝั่งโค้ดเสร็จครบ ที่เหลืออยู่นอกโค้ดทั้งหมด —
+> ดู [สถานะปัจจุบันในหน้าแรก Wiki](./docs/wiki/00-home.md#สถานะปัจจุบัน-29-กย-2569)
 
-- **คลัง VDA / ร้านค้า** — ดูสต็อก/CVD, แก้ MIN/MAX, ดูราคา/โปร C4, ยอดขายย้อนหลัง 7/30/90 วัน,
-  เลือกสินค้าแล้วส่งคำสั่ง (ราคาตามระบบ ร้านแก้เองไม่ได้), ดูประวัติและของแถมที่ควรได้,
-  ยืนยัน/ปฏิเสธรายการที่พนักงานเพิ่มให้
-- **เซลล์** — เข้าด้วย Microsoft Entra ID, หน้าภาพรวมสรุปงานค้าง, ตรวจ/แก้จำนวน/แก้ราคา/ปฏิเสธรายการ/
+## ฟีเจอร์ตามบทบาท
+
+- **คลัง VDA / ร้านค้า** (อีเมล + รหัสผ่าน) — ดูสต็อก/CVD, แก้ MIN/MAX และรายการหยุดสั่ง, ดูราคา/โปร C4,
+  ยอดขายย้อนหลัง 7/30/90 วัน, เลือกสินค้าแล้วส่งออเดอร์ (ราคาตามระบบ ร้านแก้เองไม่ได้),
+  ดูประวัติและของแถมที่ควรได้, ยืนยัน/ปฏิเสธรายการที่เซลล์เพิ่มให้
+- **เซลล์** (Microsoft Entra ID) — หน้าภาพรวมสรุปงานค้าง, ตรวจ/แก้จำนวน/แก้ราคา/ปฏิเสธรายการ/
   เพิ่มสินค้าใหม่เข้าออเดอร์, อนุมัติทีละใบ หลายใบ หรือเฉพาะบางรายการ, แบ่ง/รวม PO, เคลียร์ออเดอร์สิ้นเดือน,
-  กระดิ่งแจ้งเตือน (กดแล้วเปิดใบออเดอร์), ออกเลข PO และติดตามสถานะ
-- **Admin** — ศูนย์ควบคุมที่ `/admin`: อนุมัติบัญชีร้าน, เข้าดูมุมมอง VDA/เซลล์, sync Fabric, จัดการ admin,
-  ตารางรหัสเซลล์ · อีเมลอ้างอิง · VDA (แก้ในแถวได้), ส่งออก Excel กลุ่มโปร, ดูข้อมูลดิบ (ปรับความกว้างคอลัมน์ได้)
+  กระดิ่งแจ้งเตือน (กดแล้วเปิดใบออเดอร์), ออกเลข PO, ส่ง PO เข้า ERP และติดตามสถานะ
+- **Admin** (อีเมลที่ Creator เพิ่มในหน้า «ระบบ › ผู้ดูแล» — ตาราง `Admin`) — ใช้หน้าตั้งค่าได้เฉพาะบางแท็บ:
+  ดู/อนุมัติ/สร้างบัญชีร้าน รีเซ็ตรหัสผ่าน, ดูโปร C4, ดูตารางรหัสเซลล์และเพิ่มอีเมลให้รหัสเซลล์
+  (รายการสิทธิ์อยู่ที่ `lib/auth/permissions.ts`) · ถ้าผูกรหัสเซลล์ไว้จะใช้หน้าเซลล์ได้ด้วย
+- **Creator (dev)** (อีเมลใน `ADMIN_EMAILS` ของ `.env`) — ทำได้ทุกอย่างที่ `/admin`: sync Fabric,
+  ดูข้อมูลดิบ, ทะเบียนคลัง VDA, MIN/MAX & หยุดสั่ง, มุมมองทดสอบ (ดูเป็น VDA/เซลล์), จัดการผู้ดูแล,
+  สิทธิ์เซลล์-VDA, บันทึกการทำงาน (audit log) และเห็นออเดอร์ทุกร้าน (กรองตามรหัสเซลล์ได้)
 
-รองรับจอ desktop และจอแคบ (iPad / ครึ่งจอ) — ตารางแสดงเป็นรายการ 2 บรรทัดโดยไม่ต้องเลื่อนซ้าย-ขวา
-
-### 📖 เอกสาร
-
-| ถ้าคุณคือ | เริ่มที่ |
-|---|---|
-| ผู้ใช้งาน (ร้าน / เซลล์ / แอดมิน) | [คู่มือผู้ใช้](./docs/wiki/04-user-guide.md) |
-| นักพัฒนาที่เพิ่งรับช่วงงาน | [คู่มือนักพัฒนา](./docs/wiki/11-developer-guide.md) |
-| คนดูแลระบบ | [Deploy](./docs/wiki/09-deployment.md) · [แก้ปัญหา](./docs/wiki/10-operations-troubleshooting.md) |
+รองรับจอ desktop และจอแคบ (iPad / ครึ่งจอ / มือถือ) — ต่ำกว่า 1280px ตารางแสดงเป็นรายการ 2 บรรทัดโดยไม่ต้องเลื่อนซ้าย-ขวา
 
 ## Tech Stack
 
-- Next.js 15 + TypeScript
-- Tailwind CSS + shadcn-style components
-- Prisma + SQLite
-- Microsoft Entra ID (authorization code + PKCE ฝั่งเบราว์เซอร์)
-- Microsoft Fabric OneLake (ข้อมูล master / stock / โปร)
-- TanStack Query
-- Vitest — ตรรกะล้วนเป็นหลัก และ `*.db.test.ts` ที่ใช้ SQLite ชั่วคราว (`npm test`)
-
-📚 เอกสารละเอียดอยู่ที่ [`docs/wiki/`](./docs/wiki/00-home.md)
+| ชั้น | เทคโนโลยี (เวอร์ชันจาก `package.json`) |
+|---|---|
+| Framework | Next.js ^15.3.3 (App Router) · React ^19.1.0 · TypeScript ^5.8.3 |
+| UI | Tailwind CSS ^4.1.10 · Radix UI + คอมโพเนนต์สไตล์ shadcn ใน `components/ui` · lucide-react |
+| ข้อมูลฝั่ง client | TanStack Query ^5.80.7 · TanStack Virtual ^3.14.6 |
+| DB | Prisma ^6.9.0 + SQLite |
+| Auth | Microsoft Entra ID (authorization code + PKCE ฝั่งเบราว์เซอร์) · session cookie เซ็น HMAC |
+| ข้อมูลภายนอก | Microsoft Fabric OneLake ผ่าน `@azure/identity` ^4.13.1 |
+| อื่น ๆ | ExcelJS ^4.4.0 (ส่งออก Excel) · Zod ^3.25.61 |
+| เทสต์ | Vitest ^3.2.7 — ตรรกะล้วนเป็นหลัก + `*.db.test.ts` ที่ใช้ SQLite ชั่วคราว |
 
 ## เริ่มต้นใช้งาน (Local)
 
 ```bash
-npm install
-cp .env.example .env
-# แก้ .env ตามต้องการ (ดูด้านล่าง)
+npm install          # postinstall รัน prisma generate ให้เอง
+cp .env.example .env # แล้วแก้ค่าตามหัวข้อ "ตั้งค่า .env" ด้านล่าง
 
-npm run db:setup    # สร้าง DB + seed (โหมด dummy)
-npm run dev         # ต้องใช้ port 3000
+npm run db:setup     # migrate + seed (โหมด dummy)
+npm run dev          # ต้องใช้ port 3000
 ```
 
-เปิด [http://localhost:3000/vmi/](http://localhost:3000/vmi/)  
+เปิด [http://localhost:3000/vmi/](http://localhost:3000/vmi/)
 (`basePath` เป็น `/vmi` — path ในแอปทั้งหมดอยู่ภายใต้ `/vmi`)
+
+### ตั้งค่า `.env`
+
+`.env.example` คือแหล่งอ้างอิงหลักของตัวแปรทั้งหมด (มีคำอธิบายรายบรรทัด) — ที่ต้องตั้งจริงมีไม่กี่ตัว
+
+| ตัวแปร | หมายเหตุ |
+|---|---|
+| `DATABASE_URL` | dev: `file:./dev.db` · Docker override เป็น `file:/app/data/vmi.db` ให้เอง |
+| `NEXTAUTH_SECRET` | ≥ 32 ตัว — production **ไม่ start** ถ้าว่าง สั้น หรือยังเป็นค่าตัวอย่าง |
+| `ADMIN_EMAILS` | อีเมล Creator (คั่นด้วย `,` หรือ `;`) |
+| `DATA_SOURCE` | `dummy` (dev) / `fabric` (ใช้งานจริง) |
+| `ONELAKE_*` · `STOCK_ONELAKE_*` | service principal ของ masters และของ stock (คนละตัว) |
+| `ALERT_EMAIL` + `SENDER_EMAIL` | ต้องตั้ง**ทั้งคู่** ไม่งั้นอีเมลแจ้ง sync ล้มจะถูกข้ามแบบเงียบ |
+| `VDA_CUSTOMER_MAP` | ใช้ seed ทะเบียนคลังครั้งแรกเท่านั้น หลังจากนั้นแก้ที่ `/admin/data/warehouses` |
+| `MASTER_REFRESH_ENABLED/HOUR/MINUTE` | scheduler รายวัน (เปิดอยู่โดย default) |
+
+ที่อยู่ไฟล์ต้นทาง, ตาราง C4, client/tenant id ของ Azure และปลายทาง ERP **อยู่ในโค้ดแล้ว ไม่ต้องตั้ง**
+ค่าใน `.env` ชนะโค้ดเสมอและเงียบสนิทเวลาตั้งผิด — ตั้งอะไรเพิ่มต้องเปิด `/admin/data/sync` กับ
+`/admin/promotions/c4` ตรวจทุกครั้ง
+
+สร้าง `NEXTAUTH_SECRET`
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
 
 ### โหมดข้อมูล
 
 | `DATA_SOURCE` | ใช้เมื่อ | หมายเหตุ |
 |---------------|---------|----------|
-| `dummy` (default) | พัฒนา UI / ทดลองสูตร | ใช้ seed จาก `npm run db:setup` |
-| `fabric` | ใช้งานจริง | ตั้ง `ONELAKE_*`, `STOCK_ONELAKE_*`, โปร C4 ฯลฯ ใน `.env` แล้วรัน `npm run sync:masters` |
+| `dummy` | พัฒนา UI / ทดลองสูตร | ใช้ seed จาก `npm run db:setup` |
+| `fabric` | ใช้งานจริง | ตั้ง `ONELAKE_*`, `STOCK_ONELAKE_*` แล้วรัน `npm run sync:masters` |
 
-รายละเอียดตัวแปรทั้งหมดอยู่ใน `.env.example`
+### ฐานข้อมูล — แก้ schema ต้องมี migration จริง
 
-### สร้าง `NEXTAUTH_SECRET`
-
-```bash
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-```
+แก้ `prisma/schema.prisma` แล้ว**ต้อง**รัน `npm run db:migrate` (= `prisma migrate dev`) เพื่อสร้างไฟล์ migration
+แล้ว commit ไปด้วย · **ห้ามใช้ `prisma db push`** — ฐานในเครื่องจะดูปกติ แต่ production ที่รัน
+`prisma migrate deploy` ตอน start จะไม่มีคอลัมน์ใหม่ แล้วหน้าเว็บพัง 500
 
 ### ถ้า `npm run dev` ไม่ได้
 
@@ -74,6 +98,9 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 | ตรวจสอบระบบ | `http://localhost:3000/vmi/api/health` → มี `"ok":true` |
 | chunk หาย / build แปลก | `npm run clean` แล้ว `npm run dev` |
 
+> **สำคัญ:** หยุด `npm run dev` ก่อนรัน `npm run build` — ทั้งคู่ใช้โฟลเดอร์ `.next/` ร่วมกัน
+> ถ้าไม่หยุดจะเจอ error "โมดูลหาย" ที่ไม่ใช่บั๊กจริง
+
 ## ทดสอบการใช้งาน
 
 ### คลัง VDA / ร้านค้า
@@ -81,231 +108,156 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ร้านเข้าระบบด้วย **อีเมล + รหัสผ่าน** (`StoreAccount`) ต้องมีบัญชีก่อน
 
 1. หน้าแรก → **คลัง VDA** → กรอกอีเมล → เลือก VDA → ส่งคำขอ
-2. เข้า `/vmi/admin/stores/accounts` ด้วยบัญชี admin → อนุมัติคำขอ
+2. เข้า `/vmi/admin/stores/accounts` ด้วยบัญชี Creator/Admin → อนุมัติคำขอ
 3. กลับไป login → ตั้งรหัสผ่านครั้งแรก (≥ 8 ตัวอักษร) → เข้าใช้งาน
 
-ทางลัดสำหรับ dev: เข้าสู่ระบบเป็น admin แล้วเปิด `/vmi/admin/preview/vda` เลือกรหัส VDA
+ทางลัดสำหรับ dev: เข้าสู่ระบบเป็น Creator แล้วเปิด `/vmi/admin/preview/vda` เลือกรหัส VDA
 เพื่อเข้าดูข้อมูลร้านค้าโดยไม่ต้องสร้างบัญชี
 
 > ⚠️ `POST /api/auth/customer/login` (เลือก VDA แล้วเข้าเลย) **เป็น admin-only ตั้งแต่ 28 ส.ค. 2569**
-> เดิมเปิดให้ทุกคนเรียกใช้ได้ ทำให้สามารถสวมรอยเป็นร้านค้าได้
 > รายละเอียดที่ [03 — การยืนยันตัวตน](./docs/wiki/03-authentication.md)
 
-> โหมด `fabric`: รายการ VDA มาจาก OneLake (`stock_cover_day`) — ถ้าว่างให้ sync ก่อน
+> โหมด `fabric`: รายการ VDA มาจากทะเบียนคลังในฐานข้อมูล + `stock_cover_day` — ถ้าว่างให้ sync ก่อน
 
 ### เซลล์ (Microsoft Entra ID)
 
-#### 1. ตั้งค่า `.env`
+1. ตั้ง `NEXTAUTH_SECRET` และ `ADMIN_EMAILS` ใน `.env`
+   (ถ้าใช้ confidential client เพิ่ม `AZURE_AD_CLIENT_SECRET` และ `AZURE_AD_USE_CLIENT_SECRET=true`)
+2. Azure Portal → **Authentication** → **Single-page application** → Redirect URI
+   `http://localhost:3000/vmi/auth/callback` (ห้ามมี `/` ท้าย · ต้องอยู่ใต้ SPA ไม่ใช่ Web)
+   · production: `https://spc-ai.sahapat.com/vmi/auth/callback`
+   (โค้ดสร้าง URI จาก origin ของเบราว์เซอร์เอง — ไม่ต้องตั้ง `NEXT_PUBLIC_AZURE_REDIRECT_URI`)
+3. หน้าแรก → **เซลล์ / Admin** → Sign in with Microsoft → `/sales` (หน้าภาพรวม)
 
-```env
-NEXTAUTH_SECRET=<random hex>
-ADMIN_EMAILS=<อีเมลของคุณ>
-```
+### Admin / Creator
 
-ถ้าใช้ confidential client (Web platform) เพิ่ม `AZURE_AD_CLIENT_SECRET` และ `AZURE_AD_USE_CLIENT_SECRET=true`
+`/admin` แบ่งเป็น 5 หมวด: `data/` (sync, ดูข้อมูลดิบ, ทะเบียนคลัง VDA) · `stores/` (บัญชีร้านค้า, MIN/MAX & หยุดสั่ง) ·
+`promotions/` (โปร C4 เดือนนี้) · `preview/` (มุมมอง VDA/เซลล์) · `system/` (ผู้ดูแล, สิทธิ์เซลล์-VDA, บันทึกการทำงาน)
+— Admin เห็นเฉพาะแท็บที่มีสิทธิ์ · URL รูปแบบเดิม เช่น `/admin/sync` ยังใช้ได้ผ่าน redirect
 
-#### 2. Redirect URI ใน Azure Portal
-
-**Authentication** → **Single-page application** → เพิ่ม:
-
-```
-http://localhost:3000/vmi/auth/callback
-```
-
-| ถูก | ผิด |
-|-----|-----|
-| `http://localhost:3000/vmi/auth/callback` | มี `/` ท้าย URL |
-| อยู่ใต้ **SPA** | อยู่ใต้ Web เท่านั้น |
-
-Production: ตั้ง `NEXT_PUBLIC_AZURE_REDIRECT_URI=https://spc-ai.sahapat.com/vmi/auth/callback` ให้ตรงกับ Azure
-
-#### 3. Login
-
-หน้าแรก → **เซลล์ / Admin** → Sign in with Microsoft → `/sales` (หน้าภาพรวม)
-
-### Admin
-
-- อีเมลใน `ADMIN_EMAILS` / `APP_ADMINS` จะได้รับ role `admin`
-- `/admin` แบ่งเป็น 5 หมวด: `data/` (sync, ดูข้อมูลดิบ, ทะเบียนคลัง VDA) ·
-  `stores/` (บัญชีร้านค้า, MIN/MAX) · `promotions/` · `preview/` (มุมมอง VDA/เซลล์) · `system/`
-- URL รูปแบบเดิม เช่น `/admin/sync` ยังใช้งานได้ผ่านการ redirect
-
-## สูตรคำนวณ
+## สูตรคำนวณ (ย่อ)
 
 | ค่า | สูตร |
 |-----|------|
 | Stock CVD | stock ÷ avg sales |
 | MIN | avg sales × 7 วัน (ปรับได้) |
 | MAX | avg sales × 15 วัน (ปรับได้) |
-| Suggest Order | ถ้า stock < MIN → ceil(MAX - stock + avg×3) |
-| CVD Est. | (stock + order qty) ÷ avg sales |
+| Suggest Order | ถ้า stock < MIN → ceil(MAX − stock + avg × 3) · ปัดขึ้นเสมอ (ตั้งใจ) |
+| CVD Est. | (stock + order qty) ÷ avg sales → ธงเขียว/เหลือง/แดง |
 
-## ใบสั่งซื้อ (PO)
+รายละเอียดและกฎทั้งหมดอยู่ใน [08 — กฎทางธุรกิจ](./docs/wiki/08-business-rules.md)
 
-เมื่อเซลล์อนุมัติออเดอร์ ระบบจะ **ออกเลข PO จริง** ไม่ใช่ stub แล้ว
+## ใบสั่งซื้อ (PO) และ ERP
 
-| เรื่อง | รายละเอียด |
-|---|---|
-| ตาราง | `PurchaseOrder` (เลข PO, กลุ่ม, ประเภทราคา, ยอด, สถานะ) + `PoSequence` (running number ต่อคลัง/วัน) |
-| เลข PO | `lib/po/po-number.ts` — รูปแบบ `{prefix}{ปี}{เดือนวัน}{ลำดับ}` ต่อท้าย A/B เมื่อแบ่งใบ |
-| แบ่งใบ | `lib/po/split-plan.ts` — แยก "ราคาตรง C4" ออกจาก "ราคาไม่ตรง C4" · ตรวจไม่ให้กลุ่มโปรเดียวกันหลุดคนละใบ |
-| เอกสาร | `lib/po/po-document.ts` เขียน JSON ที่ `logs/po-export/{poNumber}.json` เป็นหลักฐาน · ถ้าไฟล์หาย ระบบประกอบใหม่จาก DB ให้ (`lib/po/po-from-db.ts`) |
-| หน้าเว็บ | `/sales/po` — ค้นหา กรองวันที่/คลัง/สถานะ แบ่งหน้า ดูรายละเอียดในเว็บ พิมพ์ และโหลด Excel (ทีละใบหรือหลายใบรวมไฟล์เดียว) |
-| สถานะ | ออกแล้ว → ส่งซัพแล้ว → รับของแล้ว / ยกเลิก · **ปรับค่าได้ที่ `lib/po/po-status.ts` โดยไม่ต้อง migrate** (คอลัมน์เป็น `String` ไม่ใช่ enum) |
+- อนุมัติแล้วระบบออกเลข PO จริง (`PurchaseOrder` + `PoSequence`) แบ่งใบ "ราคาตรง C4" / "ราคาไม่ตรง C4"
+  อัตโนมัติ และไม่ให้กลุ่มโปรเดียวกันหลุดคนละใบ (`lib/po/split-plan.ts`)
+- ราคา โปร และของแถมถูก **แช่ไว้ตอนร้านกดส่ง** (`OrderItem.c4Promo*` / `c4FreeGood*`)
+- หน้า `/sales/po` — ค้นหา กรอง ดูรายละเอียด พิมพ์ โหลด Excel และส่งเข้า ERP
+- สถานะ: ออกแล้ว → ส่งซัพแล้ว / กำลังส่ง ERP → เข้า ERP แล้ว หรือ **ERP ไม่ตอบ — รอตรวจ** (`erp_unknown`)
+  → รับของแล้ว / ยกเลิก · ค่าอยู่ที่ `lib/po/po-status.ts` แก้ได้โดยไม่ต้อง migrate
+- ปลายทาง ERP อยู่ในโค้ด (`lib/po/erp-endpoint.ts`) และชี้ **UAT เท่านั้น** — โฮสต์ production ไม่มีในโค้ด ·
+  ปิดขาส่งบนเครื่อง dev ด้วย `ERP_SEND_DISABLED=1`
 
-โปรโมชันและของแถมถูก **แช่ไว้ตอนร้านกดส่ง** (`OrderItem.c4Promo*` / `c4FreeGood*`)
-เอกสาร PO จึงระบุได้ว่าบรรทัดไหนได้โปรอะไรและต้องแถมอะไรบ้าง
+> ⚠️ ยิงเข้า ERP ผิดใบเดียว = คู่เลขออเดอร์ + รหัสลูกค้าถูกล็อก 6 เดือน — **อย่าเรียก endpoint `send-erp`**
+> ระหว่างพัฒนา/ทดสอบ รายละเอียดใน [`docs/ERP-PO-PLAN.md`](./docs/ERP-PO-PLAN.md)
 
-> ⚠️ ของแถมของ**โปรกลุ่ม** จะติดมาทุกบรรทัดในกลุ่ม — ต้องรวมยอดด้วย
-> `collectOwedFreeGoods()` (`lib/promo/order-free-goods.ts`) เท่านั้น ห้ามบวกเอง ไม่งั้นของแถมจะคูณตามจำนวนสมาชิก
+> ⚠️ ของแถมของ**โปรกลุ่ม** ติดมาทุกบรรทัดในกลุ่ม — รวมยอดด้วย `collectOwedFreeGoods()`
+> (`lib/promo/order-free-goods.ts`) เท่านั้น ห้ามบวกเอง ไม่งั้นของแถมจะคูณตามจำนวนสมาชิก
 
-## Fabric / OneLake
+## Fabric / OneLake (ย่อ)
 
-### ดึงข้อมูล (มือ)
+- ดึงมือ: `npm run sync:masters` · cache อยู่ที่ `data/cache/` (Docker: volume `vmi_data`)
+- อัตโนมัติ: scheduler ในโปรเซส (`instrumentation.ts` → `lib/fabric/scheduler.ts`) ทุกวัน **03:30 น. Asia/Bangkok** ·
+  retry 3 ครั้ง (5/15/30 นาที) · แจ้ง `ALERT_EMAIL` เมื่อล้มครบทุกรอบ · สำรองฐานข้อมูลทุกรอบประจำวัน ไม่ขึ้นกับผล sync
+- ตอน boot: โหลดไฟล์ที่ยังไม่มี และถ้ารอบสำเร็จล่าสุดเก่ากว่า `MASTER_REFRESH_MAX_AGE_HOURS` (20) จะไล่ตามในอีก 30 วินาที
+- ทุกทริกเกอร์ (scheduler / boot / ปุ่มแอดมิน / ปุ่มร้าน / CLI) ผ่าน `runMasterRefresh` ตัวเดียว
+- ⚠️ ถ้าใช้ Windows Task Scheduler (`npm run sync:masters:daily`) ต้องตั้ง `MASTER_REFRESH_ENABLED=false` ไม่งั้นดึงซ้ำสองรอบ
 
-```bash
-npm run sync:masters
-```
+ชุดข้อมูล สิทธิ์ของ service principal และ env ทั้งหมดอยู่ใน [06 — Fabric / OneLake](./docs/wiki/06-fabric-integration.md)
 
-Cache อยู่ที่ `data/cache/` (Docker: volume `vmi_data`)
-
-ข้อมูลที่ sync:
-- ร้านค้า / เซลล์ (master)
-- สต็อก / CVD (`stock_cover_day`)
-- ราคา SKU (`item_barcode_map_v2`)
-- โปร C4 (`cft_promotion_cash`) — อยู่ workspace `Bronze_OrderAgent` คนละที่กับ masters
-  และต้องใช้ auth profile ของ stock (`CFT_WORKSPACE_ID` / `CFT_LAKEHOUSE_ID` / `CFT_AUTH_PROFILE`)
-  ไฟล์นี้มี `DIVISIONSALE|CUSTOMERGROUP` เดียวคือ `E|98` → `C4_DEFAULT_*` ต้องตั้งให้ตรง
-  ตรวจได้ด้วย `npm run verify:promo-context` · rollback ด้วย `PROMOTION_CSV=...cft_promotion_credit.csv`
-- ชื่อกลุ่มโปร (`cft_assorted_mapping`) — lakehouse เดียวกับ C4 แปลง `ASSORTEDPRODUCTGROUP`
-  เป็น `DESCRIPTIONASSORTED` ให้ UI/Excel แสดงชื่อแทนรหัสกลุ่ม (ไม่มีไฟล์ = ถอยไปแสดงรหัสเหมือนเดิม)
-
-### ตั้งเวลารายวัน (03:30 น. Bangkok)
-
-ทุกฝั่งของระบบใช้ **ชุดข้อมูลเดียวกัน** ที่ดึงมาโดยฟังก์ชันเดียว (`runMasterRefresh`)
-ไม่ว่าจะมาจาก scheduler, boot, ปุ่มแอดมิน, ปุ่มร้านค้า หรือ CLI
-
-```env
-# เปิดอยู่โดย default ทุก environment — ตั้ง =false เพื่อปิด
-# MASTER_REFRESH_ENABLED=false
-MASTER_REFRESH_HOUR=3
-MASTER_REFRESH_MINUTE=30
-MASTER_REFRESH_MAX_AGE_HOURS=20
-ALERT_EMAIL=you@company.com
-SENDER_EMAIL=noreply@company.com   # ต้องตั้งคู่กัน มิฉะนั้นไม่มีอีเมลออก
-```
-
-- **scheduler**: ทุกวัน 03:30 น. (Asia/Bangkok) — retry 3 ครั้ง (5/15/30 นาที),
-  แจ้ง `ALERT_EMAIL` เมื่อล้มเหลวทุกรอบ (ต้องตั้ง `SENDER_EMAIL` ด้วย), สำรองฐานข้อมูลทุกรอบ
-  ไม่ขึ้นกับผลลัพธ์ของ sync
-- **boot catch-up**: ตอนสตาร์ท ถ้าไฟล์ไหนยังไม่มีจะโหลดให้ทันที และถ้ารอบสำเร็จล่าสุด
-  เก่ากว่า `MASTER_REFRESH_MAX_AGE_HOURS` จะไล่ตามให้ในอีก 30 วินาที
-  (เดิม restart หลัง 03:30 = ไม่มีข้อมูลใหม่จนวันรุ่งขึ้น)
-- **ปุ่มร้านค้า** (`ตรวจข้อมูลใหม่`): อ่านชุดข้อมูลกลางซ้ำ + ล้าง cache ฝั่ง client
-  และจะสั่งดึงจาก Fabric จริงเฉพาะเมื่อชุดกลางเก่าเกินกำหนด
-- **แท็บที่เปิดค้าง**: poll `/api/data-version` ทุก 5 นาที (และเมื่อกลับมาที่แท็บ)
-  พบ version ใหม่แล้ว invalidate cache ให้เอง — ไม่ต้องกดปุ่ม
-- ทุกทริกเกอร์ใช้ credential แบบไม่ต้องมีคนกด (service principal) เท่านั้น
-  การล็อกอินแบบเปิดเบราว์เซอร์เหลือใช้ได้แค่ CLI: `npm run sync:masters -- --interactive`
-
-**ทางเลือก Windows:** Task Scheduler รัน `scripts\sync-masters-daily.bat`
-⚠️ **ห้ามตั้งคู่กับ scheduler ในโปรเซส** — จะโหลดไฟล์ SKU 68 MB ซ้ำสองรอบ
-ถ้าจะใช้ Task Scheduler ให้ตั้ง `MASTER_REFRESH_ENABLED=false`
-
-**จาก Admin UI:** `/admin/sync` — มีสถานะรายตาราง (จำนวนแถว / ขนาด / อายุ / error)
-และปุ่มดึงใหม่รายชุดข้อมูล
-
-## Production Deploy (Docker + Linux)
-
-### 1. เตรียม `.env` บน server
+## ทดสอบ
 
 ```bash
-cp .env.example .env
-# ใส่ค่าจริง: ONELAKE_*, STOCK_ONELAKE_*, NEXTAUTH_SECRET,
-# ADMIN_EMAILS, ALERT_EMAIL
+npm test                              # vitest run
+npx vitest run --no-file-parallelism  # เครื่องช้า — กัน *.db.test.ts หมดเวลาตอนสร้างฐานข้อมูล
+npm run lint
+npm run build                         # หยุด npm run dev ก่อน
 ```
 
-> **สำคัญ:** `NEXT_PUBLIC_*` ตั้งใน `.env` บน server ไม่ได้ — มันถูกฝังลง JS ตอน build
-> และ `.dockerignore` กัน `.env` ออกจาก build context · client id / tenant id ของ Azure
-> อยู่ในโค้ดที่ `lib/auth/azure-app.ts` แล้ว ไม่ต้องตั้ง
-
-### 2. Build และรัน
+## Production Deploy (ย่อ)
 
 ```bash
 docker compose up -d --build
-curl -s http://127.0.0.1:3002/vmi/api/health
+curl -fsSL http://127.0.0.1:3002/vmi/api/health/
 ```
 
-แอปรันที่ **host port 3002** → container `3000` (bind `127.0.0.1`)  
-Compose project / container name: **`vmi`**
+- host port **3002** (bind `127.0.0.1`) → container 3000 · project/container ชื่อ **`vmi`** ·
+  อยู่หลัง nginx ที่ path `/vmi/` (**ห้ามตัด prefix** ใน `proxy_pass`)
+- ตอน start: สำรองฐานข้อมูลก่อน แล้ว `prisma migrate deploy`
+- volumes: `vmi_data` (SQLite + Fabric cache) · `vmi_backups` (ไฟล์สำรอง DB) · `vmi_logs` (เอกสาร PO `logs/po-export/*.json`)
+- `NEXT_PUBLIC_*` ตั้งใน `.env` บน server ไม่ได้ (ฝังลง JS ตอน build และ `.dockerignore` กัน `.env` ออก)
+- โฟลเดอร์ `deploy/` (scripts / nginx / OliveTin snippets) เก็บ local บน server เท่านั้น — ไม่ขึ้น git
 
-Container ทำ `prisma migrate deploy` อัตโนมัติตอน start
-
-**Volumes:**
-- `vmi_data` — SQLite + Fabric cache
-- `vmi_backups` — backup DB หลัง sync สำเร็จ
-- `vmi_logs` — PO export stub
-
-### 3. nginx (path `/vmi/` บน spc-ai)
-
-Next.js ใช้ `basePath: '/vmi'` — **ห้ามตัด prefix** ใน `proxy_pass`:
-
-```nginx
-location /vmi/ {
-    proxy_pass         http://127.0.0.1:3002;  # ไม่มี / ท้าย
-    proxy_set_header   Host              $host;
-    proxy_set_header   X-Real-IP         $remote_addr;
-    proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
-    proxy_set_header   X-Forwarded-Proto $scheme;
-    client_max_body_size 50M;
-    proxy_read_timeout   120s;
-    proxy_send_timeout   120s;
-}
-
-location = /vmi {
-    return 301 /vmi/;
-}
-```
-
-เพิ่ม Redirect URI ใน Azure (SPA): `https://spc-ai.sahapat.com/vmi/auth/callback`
-
-โฟลเดอร์ `deploy/` (scripts / Nginx / OliveTin snippets) เก็บ **local บน server เท่านั้น** — ไม่ขึ้น git
-
-### 4. Backup มือ
-
-```bash
-docker compose exec vmi node scripts/backup-db.mjs
-# local: npm run backup:db
-```
+ขั้นตอนเต็ม nginx และ Azure อยู่ใน [09 — Production Deploy](./docs/wiki/09-deployment.md)
 
 ## คำสั่งที่ใช้บ่อย
 
 | คำสั่ง | ความหมาย |
 |--------|----------|
-| `npm run dev` | Dev server (port 3000) |
-| `npm run build` / `npm start` | Production local |
-| `npm run db:setup` | migrate + seed |
-| `npm test` · `npm run test:watch` | รันชุดทดสอบ (vitest) |
-| `npm run lint` | ตรวจ ESLint |
-| `npm run clean` | ลบโฟลเดอร์ `.next/` |
+| `npm run dev` · `npm run dev:turbo` | Dev server (port 3000) · แบบ Turbopack |
 | `npm run dev:stop` | หยุด dev server ที่ค้างอยู่ |
-| `npm run sync:masters` | ดึง Fabric → cache |
-| `npm run backup:db` | backup SQLite |
+| `npm run clean` | ลบโฟลเดอร์ `.next/` |
+| `npm run build` / `npm start` | Build และรัน production ในเครื่อง |
+| `npm run lint` | ตรวจ ESLint |
+| `npm test` · `npm run test:watch` | รันชุดทดสอบ (vitest) |
+| `npm run db:setup` | migrate + seed |
+| `npm run db:migrate` | สร้าง/ใช้ migration (ทุกครั้งที่แก้ schema) |
+| `npm run db:generate` · `npm run db:seed` | สร้าง Prisma client ใหม่ · seed ข้อมูล |
+| `npm run sync:masters` | ดึง Fabric → `data/cache/` (`-- --interactive` = ล็อกอินผ่านเบราว์เซอร์) |
+| `npm run backup:db` | สำรอง SQLite |
+| `npm run verify:promo-context` · `verify:promo-parity` · `verify:sales-cover` | ตรวจบริบทโปร C4 / ผลโปร / ความครอบคลุมยอดขาย |
+| `npm run probe:*` · `npm run snapshot:promo` | สคริปต์สำรวจข้อมูล OneLake / เก็บ baseline โปร |
+| `npm run erp:preview` | ดู payload ที่จะส่ง ERP (ไม่ยิงจริง) |
 | `docker compose up -d --build` | Deploy production |
-
-> **สำคัญ:** หยุด `npm run dev` ก่อนรัน `npm run build` — ทั้งคู่ใช้โฟลเดอร์ `.next/` ร่วมกัน
-> ถ้าไม่หยุดจะเจอ error "โมดูลหาย" ที่ไม่ใช่บั๊กจริง
 
 ## โครงสร้างหลัก
 
 ```
 app/              # Pages & API routes
 components/       # UI
-lib/              # Business logic, auth, Fabric, repositories, po, promo
+lib/              # Business logic: auth, fabric, repositories, po, promo, calculations ...
 hooks/            # React hooks ที่ใช้ร่วมหลายหน้า
 tests/            # Vitest · helpers/ = ตัวช่วยสร้าง DB ชั่วคราว
 prisma/           # Schema, migrations & seed
-docs/wiki/        # เอกสารโปรเจกต์
+docs/             # Wiki + แผนงาน
 docker/           # Dockerfile, entrypoint
-scripts/          # sync, backup, verify
+scripts/          # sync, backup, verify, probe
 ```
+
+รายละเอียดรายโฟลเดอร์อยู่ใน [12 — โครงสร้างโปรเจกต์](./docs/wiki/12-project-structure.md)
+
+## 📖 เอกสาร
+
+| ถ้าคุณคือ | เริ่มที่ |
+|---|---|
+| ผู้ใช้งาน (ร้าน / เซลล์ / แอดมิน) | [04 — คู่มือผู้ใช้](./docs/wiki/04-user-guide.md) |
+| นักพัฒนาที่เพิ่งรับช่วงงาน | [11 — คู่มือนักพัฒนา](./docs/wiki/11-developer-guide.md) → [12 — โครงสร้างโปรเจกต์](./docs/wiki/12-project-structure.md) |
+| ผู้ดูแลระบบ server | [09 — Deploy](./docs/wiki/09-deployment.md) · [10 — แก้ปัญหา](./docs/wiki/10-operations-troubleshooting.md) |
+
+| หน้า | หัวข้อ |
+|---|---|
+| [00 — หน้าแรก](./docs/wiki/00-home.md) | สารบัญ Wiki · สถานะปัจจุบัน |
+| [01 — ภาพรวมโปรเจกต์](./docs/wiki/01-overview.md) | ธุรกิจ บทบาท flow หลัก แนวคิดสำคัญ |
+| [02 — สถาปัตยกรรม](./docs/wiki/02-architecture.md) | ผังระบบ data flow auth scheduler |
+| [03 — การยืนยันตัวตน](./docs/wiki/03-authentication.md) | Login ร้าน, Microsoft, Admin/Creator |
+| [04 — คู่มือผู้ใช้](./docs/wiki/04-user-guide.md) | หน้าจอและขั้นตอนการใช้งาน |
+| [05 — API Reference](./docs/wiki/05-api-reference.md) | รายการ API |
+| [06 — Fabric / OneLake](./docs/wiki/06-fabric-integration.md) | sync, scheduler, cache, env |
+| [07 — Data Model](./docs/wiki/07-data-model.md) | Prisma schema |
+| [08 — กฎทางธุรกิจ](./docs/wiki/08-business-rules.md) | CVD, ออเดอร์, PO, โปร C4 |
+| [09 — Production Deploy](./docs/wiki/09-deployment.md) | Docker, nginx, Azure |
+| [10 — ปฏิบัติการ & แก้ปัญหา](./docs/wiki/10-operations-troubleshooting.md) | health, backup, FAQ |
+| [11 — คู่มือนักพัฒนา](./docs/wiki/11-developer-guide.md) | setup, กับดัก, งานที่พบบ่อย |
+| [12 — โครงสร้างโปรเจกต์](./docs/wiki/12-project-structure.md) | แผนที่โฟลเดอร์และไฟล์สำคัญ |
+| [แผนปรับปรุงระบบ](./docs/IMPROVEMENT-PLAN.md) | งานค้าง · changelog |
+| [แผนส่ง PO เข้า ERP](./docs/ERP-PO-PLAN.md) | เฟส ERP · ข้อ 3.6 ที่รอทีมข้อมูล |

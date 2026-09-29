@@ -182,7 +182,9 @@ export async function upsertBlocks(
 
 export async function removeBlocks(
   storeId: string,
-  body: { skuIds?: unknown }
+  body: { skuIds?: unknown },
+  /** ใครยกเลิก — หัวข้อแจ้งเตือนเซลล์ต้องไม่บอกว่า "ร้าน" ถ้าแอดมินเป็นคนกด */
+  by: "store" | "admin" = "store"
 ): Promise<ServiceResult> {
   const skuIds = parseSkuIds(body.skuIds);
   if (skuIds.length === 0) {
@@ -202,7 +204,7 @@ export async function removeBlocks(
       data: {
         storeId,
         kind: "sku_unblocked",
-        title: `ร้านยกเลิกหยุดสั่ง ${removing.length} รายการ`,
+        title: `${by === "admin" ? "แอดมิน" : "ร้าน"}ยกเลิกหยุดสั่ง ${removing.length} รายการ`,
         detail: names.slice(0, 5).join(" · ") + (names.length > 5 ? ` · และอีก ${names.length - 5}` : ""),
       },
     });

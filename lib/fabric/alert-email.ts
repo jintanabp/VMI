@@ -48,7 +48,7 @@ export async function sendMasterRefreshAlert(
   const sender = process.env.SENDER_EMAIL?.trim();
   if (!sender || recipients.length === 0) {
     console.warn(
-      "[VMI alert] Email skipped — set SENDER_EMAIL and ALERT_EMAIL for Graph delivery"
+      "[VMI alert] Email skipped — set SENDER_EMAIL for Graph delivery (ALERT_EMAIL optional — defaults to the sender)"
     );
     return;
   }

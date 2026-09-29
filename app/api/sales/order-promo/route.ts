@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getSalesSession } from "@/lib/auth/sales-session";
 import {
+  resolveAllPersonVdaCodes,
   resolveSalesmanCodesForFilter,
   resolveVdaCodesForSalesmanCodes,
 } from "@/lib/orders/access";
@@ -33,14 +34,15 @@ export async function POST(request: Request) {
 
   const storeCode = parsed.data.storeCode.trim().toLowerCase();
 
+  // เซลล์: เฉพาะคลังของรหัสที่ผูกไว้ (fail closed) — เดิม `allowed.length > 0 && …` คนที่ไม่มีคลังเลย
+  // ดูโปรของคลังไหนก็ได้ และร้านที่ไม่ใช่ VDA ไม่ถูกตรวจเลย (แก้แบบเดียวกับ /api/promo/inspector — 29 ก.ย. 69)
   if (session.role !== "admin") {
-    if (isVdaStoreCode(storeCode)) {
-      const allowed = resolveVdaCodesForSalesmanCodes(
-        resolveSalesmanCodesForFilter(session)
-      );
-      if (allowed.length > 0 && !allowed.includes(storeCode)) {
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-      }
+    const allowed = new Set([
+      ...resolveVdaCodesForSalesmanCodes(resolveSalesmanCodesForFilter(session)),
+      ...resolveAllPersonVdaCodes(session.email, session.manualCodes),
+    ]);
+    if (!isVdaStoreCode(storeCode) || !allowed.has(storeCode)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
   }
 

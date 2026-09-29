@@ -532,7 +532,8 @@ export function buildSoldHistorySpec(localPath: string): RefreshSpec | null {
     requiredColumns: ["productcode", "date_invoice", "unit_qty"],
     minRows: Number(process.env.SOLD_HISTORY_MIN_ROWS ?? "1"),
     authProfile:
-      (process.env.SOLD_HISTORY_AUTH_PROFILE as OnelakeAuthProfile) ?? "stock",
+      // c4AuthProfile ไม่ใช่ ?? — ค่าว่างใน .env ต้องถอยเป็น "stock" ไม่ใช่ส่ง "" ไป (เจอ 29 ก.ย. 69)
+      c4AuthProfile("SOLD_HISTORY_AUTH_PROFILE"),
   };
 }
 

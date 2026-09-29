@@ -60,7 +60,7 @@ export function RejectItemModal({
           <span className="font-mono font-semibold">{skuCode}</span> · {skuName}
         </p>
         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-          ตั้งจำนวนเป็น 0 — ยังอยู่ในออเดอร์แต่ไม่ถูกส่งเข้า PO
+          ตั้งจำนวนเป็น 0 — ยังอยู่ในออเดอร์แต่ไม่ถูกสั่ง (ถ้าอยู่ในกลุ่มโปร จะยังขึ้นใน PO เป็น 0 หีบพร้อมหมายเหตุ)
         </p>
 
         <p className="mt-4 text-xs font-semibold text-slate-600 dark:text-slate-300">

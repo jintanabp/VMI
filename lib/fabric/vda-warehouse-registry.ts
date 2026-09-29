@@ -8,7 +8,7 @@ import { normalizeStoreKey } from "./store-key";
  * บิ๊กบิซพลัส, ...) ไม่มีคำว่า VDA ให้จับเลยสักรหัส เดิมจึงอยู่ใน VDA_CUSTOMER_MAP
  * ซึ่งแปลว่าเปิดคลังใหม่ทีต้องแก้ .env บนเซิร์ฟเวอร์แล้ว restart
  *
- * ตอนนี้อยู่ในฐานข้อมูล แก้จากหน้า /admin/vda ได้ ส่วน env เหลือหน้าที่เดียวคือ seed
+ * ตอนนี้อยู่ในฐานข้อมูล แก้จากหน้า /admin/data/warehouses ได้ ส่วน env เหลือหน้าที่เดียวคือ seed
  * ตอนตารางยังว่าง (deploy ครั้งแรก) และเป็นตาข่ายรับตอน DB ยังอ่านไม่ได้
  *
  * รูปแบบ cache ยืมมาจาก lib/auth/admin-registry: ชั้น fabric อ่านแบบ sync ไม่ได้
@@ -172,7 +172,7 @@ export async function initVdaWarehouseRegistry(): Promise<number> {
   }
   console.info(
     `[VdaWarehouse] ย้าย ${fromEnv.size} คลังจาก VDA_CUSTOMER_MAP เข้าฐานข้อมูลแล้ว — ` +
-      `จากนี้แก้ได้ที่หน้า /admin/vda ไม่ต้องแก้ .env`
+      `จากนี้แก้ได้ที่หน้า /admin/data/warehouses ไม่ต้องแก้ .env`
   );
   await refreshVdaWarehouseCache();
   return fromEnv.size;

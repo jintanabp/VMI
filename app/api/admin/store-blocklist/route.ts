@@ -87,7 +87,7 @@ export async function DELETE(request: Request) {
   const guard = await requireAdminAndStore(request);
   if (!guard.ok) return guard.res;
   const body = await request.json().catch(() => ({}));
-  const { status, body: payload } = await removeBlocks(guard.storeId, body);
+  const { status, body: payload } = await removeBlocks(guard.storeId, body, "admin");
   if (status < 300) {
     await recordAudit(guard.session, "blocklist.remove", await storeCodeOf(guard.storeId), {
       skus: await auditSkuCodes(body.skuIds),

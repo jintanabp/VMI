@@ -1357,7 +1357,7 @@ export function SalesOrdersClient() {
                     )}
                     <p className="mt-1.5">
                       ประวัติที่ร้านเห็นในหน้า
-                      &quot;ประวัติการสั่งซื้อ&quot;
+                      &quot;ประวัติสั่ง&quot;
                       และแจ้งเตือนเดิมของออเดอร์นี้จะถูกลบด้วย · ย้อนกลับไม่ได้
                     </p>
                     <NotifyStoreCheckbox

@@ -1,7 +1,7 @@
 /**
  * สำรวจ cross_target_current_month.csv บน OneLake — อ่านอย่างเดียว ไม่ดาวน์โหลดไฟล์เต็ม
  *
- * Usage: npm run probe:cross-target
+ * Usage: npx tsx --env-file=.env scripts/probe-cross-target.ts
  *
  * ไฟล์อยู่ workspace/lakehouse เดียวกับตาราง C4 (CFT_*) ซึ่งตั้งไว้ใน .env อยู่แล้ว
  * ต้องรู้ชื่อคอลัมน์จริงก่อนถึงจะเขียน spec/loader ได้ — เดาชื่อคอลัมน์แล้ว

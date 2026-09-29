@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
 /**
  * แอดมินกำหนดเองว่าอีเมลไหนเข้าใช้งานในฐานะรหัสเซลล์ (SXXX) ไหนได้บ้าง
  *
- * override การจับคู่อัตโนมัติจาก cross_target (lib/fabric/vda-aos-bill.ts) — ดู
+ * เป็นแหล่งเดียวของ อีเมล ↔ รหัสเซลล์ (ไม่มีการจับคู่อัตโนมัติแล้วตั้งแต่ 28 ก.ย. 69) — ดู
  * lib/auth/manual-salesman-assignments.ts และ buildSalesSessionWithAccess()
  */
 

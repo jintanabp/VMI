@@ -13,8 +13,8 @@ import type { PoDocument } from "./po-document";
  * ส่ง PO เข้า ERP — ประกอบ → ตรวจความพร้อม → POST → ประทับผล
  *
  * ⚠️ **ไฟล์นี้ยิงออกเน็ตได้จริง** ต่างจาก erp-payload.ts ที่แปลงข้อมูลอย่างเดียว ·
- * แต่ปลายทางมาจาก `erpEndpoint()` ซึ่งตอนนี้คืน `null` เสมอ (ดู erp-endpoint.ts)
- * และ `checkErpReadiness` ยังกันทุกใบไว้ที่ `missing_delivery_date` อยู่แล้ว
+ * ปลายทางมาจาก `erpEndpoint()` (UAT เท่านั้น · สวิตช์เปิดตั้งแต่ 14 ก.ย. 69 · ปิดได้ด้วย ERP_SEND_DISABLED=1)
+ * และยิงเฉพาะใบที่ `checkErpReadiness` ผ่านแล้ว
  *
  * ## ทำไมแยกเป็นสองฟังก์ชัน
  * `postErpPayload()` ไม่แตะฐานข้อมูลเลยและรับ `fetch` เข้ามาได้ ⇒ เทสต์ทุกสาขาของคำตอบ

@@ -11,8 +11,8 @@ import { collectOwedFreeGoods } from "@/lib/promo/order-free-goods";
  * `ocr-po-matching/docs/ocr-insertOCROrderToBill-prod.md` (prod — มี isErrorC4 เพิ่ม)
  *
  * ⚠️ ไฟล์นี้**ไม่ยิงอะไรออกไปไหน** มีหน้าที่เดียวคือแปลงข้อมูลให้ถูกรูปและตรวจว่าครบไหม
- * การส่งจริงเป็นงานเฟส 2 ที่ต้องรอทีม ERP ตอบเรื่อง deliveryDate และรอ UAT ก่อน
- * เหตุผลที่ต้องรอ: ยิง production ผิดใบเดียว คู่ orderNo+customerCode จะถูกล็อก **6 เดือน**
+ * ตัวยิงจริงอยู่ที่ lib/po/erp-delivery.ts (เปิดใช้กับ UAT ตั้งแต่ 14 ก.ย. 69) — แยกไว้เพราะ
+ * ยิงผิดใบเดียว คู่ orderNo+customerCode จะถูกล็อก **6 เดือน** ไฟล์นี้จึงต้องไม่มีทางยิงเองได้
  *
  * ## ราคาไม่ตรง C4 → special deal — แก้ 14 ก.ย. 69 (กลับคำตัดสินใจเดิม)
  * รอบแรกเข้าใจผิดว่า "ใช้ราคาที่เราส่งได้เลย" แปลว่าไม่ต้องใช้ `isSpecial`/`isErrorC4` เลย
