@@ -108,6 +108,9 @@ export function AdminPromoPanel() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<FilterKey>("all");
+  /** กรองตามกลุ่มสินค้า (Section) / แบรนด์ จาก SKU master — ว่าง = ทั้งหมด */
+  const [sectionFilter, setSectionFilter] = useState("");
+  const [brandFilter, setBrandFilter] = useState("");
   // เริ่มที่รายสินค้า — เป็นมุมมองที่ตรงกับแบบฟอร์มสั่งสินค้าที่ทีมเปิดเทียบทุกวัน
   // ส่วนมุมมองกลุ่มไว้ดูโครงสร้างขั้นบันไดตอนต้องเจาะ
   const [view, setView] = useState<"group" | "sku">("sku");
@@ -157,7 +160,12 @@ export function AdminPromoPanel() {
     setExporting(true);
     setExportError(null);
     try {
-      const qs = vda ? `?vdaCode=${encodeURIComponent(vda)}` : "";
+      // ไฟล์ต้องตรงกับที่เห็นบนจอ — ส่งตัวกรองกลุ่มสินค้า/แบรนด์ไปด้วย
+      const params = new URLSearchParams();
+      if (vda) params.set("vdaCode", vda);
+      if (sectionFilter) params.set("section", sectionFilter);
+      if (brandFilter) params.set("brand", brandFilter);
+      const qs = params.size > 0 ? `?${params}` : "";
       const res = await apiFetch(appPath(`/api/promo/month/export${qs}`));
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as {
@@ -197,11 +205,43 @@ export function AdminPromoPanel() {
     });
   }
 
+  /** ตัวเลือกกลุ่มสินค้า/แบรนด์ มาจาก SKU ที่มีโปรในเดือนนี้เท่านั้น · แบรนด์แคบลงตามกลุ่มที่เลือก */
+  const sectionOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const g of data?.groups ?? []) for (const s of g.skus) if (s.section) set.add(s.section);
+    return [...set].sort((a, b) => a.localeCompare(b, "th"));
+  }, [data]);
+  const brandOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const g of data?.groups ?? [])
+      for (const s of g.skus)
+        if (s.brand && (!sectionFilter || s.section === sectionFilter)) set.add(s.brand);
+    return [...set].sort((a, b) => a.localeCompare(b, "th"));
+  }, [data, sectionFilter]);
+
+  // เปลี่ยนกลุ่มสินค้าแล้วแบรนด์เดิมไม่อยู่ในกลุ่มนั้น = ล้างทิ้ง ไม่งั้นได้ลิสต์ว่างโดยไม่รู้ตัว
+  useEffect(() => {
+    if (brandFilter && !brandOptions.includes(brandFilter)) setBrandFilter("");
+  }, [brandOptions, brandFilter]);
+
+  const skuMatches = useCallback(
+    (s: PromoMonthSku) =>
+      (!sectionFilter || s.section === sectionFilter) &&
+      (!brandFilter || s.brand === brandFilter),
+    [sectionFilter, brandFilter]
+  );
+  const productFilterOn = Boolean(sectionFilter || brandFilter);
+
+  /**
+   * กลุ่มโปรที่มีสินค้าตรงกลุ่มสินค้า/แบรนด์อย่างน้อย 1 ตัว — มุมมองกลุ่มยังโชว์สมาชิกครบทั้งกลุ่ม
+   * เพราะเงื่อนไขโปรนับยอดรวมทั้งกลุ่ม ตัดสมาชิกออกจะอ่านเงื่อนไขผิด
+   */
   const visibleGroups = useMemo(() => {
     if (!data) return [];
     const q = search.trim().toLowerCase();
     return data.groups.filter((g) => {
       if (!matchesFilter(g, filter)) return false;
+      if (productFilterOn && !g.skus.some(skuMatches)) return false;
       if (!q) return true;
       return (
         g.groupName.toLowerCase().includes(q) ||
@@ -213,7 +253,7 @@ export function AdminPromoPanel() {
         )
       );
     });
-  }, [data, search, filter]);
+  }, [data, search, filter, productFilterOn, skuMatches]);
 
   /**
    * มุมมองรายสินค้า — เรียงตามรหัส SKU แบบเดียวกับแบบฟอร์มสั่งสินค้า
@@ -228,7 +268,7 @@ export function AdminPromoPanel() {
   const visibleSkuRows = useMemo(() => {
     const q = search.trim().toLowerCase();
     const rows = visibleGroups.flatMap((g) =>
-      g.skus.map((s) => ({ sku: s, group: g }))
+      g.skus.filter(skuMatches).map((s) => ({ sku: s, group: g }))
     );
     const filtered = q
       ? rows.filter(
@@ -242,10 +282,13 @@ export function AdminPromoPanel() {
     return filtered.sort((a, b) =>
       a.sku.code.localeCompare(b.sku.code, undefined, { numeric: true })
     );
-  }, [visibleGroups, search]);
+  }, [visibleGroups, search, skuMatches]);
 
   // เปลี่ยนคำค้น/ตัวกรอง/มุมมอง = ชุดผลลัพธ์คนละชุด ต้องเริ่มนับหน้าใหม่
-  useEffect(() => setLimit(PAGE_SIZE), [search, filter, view, data]);
+  useEffect(
+    () => setLimit(PAGE_SIZE),
+    [search, filter, sectionFilter, brandFilter, view, data]
+  );
 
   const shownGroups = visibleGroups.slice(0, limit);
   const shownSkuRows = visibleSkuRows.slice(0, limit);
@@ -483,7 +526,7 @@ export function AdminPromoPanel() {
               type="button"
               onClick={() => void exportGroups()}
               disabled={exporting || !data}
-              title="ส่งออกกลุ่มโปรทั้งหมด (ตามคลังที่เลือกอยู่) เป็น Excel"
+              title="ส่งออกกลุ่มโปรเป็น Excel — ตามคลัง กลุ่มสินค้า และแบรนด์ที่เลือกอยู่"
               className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
             >
               <Download className="h-3.5 w-3.5" />
@@ -539,6 +582,51 @@ export function AdminPromoPanel() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-slate-600 dark:text-slate-400">
+              <span className="shrink-0">กลุ่มสินค้า</span>
+              <select
+                value={sectionFilter}
+                onChange={(e) => setSectionFilter(e.target.value)}
+                className="h-9 min-w-0 max-w-full rounded-lg border border-slate-300 bg-white px-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 sm:max-w-[16rem]"
+              >
+                <option value="">ทั้งหมด</option>
+                {sectionOptions.map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-slate-600 dark:text-slate-400">
+              <span className="shrink-0">แบรนด์</span>
+              <select
+                value={brandFilter}
+                onChange={(e) => setBrandFilter(e.target.value)}
+                className="h-9 min-w-0 max-w-full rounded-lg border border-slate-300 bg-white px-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 sm:max-w-[16rem]"
+              >
+                <option value="">ทั้งหมด</option>
+                {brandOptions.map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {productFilterOn && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSectionFilter("");
+                  setBrandFilter("");
+                }}
+                className="text-xs font-semibold text-[#0f4c75] hover:underline dark:text-sky-300"
+              >
+                ล้างตัวกรอง
+              </button>
+            )}
           </div>
 
           <div className="flex flex-wrap gap-1.5">

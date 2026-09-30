@@ -69,7 +69,12 @@ export async function GET(request: Request) {
     session.role === "admin" ? allStores : ownedVdaCodesForSession(session)
   );
 
-  const requested = new URL(request.url).searchParams.get("vdaCode");
+  const searchParams = new URL(request.url).searchParams;
+  const requested = searchParams.get("vdaCode");
+  // ตัวกรองกลุ่มสินค้า/แบรนด์จากหน้าโปร — เก็บกลุ่มโปรที่มีสินค้าตรงอย่างน้อย 1 ตัว (ทั้งกลุ่ม
+  // เพราะเงื่อนไขโปรนับยอดรวมทั้งกลุ่ม) ให้ไฟล์ตรงกับที่เห็นบนจอ
+  const section = searchParams.get("section")?.trim() ?? "";
+  const brand = searchParams.get("brand")?.trim() ?? "";
   const storeCodes = pickPromoStoreCodes(scope, requested);
   if (storeCodes === null) {
     return NextResponse.json(
@@ -112,7 +117,15 @@ export async function GET(request: Request) {
     { header: "ใช้ได้ตอนนี้", key: "activeNow", width: 12 },
     { header: "ขั้นบันไดทั้งหมด", key: "ladder", width: 60 },
   ]);
-  for (const group of report.groups) {
+  const groups =
+    section || brand
+      ? report.groups.filter((g) =>
+          g.skus.some(
+            (s) => (!section || s.section === section) && (!brand || s.brand === brand)
+          )
+        )
+      : report.groups;
+  for (const group of groups) {
     groupSheet.addRow({
       groupName: group.groupName,
       headline: group.headline,

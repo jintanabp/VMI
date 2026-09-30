@@ -52,6 +52,9 @@ export interface PromoMonthSku {
   discountPct: number | null;
   /** ราคาหลังหักส่วนลดขั้นแรก — เท่ากับ creditPrice เมื่อเป็นโปรของแถม */
   netPrice: number | null;
+  /** กลุ่มสินค้า (Section) / แบรนด์ จาก SKU master — ว่างเมื่อ master ไม่บอก · ใช้กรองบนหน้าโปร */
+  section: string;
+  brand: string;
 }
 
 export interface PromoMonthGroup {
@@ -435,6 +438,8 @@ export function buildPromoMonthReport(input?: {
         name: name || code,
         inSkuMaster: Boolean(name),
         unitPrice,
+        section: skuDir?.sectionForSku(code) ?? "",
+        brand: skuDir?.brandForSku(code) ?? "",
         discountBaht,
         discountPct,
         netPrice: calcNetUnitPrice(unitPrice, discountBaht, discountPct),
