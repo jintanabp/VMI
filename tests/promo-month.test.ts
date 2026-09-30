@@ -113,6 +113,8 @@ async function loadReport(
       nameForSku: (code: string) => `สินค้า ${code}`,
       packSizeForSku: (code: string) => packSizes[code] ?? 1,
       getLookupPrice: () => ({ price: 540, expired: false }),
+      sectionForSku: (code: string) => (code.startsWith("4") ? "กะทิพร้าวหอม" : ""),
+      brandForSku: (code: string) => (code.startsWith("4") ? "พร้าวหอม" : ""),
     }),
   }));
   vi.doMock("@/lib/fabric/stock-rows", () => ({
@@ -132,6 +134,19 @@ async function loadReport(
 }
 
 describe("buildPromoMonthReport", () => {
+  it("ติดกลุ่มสินค้า/แบรนด์จาก SKU master ไว้ทุก SKU — หน้าโปรใช้กรอง · master ไม่บอก = ว่าง", async () => {
+    const promo = writePromoCsv([
+      promoRow({ division: "E", product: "426577", discAmt: 20, group: "GX" }),
+      promoRow({ division: "E", product: "312009", discAmt: 20, group: "GX" }),
+    ]);
+
+    const rep = await loadReport(promo, ["vda1"]);
+
+    const byCode = Object.fromEntries(rep.groups[0].skus.map((s) => [s.code, s]));
+    expect(byCode["426577"]).toMatchObject({ section: "กะทิพร้าวหอม", brand: "พร้าวหอม" });
+    expect(byCode["312009"]).toMatchObject({ section: "", brand: "" });
+  });
+
   it("ตัดแถวที่เป็น division อื่นออก เพราะไม่มีคลังไหน lookup ถึง", async () => {
     const promo = writePromoCsv([
       promoRow({ division: "E", product: "426577", discAmt: 20, group: "GX" }),
