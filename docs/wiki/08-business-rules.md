@@ -20,7 +20,7 @@ stock          = stockPieces / packSize (ทศนิยม)   ← ที่ใ�
 
 | ค่า | สูตร |
 |---|---|
-| ขายเฉลี่ย/วัน | `avg_qty_out_L7` ถ้าว่างหรือเป็น 0 จึงใช้ `avg_qty_out_L30` (`resolveAvgSales` ใน `lib/fabric/stock-rows.ts`) |
+| ขายเฉลี่ย/วัน | `avg_qty_out_L30` ถ้าว่างหรือเป็น 0 จึงใช้ `avg_qty_out_L7` (`resolveAvgSales` ใน `lib/fabric/stock-rows.ts` · เปลี่ยนจาก L7 เป็นหลักเมื่อ 30 ก.ย. 69) |
 | Stock CVD | `stock ÷ avgSales` (avgSales = 0 → ประเมินไม่ได้) |
 | MIN | `avgSales × minDays` (default 7) |
 | MAX | `avgSales × maxDays` (default 15) |

@@ -369,7 +369,7 @@ export function buildOrderFormSheet(
     sheet.getCell(r, COL.stock).value = row.stockCases;
     if (row.stockCvd != null) sheet.getCell(r, COL.cvd).value = row.stockCvd;
     sheet.getCell(r, COL.minmax).value = `${row.minDays}/${row.maxDays}`;
-    sheet.getCell(r, COL.avgSales).value = row.avgQtyOutL7 ?? row.avgSales;
+    sheet.getCell(r, COL.avgSales).value = row.avgSales;
     if (suggest != null) sheet.getCell(r, COL.suggest).value = suggest;
     if (row.unitPrice != null) {
       sheet.getCell(r, COL.price).value = row.unitPrice;

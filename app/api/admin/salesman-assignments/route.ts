@@ -104,18 +104,37 @@ export async function POST(request: Request) {
     }
   }
 
+  /**
+   * 1 อีเมล = 1 รหัสเซลล์ (ผู้ใช้กำหนด 30 ก.ย. 69) — ต้องเอาออกจากรหัสเดิมก่อนถึงจะย้ายได้
+   * ตรวจในทรานแซกชันเดียวกับการเขียน กันสองคำขอผูกอีเมลเดียวกันคนละรหัสพร้อมกัน
+   */
+  let conflicts: { email: string; salesmanCode: string }[] = [];
   try {
-    await prisma.$transaction(
-      emails.map((email) =>
-        prisma.salesmanEmailAssignment.upsert({
+    await prisma.$transaction(async (tx) => {
+      conflicts = await tx.salesmanEmailAssignment.findMany({
+        where: { email: { in: emails }, active: true, salesmanCode: { not: salesmanCode } },
+        select: { email: true, salesmanCode: true },
+      });
+      if (conflicts.length > 0) return;
+      for (const email of emails) {
+        await tx.salesmanEmailAssignment.upsert({
           where: { email_salesmanCode: { email, salesmanCode } },
           create: { email, salesmanCode, active: true, createdBy: session.email },
           update: { active: true, createdBy: session.email },
-        })
-      )
-    );
+        });
+      }
+    });
   } catch {
     return NextResponse.json({ error: "บันทึกไม่สำเร็จ" }, { status: 500 });
+  }
+  if (conflicts.length > 0) {
+    const list = conflicts.map((c) => `${c.email} (${c.salesmanCode})`).join(", ");
+    return NextResponse.json(
+      {
+        error: `1 อีเมลผูกได้ 1 รหัสเซลล์ — ${list} ผูกกับรหัสอื่นอยู่แล้ว ต้องเอาออกจากรหัสเดิมก่อน`,
+      },
+      { status: 409 }
+    );
   }
 
   for (const email of emails) {

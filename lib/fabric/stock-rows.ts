@@ -89,15 +89,15 @@ function resolveThresholdDays(
   };
 }
 
-// ค่าที่ใช้คำนวณ CVD / แนะนำสั่ง: L7 ถ้าว่าง "หรือเป็น 0" ให้ใช้ L30
-// (ค่า 0 = ช่วง 7 วันล่าสุดเงียบ — ไม่ควรบล็อกดีมานด์จาก 30 วัน ไม่งั้นจะไม่แนะนำสั่งเลย)
+// ค่าที่ใช้คำนวณ CVD / แนะนำสั่ง: ขายเฉลี่ย 30 วัน (L30) เป็นหลัก (ผู้ใช้กำหนด 30 ก.ย. 69 —
+// เดิมใช้ L7 ซึ่งแกว่งตามสัปดาห์เดียว) · L30 ว่างหรือเป็น 0 ค่อยใช้ L7 ไม่งั้นจะไม่แนะนำสั่งเลย
 function resolveAvgSales(row: {
   avgQtyOutL7: number | null;
   avgQtyOutL30: number | null;
 }): number {
-  const l7 = row.avgQtyOutL7;
-  if (l7 != null && l7 > 0) return l7;
-  return row.avgQtyOutL30 ?? l7 ?? 0;
+  const l30 = row.avgQtyOutL30;
+  if (l30 != null && l30 > 0) return l30;
+  return row.avgQtyOutL7 ?? l30 ?? 0;
 }
 
 async function ensureSkus(

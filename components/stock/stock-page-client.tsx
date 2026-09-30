@@ -1734,13 +1734,13 @@ export function StockPageClient({
                 />
                 <SortableTh
                   label="ขายเฉลี่ย"
-                  sub="7 วัน"
+                  sub="30 วัน"
                   align="right"
                   sortKey="avgSales"
                   firstDir="desc"
                   sort={sort}
                   onSort={toggleColumnSort}
-                  title="ขายเฉลี่ยต่อวัน 7 วัน จาก stock_cover (avg_qty_out_L7) หน่วยหีบ — ไม่ใช่ยอดบิล factsales · กดเพื่อเรียง"
+                  title="ขายเฉลี่ยต่อวัน 30 วัน จาก stock_cover (avg_qty_out_L30 · ไม่มีค่าใช้ 7 วัน) หน่วยหีบ — ตัวเดียวกับที่ใช้คิด CVD/แนะนำสั่ง ไม่ใช่ยอดบิล factsales · กดเพื่อเรียง"
                 />
                 <SortableTh
                   label="CVD"
@@ -1998,8 +1998,7 @@ export function StockPageClient({
                       </td>
                       <td className="px-1 py-1.5 text-right text-xs">
                         <StockAvgSalesCell
-                          avgCases={row.avgQtyOutL7 ?? row.avgSales}
-                          avg30Cases={row.avgSales}
+                          avgCases={row.avgSales}
                           packSize={row.packSize}
                           compact
                         />
@@ -2598,12 +2597,11 @@ const StockMobileRow = memo(function StockMobileRow({
           />
         </MobileStat>
         <MobileStat
-          label="ขายเฉลี่ย · หีบ (ชิ้น)"
-          title="จาก stock_cover (avg_qty_out_L7) — ไม่ใช่ยอดบิล"
+          label="ขายเฉลี่ย 30 วัน · หีบ (ชิ้น)"
+          title="ขายเฉลี่ย 30 วัน จาก stock_cover (avg_qty_out_L30) — ไม่ใช่ยอดบิล"
         >
           <StockAvgSalesCell
-            avgCases={row.avgQtyOutL7 ?? row.avgSales}
-            avg30Cases={row.avgSales}
+            avgCases={row.avgSales}
             packSize={row.packSize}
             inline
           />

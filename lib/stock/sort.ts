@@ -95,7 +95,7 @@ function numericValue(
       : key === "stockValue"
         ? stockValueOf(row)
         : key === "avgSales"
-        ? (row.avgQtyOutL7 ?? row.avgSales)
+        ? row.avgSales
         : key === "cvd"
           ? row.stockCvd
           : row.suggestOrder;
