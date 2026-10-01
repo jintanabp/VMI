@@ -6,7 +6,11 @@ import {
   type RefreshAllResult,
 } from "./onelake-refresh";
 import { bumpDataVersion } from "./data-version";
-import { reloadFabricMasters } from "./index";
+import {
+  fabricPromoReady,
+  getPromotionCreditDirectory,
+  reloadFabricMasters,
+} from "./index";
 import { recordPromoCoverage } from "./promo-coverage";
 import {
   readMasterRefreshStatus,
@@ -16,6 +20,10 @@ import {
 } from "./refresh-status";
 import { requiredRefreshSucceeded, type DatasetId } from "./datasets";
 import { maxDataAgeHours } from "./data-age";
+import {
+  PROMO_MONTH_WATCH_INTERVAL_MS,
+  promoRowsCoverCurrentMonth,
+} from "./promo-month-watch";
 
 const RETRY_DELAYS_MS = [5 * 60_000, 15 * 60_000, 30 * 60_000];
 
@@ -290,6 +298,46 @@ function scheduleNextLoop(hour: number, minute: number) {
   }, delay);
 }
 
+/**
+ * รอบเฝ้าโปรเดือนใหม่ — ดู promo-month-watch.ts ว่าทำไมรอบ 03:30 อย่างเดียวไม่พอ
+ *
+ * ถ้ามีรอบอื่นกำลังดึงอยู่ ข้ามไปก่อน: runMasterRefresh จะคืน promise ของรอบนั้น
+ * ซึ่งอาจเป็นการดึงครบทุกไฟล์ (ไม่เสียหาย แต่ไม่ใช่สิ่งที่เราขอ)
+ */
+export async function refreshPromoIfMonthMissing(): Promise<void> {
+  if (isRefreshRunning()) return;
+  if (
+    fabricPromoReady() &&
+    promoRowsCoverCurrentMonth(getPromotionCreditDirectory().allRows())
+  ) {
+    return;
+  }
+
+  console.info("[VMI refresh] ไฟล์ C4 ยังไม่มีโปรของเดือนนี้ — ดึงเฉพาะ C4");
+  const outcome = await runMasterRefresh({
+    trigger: "promo_month",
+    datasets: ["promotion_c4"],
+  });
+  const covered =
+    fabricPromoReady() &&
+    promoRowsCoverCurrentMonth(getPromotionCreditDirectory().allRows());
+  console.info(
+    `[VMI refresh] C4 เดือนนี้: ${covered ? "มีแล้ว" : "ต้นทางยังไม่มี — ลองใหม่ชั่วโมงหน้า"}` +
+      (outcome.ok ? "" : ` (ดึงไม่สำเร็จ: ${outcome.error ?? "ดู log ด้านบน"})`)
+  );
+}
+
+function schedulePromoMonthWatch() {
+  setTimeout(async () => {
+    try {
+      await refreshPromoIfMonthMissing();
+    } catch (err) {
+      console.warn("[VMI refresh] promo month watch failed:", err);
+    }
+    schedulePromoMonthWatch();
+  }, PROMO_MONTH_WATCH_INTERVAL_MS);
+}
+
 const globalKey = "__vmiMasterRefreshSchedulerStarted";
 
 export function startMasterRefreshScheduler(): void {
@@ -315,4 +363,5 @@ export function startMasterRefreshScheduler(): void {
   );
 
   scheduleNextLoop(hour, minute);
+  schedulePromoMonthWatch();
 }

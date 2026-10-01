@@ -9,7 +9,9 @@ export type RefreshTrigger =
   | "boot"
   | "admin"
   | "store"
-  | "cli";
+  | "cli"
+  /** ตัวเฝ้าโปรเดือนใหม่ — ดึงเฉพาะ C4 จนกว่าจะเจอแถวของเดือนนี้ */
+  | "promo_month";
 
 /** สถานะรอบล่าสุดของชุดข้อมูลหนึ่ง — ค่าทั้งหมดมาจาก DatasetRefreshResult */
 export interface DatasetStatusEntry {

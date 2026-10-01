@@ -82,6 +82,7 @@ const TRIGGER_LABEL: Record<string, string> = {
   admin: "แอดมินกด",
   store: "ร้านค้ากด",
   cli: "คำสั่ง CLI",
+  promo_month: "รอโปรเดือนใหม่",
 };
 
 function fmtTime(iso?: string | null): string {
