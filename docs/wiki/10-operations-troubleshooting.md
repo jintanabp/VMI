@@ -34,7 +34,7 @@ log หมุนเก็บ 5 × 10MB (compose) — **สร้าง container
 | pattern | มาจาก |
 |---|---|
 | `\[VMI\] (Unhandled\|Fatal) error` | หน้า "เกิดข้อผิดพลาด" (ค้นด้วย digest ที่ผู้ใช้ส่งมา) |
-| `\[VMI refresh\]` · `\[VMI scheduler\]` | รอบ sync / ตั้งเวลา / retry / bootstrap |
+| `\[VMI refresh\]` · `\[VMI scheduler\]` | รอบ sync / ตั้งเวลา / retry / bootstrap / รอ C4 เดือนใหม่ (`trigger=promo_month`) |
 | `\[VMI alert\]` | แจ้งเตือน sync ล้ม + ผลการส่งอีเมล |
 | `\[VMI backup\]` | backup ตอน start และหลัง sync ประจำคืน |
 | `\[OneLake\] auth` · `forbidden (40` | SP ที่ใช้จริงต่อ profile · สิทธิ์ workspace |
@@ -158,9 +158,13 @@ Get-CimInstance Win32_Process -Filter "Name='node.exe'" |
 2. **ไฟล์โปรโหลดแล้วไหม** — `/api/health/` → `fabric.promoReady` · `/admin/data/sync` แถว `promotion_c4` (แถว อายุ error)
 3. **ไฟล์ถูกใบไหม** — `/admin/promotions/c4` ขึ้นแถบแดงเมื่อคลังค้นด้วยบริบทที่ไม่มีในไฟล์ หรือไฟล์ที่โหลดไม่ใช่ตาราง cash
    (ตาราง credit เก่ามี 7-8 บริบท) · ตรวจว่า `.env` **ไม่มี** `CFT_ONELAKE_PATH` / `C4_VDA_DIVISION_MAP` / `C4_DEFAULT_*` ค้างอยู่
-4. **ภาคของคลังถูกไหม** — โปรเฉพาะภาคขึ้นตามภาคของรหัสลูกค้าคลังใน `dim_customer` (ทะเบียนคลังที่ `/admin/data/warehouses`) ·
+4. **ต้นเดือนแล้วหน้าโปรว่าง** ("รายสินค้า <เดือนนี้> (0)") — เดือนบนหน้าเว็บไม่ได้ผิด มันคิดจากวันที่วันนี้ ·
+   ดู `FROMDATE`/`TODATE` ในไฟล์ C4 (`/admin/data/raw` → `cft_promotion_cash.csv`) ถ้ายังเป็นเดือนก่อน = ไฟล์ยังไม่ใช่เดือนใหม่ ·
+   Fabric โหลดตาราง C4 ราว 14:30 (คอลัมน์ `UpdateDate`) ระบบเช็คทุกชั่วโมงแล้วดึง C4 เองเมื่อต้นทางมีเดือนใหม่ (log `C4 เดือนนี้:`) ·
+   อยากได้ทันทีกด «ดึงใหม่» แถว `promotion_c4` ที่ `/admin/data/sync` · เลย ~15:00 แล้วต้นทางยังเป็นเดือนเก่า = ตามทีมข้อมูล ไม่ใช่โค้ด
+5. **ภาคของคลังถูกไหม** — โปรเฉพาะภาคขึ้นตามภาคของรหัสลูกค้าคลังใน `dim_customer` (ทะเบียนคลังที่ `/admin/data/warehouses`) ·
    `npm run probe:region-promos` · `npm run verify:promo-parity` เทียบหน้าร้านกับหน้าแอดมิน
-5. แล้วค่อยไล่โค้ด (`lib/fabric/promotion-*.ts`, `lib/promo/`)
+6. แล้วค่อยไล่โค้ด (`lib/fabric/promotion-*.ts`, `lib/promo/`)
 
 ### sync ล้ม
 

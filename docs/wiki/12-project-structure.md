@@ -252,7 +252,7 @@ VMI/
 |---|---|---|
 | ทะเบียนชุดข้อมูล | `datasets.ts` | รายการ dataset (customer, salesman*, stock_cover_day, promotion_c4, assorted_mapping, sku_master, factsales_odoo, cross_target, vda*_product) |
 | ดาวน์โหลด | `onelake-refresh.ts` · `onelake-credential.ts` · `env.ts` | ค้น/ดาวน์โหลดไฟล์จาก OneLake, credential chain, อ่าน env ของแต่ละ workspace |
-| รอบ sync | `scheduler.ts` · `refresh-status.ts` · `data-age.ts` · `alert-email.ts` | `runMasterRefresh()` ทางเข้าเดียว, รอบรายวัน (Asia/Bangkok), `catchUpIfStale`, ไฟล์สถานะ, อีเมลเตือนผ่าน Graph |
+| รอบ sync | `scheduler.ts` · `refresh-status.ts` · `data-age.ts` · `alert-email.ts` · `promo-month-watch.ts` | `runMasterRefresh()` ทางเข้าเดียว, รอบรายวัน (Asia/Bangkok), รอบรายชั่วโมงรอ C4 เดือนใหม่, `catchUpIfStale`, ไฟล์สถานะ, อีเมลเตือนผ่าน Graph |
 | path | `paths.ts` | ที่อยู่ไฟล์ใน `data/cache` (override ได้ด้วย `*_CSV`) |
 | อ่าน CSV | `csv.ts` · `csv-page-reader.ts` | ตัวอ่านของโปรเจกต์ (รับ `"` กลางค่า) / อ่านทีละหน้าสำหรับหน้าข้อมูลดิบ |
 | registry ในหน่วยความจำ | `index.ts` | `warmFabricMasters`, `ensureFabricMastersFresh` (โหลดใหม่เมื่อ mtime เปลี่ยน), getter ของแต่ละ directory |
@@ -434,7 +434,8 @@ components/sales/sales-orders-client.tsx (+ po-split-panel: จัดกลุ�
 ### 13.3 ข้อมูล master: Fabric/OneLake → cache → หน่วยความจำ
 
 ```
-ทริกเกอร์: scheduler รายวัน (03:30 Asia/Bangkok) · catchUpIfStale ตอน boot · ปุ่มแอดมิน
+ทริกเกอร์: scheduler รายวัน (03:30 Asia/Bangkok) · ทุกชั่วโมงถ้า C4 ยังไม่มีเดือนนี้ (เฉพาะ C4)
+           · catchUpIfStale ตอน boot · ปุ่มแอดมิน
            (/api/admin/refresh-masters) · ปุ่มร้าน (/api/stock/refresh) · CLI (npm run sync:masters)
   → runMasterRefresh()                   lib/fabric/scheduler.ts  (ทางเข้าเดียว, retry, alert-email)
       → datasets.ts รายการชุดข้อมูล → onelake-refresh.ts ดาวน์โหลด (ตรวจ header + ขั้นต่ำแถว)

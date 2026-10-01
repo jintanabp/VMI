@@ -141,8 +141,9 @@ flowchart TB
 | เวลา | ทุกวัน `MASTER_REFRESH_HOUR:MINUTE` (default **03:30**) เวลา Asia/Bangkok · ปิดด้วย `MASTER_REFRESH_ENABLED=false` (compose ตั้ง `true`) |
 | retry | ล้มแล้วลองใหม่ 3 ครั้ง ห่าง 5 / 15 / 30 นาที · ล้มครบ → อีเมลผ่าน Microsoft Graph ถึง `ALERT_EMAIL` (ต้องมี `SENDER_EMAIL` ด้วย ไม่งั้นแค่ log) |
 | backup | รอบประจำวันสำรอง DB ทุกครั้ง (`scripts/backup-db.mjs`) **ไม่ขึ้นกับผล sync** · ปุ่มที่คนกดไม่สำรอง |
+| C4 เดือนใหม่ | ทุกชั่วโมง: ไฟล์ C4 ไม่มีแถวที่ทับเดือนปัจจุบัน (ปฏิทินไทย) → ดึงเฉพาะ `promotion_c4` (trigger `promo_month`) จนกว่าจะเจอ · Fabric โหลดตาราง C4 ใหม่ราว 14:30 ทุกวัน รอบ 03:30 ของวันที่ 1 จึงได้ไฟล์ของเดือนก่อน หน้าโปรจึงเคยว่างทั้งวัน (1 ต.ค. 2569) · ไม่ backup · ไม่มี env ให้ตั้ง |
 | boot catch-up | โหลดไฟล์ที่ยังไม่มีทันที · ถ้ารอบสำเร็จล่าสุดเก่ากว่า `MASTER_REFRESH_MAX_AGE_HOURS` (20) ไล่ตามในอีก 30 วินาที |
-| ทางเข้าเดียว | ทุกทริกเกอร์ (scheduler / boot / ปุ่มแอดมิน / ปุ่มร้าน / CLI) ผ่าน `runMasterRefresh` → reload registry → bump data version |
+| ทางเข้าเดียว | ทุกทริกเกอร์ (scheduler / promo_month / boot / ปุ่มแอดมิน / ปุ่มร้าน / CLI) ผ่าน `runMasterRefresh` → reload registry → bump data version |
 | แท็บที่เปิดค้าง | poll `/api/data-version` ทุก 5 นาที เจอ version ใหม่ก็ invalidate cache เอง |
 
 รายละเอียดชุดข้อมูลและ env ที่ [06 — Fabric / OneLake](./06-fabric-integration.md)

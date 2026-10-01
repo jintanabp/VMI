@@ -169,8 +169,9 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 - ดึงมือ: `npm run sync:masters` · cache อยู่ที่ `data/cache/` (Docker: volume `vmi_data`)
 - อัตโนมัติ: scheduler ในโปรเซส (`instrumentation.ts` → `lib/fabric/scheduler.ts`) ทุกวัน **03:30 น. Asia/Bangkok** ·
   retry 3 ครั้ง (5/15/30 นาที) · แจ้ง `ALERT_EMAIL` เมื่อล้มครบทุกรอบ · สำรองฐานข้อมูลทุกรอบประจำวัน ไม่ขึ้นกับผล sync
+- **C4 เดือนใหม่:** เช็คทุกชั่วโมง ถ้าไฟล์ C4 ยังไม่มีแถวของเดือนนี้ ดึงเฉพาะ C4 ซ้ำจนกว่าจะเจอ (Fabric โหลดตาราง C4 ใหม่ราว 14:30 ทุกวัน รอบ 03:30 ของวันที่ 1 จึงได้ไฟล์ของเดือนก่อน)
 - ตอน boot: โหลดไฟล์ที่ยังไม่มี และถ้ารอบสำเร็จล่าสุดเก่ากว่า `MASTER_REFRESH_MAX_AGE_HOURS` (20) จะไล่ตามในอีก 30 วินาที
-- ทุกทริกเกอร์ (scheduler / boot / ปุ่มแอดมิน / ปุ่มร้าน / CLI) ผ่าน `runMasterRefresh` ตัวเดียว
+- ทุกทริกเกอร์ (scheduler / promo_month / boot / ปุ่มแอดมิน / ปุ่มร้าน / CLI) ผ่าน `runMasterRefresh` ตัวเดียว
 - ⚠️ ถ้าใช้ Windows Task Scheduler (`npm run sync:masters:daily`) ต้องตั้ง `MASTER_REFRESH_ENABLED=false` ไม่งั้นดึงซ้ำสองรอบ
 
 ชุดข้อมูล สิทธิ์ของ service principal และ env ทั้งหมดอยู่ใน [06 — Fabric / OneLake](./docs/wiki/06-fabric-integration.md)

@@ -100,7 +100,7 @@ client รู้ว่ามีข้อมูลใหม่จาก `/api/dat
 
 ## การ sync
 
-ทุกทริกเกอร์ (scheduler / boot / ปุ่มแอดมิน / ปุ่มร้าน "ตรวจข้อมูลใหม่" / CLI) ผ่าน `runMasterRefresh()` ตัวเดียว
+ทุกทริกเกอร์ (scheduler / promo_month / boot / ปุ่มแอดมิน / ปุ่มร้าน "ตรวจข้อมูลใหม่" / CLI) ผ่าน `runMasterRefresh()` ตัวเดียว
 มี in-flight guard บน `globalThis` — กดพร้อมกัน 20 คนก็ดาวน์โหลดครั้งเดียว
 
 ### สั่งเอง
@@ -122,6 +122,11 @@ npm run sync:masters          # CLI (อ่าน .env)
 
 - ไม่มี workspace ตั้งไว้เลย (`hasAnyOnelakeTargets()` = false) scheduler ข้ามเอง
 - รอบ scheduler ล้ม → retry 5 → 15 → 30 นาที (รวม ~50 นาที) แล้วจึงส่งอีเมลแจ้ง
+- **C4 เดือนใหม่ (`lib/fabric/promo-month-watch.ts`)** — ทุกชั่วโมงเช็คว่าไฟล์ C4 ที่โหลดอยู่มีแถวที่ทับเดือนปัจจุบันไหม
+  (เกณฑ์เดียวกับหน้าโปร C4 คือ `promoOverlapsMonth`) ไม่มี = ดึงเฉพาะ `promotion_c4` (~350KB) ด้วย trigger `promo_month`
+  เจอแล้วหยุดเองจนต้นเดือนถัดไป · ที่ต้องมีเพราะFabric โหลดตาราง C4 ใหม่ราว 14:30 ทุกวัน รอบ 03:30 ของวันที่ 1 จึงได้ไฟล์ของเดือนก่อน
+  แล้วต้องรอถึงคืนถัดไป (เกิดจริง 1 ต.ค. 2569) · รอบนี้ไม่ backup · มีรอบอื่นกำลังดึงอยู่ = ข้ามชั่วโมงนั้น
+  · log `[VMI refresh] ไฟล์ C4 ยังไม่มีโปรของเดือนนี้` / `C4 เดือนนี้: มีแล้ว | ต้นทางยังไม่มี — ลองใหม่ชั่วโมงหน้า`
 - **รอบ scheduler สำรอง DB ทุกครั้งไม่ว่าผลจะเป็นอย่างไร** (`scripts/backup-db.mjs`) · ปุ่มที่คนกดไม่ backup (ต้องตอบเร็ว)
 - สถานะเขียนที่ `data/logs/master-refresh-status.json` (`VMI_STATUS_DIR` ทับได้) — merge รายชุด
 - log: `[VMI scheduler] ...` ตอนตั้งเวลา · `[VMI refresh] trigger=... ok=... <ms> <ชุด>:ok|error` ทุกรอบ
