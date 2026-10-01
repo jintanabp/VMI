@@ -205,24 +205,30 @@ export function AdminPromoPanel() {
     });
   }
 
-  /** ตัวเลือกกลุ่มสินค้า/แบรนด์ มาจาก SKU ที่มีโปรในเดือนนี้เท่านั้น · แบรนด์แคบลงตามกลุ่มที่เลือก */
-  const sectionOptions = useMemo(() => {
+  /**
+   * ตัวเลือกแบรนด์/กลุ่มสินค้า มาจาก SKU ที่มีโปรในเดือนนี้เท่านั้น · กลุ่มแคบลงตามแบรนด์ที่เลือก
+   *
+   * แบรนด์ต้องมาก่อน: กลุ่มสินค้า (Section) แตกย่อยจากแบรนด์อีกที เช่น มาม่า → มาม่าคัพ/มาม่าโจ๊ก
+   * (ต.ค. 69: 1 กลุ่มมีแบรนด์เฉลี่ย 1.1 · โคโดโมแบรนด์เดียวมี 12 กลุ่ม) ถ้าเลือกกลุ่มก่อน
+   * ช่องแบรนด์จะเหลือตัวเลือกเดียวทุกครั้ง
+   */
+  const brandOptions = useMemo(() => {
     const set = new Set<string>();
-    for (const g of data?.groups ?? []) for (const s of g.skus) if (s.section) set.add(s.section);
+    for (const g of data?.groups ?? []) for (const s of g.skus) if (s.brand) set.add(s.brand);
     return [...set].sort((a, b) => a.localeCompare(b, "th"));
   }, [data]);
-  const brandOptions = useMemo(() => {
+  const sectionOptions = useMemo(() => {
     const set = new Set<string>();
     for (const g of data?.groups ?? [])
       for (const s of g.skus)
-        if (s.brand && (!sectionFilter || s.section === sectionFilter)) set.add(s.brand);
+        if (s.section && (!brandFilter || s.brand === brandFilter)) set.add(s.section);
     return [...set].sort((a, b) => a.localeCompare(b, "th"));
-  }, [data, sectionFilter]);
+  }, [data, brandFilter]);
 
-  // เปลี่ยนกลุ่มสินค้าแล้วแบรนด์เดิมไม่อยู่ในกลุ่มนั้น = ล้างทิ้ง ไม่งั้นได้ลิสต์ว่างโดยไม่รู้ตัว
+  // เปลี่ยนแบรนด์แล้วกลุ่มเดิมไม่อยู่ใต้แบรนด์นั้น = ล้างทิ้ง ไม่งั้นได้ลิสต์ว่างโดยไม่รู้ตัว
   useEffect(() => {
-    if (brandFilter && !brandOptions.includes(brandFilter)) setBrandFilter("");
-  }, [brandOptions, brandFilter]);
+    if (sectionFilter && !sectionOptions.includes(sectionFilter)) setSectionFilter("");
+  }, [sectionOptions, sectionFilter]);
 
   const skuMatches = useCallback(
     (s: PromoMonthSku) =>
@@ -526,7 +532,7 @@ export function AdminPromoPanel() {
               type="button"
               onClick={() => void exportGroups()}
               disabled={exporting || !data}
-              title="ส่งออกกลุ่มโปรเป็น Excel — ตามคลัง กลุ่มสินค้า และแบรนด์ที่เลือกอยู่"
+              title="ส่งออกกลุ่มโปรเป็น Excel — ตามคลัง แบรนด์ และกลุ่มสินค้าที่เลือกอยู่"
               className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
             >
               <Download className="h-3.5 w-3.5" />
@@ -586,21 +592,6 @@ export function AdminPromoPanel() {
 
           <div className="flex flex-wrap items-center gap-2">
             <label className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-slate-600 dark:text-slate-400">
-              <span className="shrink-0">กลุ่มสินค้า</span>
-              <select
-                value={sectionFilter}
-                onChange={(e) => setSectionFilter(e.target.value)}
-                className="h-9 min-w-0 max-w-full rounded-lg border border-slate-300 bg-white px-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 sm:max-w-[16rem]"
-              >
-                <option value="">ทั้งหมด</option>
-                {sectionOptions.map((o) => (
-                  <option key={o} value={o}>
-                    {o}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-slate-600 dark:text-slate-400">
               <span className="shrink-0">แบรนด์</span>
               <select
                 value={brandFilter}
@@ -609,6 +600,21 @@ export function AdminPromoPanel() {
               >
                 <option value="">ทั้งหมด</option>
                 {brandOptions.map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-slate-600 dark:text-slate-400">
+              <span className="shrink-0">กลุ่มสินค้า</span>
+              <select
+                value={sectionFilter}
+                onChange={(e) => setSectionFilter(e.target.value)}
+                className="h-9 min-w-0 max-w-full rounded-lg border border-slate-300 bg-white px-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 sm:max-w-[16rem]"
+              >
+                <option value="">ทั้งหมด</option>
+                {sectionOptions.map((o) => (
                   <option key={o} value={o}>
                     {o}
                   </option>
