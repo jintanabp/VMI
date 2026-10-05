@@ -149,10 +149,16 @@ function activeBenefitTier(
   return current;
 }
 
+/**
+ * จำนวนที่ร้านกรอกจริงเท่านั้น — ค่าแนะนำที่ยังไม่ได้กดไม่นับ
+ *
+ * เดิมแถวที่ยังไม่แตะใช้ suggestOrder แทน ยอดกลุ่มจึงรวมค่าแนะนำเข้าไปด้วย แถวที่มีค่าแนะนำ
+ * ขึ้น "อีก 3 หีบ" ส่วนเพื่อนในกลุ่มเดียวกันที่ไม่มีค่าแนะนำขึ้น "อีก 24 หีบ" (BSWN บน vda4)
+ * ผู้ใช้เคาะว่า ยังไม่กด = ยังไม่ได้สั่ง ต้องไม่ถูกนับในยอดโปร
+ */
 function lineQtyForRow(row: StockRowComputed, staged?: StagedQtyMap): number {
   const override = staged?.[row.skuCode];
-  if (override != null) return Math.max(0, Math.floor(override));
-  return row.suggestOrder > 0 ? row.suggestOrder : 0;
+  return override != null ? Math.max(0, Math.floor(override)) : 0;
 }
 
 function buildFreeGood(
@@ -226,15 +232,30 @@ function enrichOne(
   // ยังพอ (ระบบไม่แนะนำให้สั่ง) จึงไม่แสดงโปรเลยทั้งที่ C4 มีโปร active อยู่จริง
   // เช่น 426544 กลุ่ม BSWN บน vda4 — เปิด CSV เห็นโปร แต่หน้าจอว่าง
   //
-  // ไม่เอา pooled มาคิดในเคสนี้: แถวที่สั่ง 0 ไม่ควรขึ้นว่า "ได้ส่วนลดแล้ว"
+  // ส่วนลด/ของแถมยังคิดที่ 0: แถวที่สั่ง 0 ไม่ควรขึ้นว่า "ได้ส่วนลดแล้ว"
   // เพราะเพื่อนในกลุ่มไต่ขั้นไปถึง
-  if (lineQty <= 0) return applyTierPricing(row, 0, 0);
+  //
+  // แต่ "อีกกี่หีบถึงขั้นถัดไป" ของโปรกลุ่มเป็นตัวเลขระดับกลุ่ม ต้องนับจากยอดรวมกลุ่ม
+  // ไม่งั้นแถวที่ยังเป็น 0 จะขึ้น "อีก 24" ขณะที่เพื่อนที่กรอกไว้แล้วขึ้น "อีก 18"
+  const isPooled =
+    !!row.promoGroup &&
+    isPooledPromoGroup(row.promoGroup, row.promoGroupMembers);
+  const groupQty = isPooled ? groupPool.get(row.promoGroup!.trim()) ?? 0 : 0;
 
-  const pooled =
-    row.promoGroup &&
-    isPooledPromoGroup(row.promoGroup, row.promoGroupMembers)
-      ? groupPool.get(row.promoGroup.trim()) ?? lineQty
-      : lineQty;
+  if (lineQty <= 0) {
+    const base = applyTierPricing(row, 0, 0);
+    if (groupQty <= 0) return base;
+    const next = getPromoForQty(groupQty, row.promoTiers);
+    return {
+      ...base,
+      nextPromo: next.nextPromo,
+      nextPromoQty: next.nextPromoQty,
+      qtyToNext: next.qtyToNext,
+      nextPromoKind: next.nextKind,
+    };
+  }
+
+  const pooled = isPooled ? groupQty || lineQty : lineQty;
   const tierQty = pooled > 0 ? pooled : lineQty;
   return applyTierPricing(row, tierQty, lineQty);
 }

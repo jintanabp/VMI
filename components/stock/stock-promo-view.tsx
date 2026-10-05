@@ -154,7 +154,8 @@ function PromoBucketCard({
 }) {
   const isGroup = bucket.kind === "group";
   const pooledQty = isGroup ? sumStagedFor(bucket.memberSkus, stagedQty) : 0;
-  // ยอดที่ "ติ๊กเลือกแล้ว" จริง — pooledQty นับ suggestOrder ของแถวที่ยังไม่ติ๊กด้วย
+  // ยอดที่ "ติ๊กเลือกแล้ว" — pooledQty นับเฉพาะที่กรอกจริงแล้ว (ไม่รวมค่าแนะนำ)
+  // ปกติสองค่านี้จึงเท่ากัน เว้นแต่มีแถวที่กรอกจำนวนแต่ถูกปลดติ๊กออก
   const selectedQty = isGroup
     ? sumStagedFor(
         bucket.memberSkus.filter((c) => selectedSkuCodes.has(c)),

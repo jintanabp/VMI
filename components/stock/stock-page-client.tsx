@@ -520,16 +520,15 @@ export function StockPageClient({
     }
   }, [rows, sessionReady]);
 
-  /** จำนวนต่อ SKU สำหรับจำลอง promotion group (override จาก modal ได้) */
+  /**
+   * จำนวนต่อ SKU ที่ใช้คิดโปร (ยอดกลุ่ม / อีกกี่หีบ / ส่วนลด) — เฉพาะที่ร้านกรอกจริง
+   * ค่าแนะนำที่ยังไม่ได้กดไม่นับ ดู lineQtyForRow ใน lib/promo/stock-pooled-promo.ts
+   */
   const promoStagedQty = useMemo(() => {
     const m: Record<string, number> = {};
     for (const r of rows) {
       const o = qtyOverrides[r.skuCode];
-      if (o != null) {
-        m[r.skuCode] = Math.max(0, Math.floor(o));
-      } else if (r.suggestOrder > 0) {
-        m[r.skuCode] = r.suggestOrder;
-      }
+      if (o != null) m[r.skuCode] = Math.max(0, Math.floor(o));
     }
     return m;
   }, [rows, qtyOverrides]);
@@ -898,10 +897,8 @@ export function StockPageClient({
   /**
    * จำนวน "ที่ใช้จำลอง" — ยังไม่ได้แตะ = ใช้ค่าแนะนำ
    *
-   * ใช้กับโปรและธง CVD หลังสั่งเท่านั้น **ห้ามใช้ตัดสินว่าจะส่งอะไรไป /order**
-   * กฎเดียวกับ promoStagedQty ข้างบน และ lineQtyForRow ใน lib/promo/stock-pooled-promo.ts
-   * — ถ้าจะแก้ต้องแก้พร้อมกันทั้งสามที่ ไม่งั้นข้อความ "อีก 1 หีบ ได้ส่วนลด 50"
-   * จะหายจากแถวที่ผู้ใช้ยังไม่ได้แตะ ซึ่งเป็นข้อมูลหลักที่ใช้ตัดสินใจสั่ง
+   * ใช้กับธง CVD หลังสั่งเท่านั้น **ห้ามใช้ตัดสินว่าจะส่งอะไรไป /order**
+   * และไม่ใช้กับโปรแล้ว — โปรนับเฉพาะที่กรอกจริง (promoStagedQty ข้างบน)
    */
   const simulatedQty = useCallback(
     (row: StockRowComputed) => {
