@@ -16,6 +16,7 @@ import {
   REGIONS,
   promoActiveOn,
   promoServesRegion,
+  tierMinQty,
   type PromoRow,
 } from "@/lib/fabric/promotion-credit";
 import { resolvePromoContext } from "@/lib/fabric/promotion-context";
@@ -74,7 +75,7 @@ export interface PromoMonthGroup {
   kinds: PromoBenefitKind[];
   /** true = มีอย่างน้อยหนึ่งขั้นที่ให้ส่วนลดหรือของแถมจริง */
   hasBenefit: boolean;
-  /** ยอดสั่งขั้นต่ำสูงสุดที่ประกาศไว้ในกลุ่ม (0 = ไม่ได้ระบุ) — แสดงอย่างเดียว */
+  /** ยอดสั่งขั้นต่ำสูงสุดในกลุ่ม เป็นหีบ (MINIMUMPURCHASE แปลงชิ้น→หีบแล้ว · 0 = ไม่ได้ระบุ) */
   minPurchase: number;
   fromDate: string;
   toDate: string;
@@ -193,9 +194,8 @@ export function promoOverlapsMonth(
  * ข้อความเงื่อนไขแบบเดียวกับคอลัมน์ "รายการโปรโมชั่น C4 VDA (Div.E Credit)" ในแบบฟอร์มสั่งสินค้า
  *
  * ไฟล์ C4 เขียนอัตราส่วนเป็น "ต่อ 1 หีบ ได้ N ชิ้น" แล้วประกาศยอดขั้นต่ำแยกไว้ที่
- * MINIMUMPURCHASE ส่วนแบบฟอร์มเขียนรวบเป็น "คละ X หีบ ฟรี ... 1 หีบ" ซึ่งเป็นเรื่อง
- * เดียวกัน — BSWN: ขั้นต่ำ 24 หีบ × 6 ชิ้น = 144 ชิ้น = 1 หีบของ 429001 พอดี
- * ที่นี่จึงคูณกลับให้ตรงกับที่คนอ่านในแบบฟอร์ม แล้วแปลงชิ้น→หีบ เมื่อหารลงตัว
+ * MINIMUMPURCHASE (เป็นชิ้น) ขนาดล็อตและของแถมที่เข้ามาที่นี่ผ่าน premiumPerLot มาแล้ว
+ * — แถมเป็นหีบเต็มเสมอ (BSWN: หีบละ 6 ชิ้น สะสมครบ 24 หีบ = 144 ชิ้น = แถม 1 หีบ)
  */
 function buildC4Label(tiers: PromoTierInput[], pooled: boolean): string {
   const benefit = tiers
@@ -406,8 +406,9 @@ export function buildPromoMonthReport(input?: {
       nameOf: (c) => skuDir?.nameForSku(c) ?? "",
     });
     const hasBenefit = tiers.some(isBenefitTier);
+    // เป็นหีบเสมอ (แปลงจากชิ้นแล้วใน tierMinQty) ให้ตรงกับหัวคอลัมน์ "ขั้นต่ำสั่ง (หีบ)"
     const minPurchase = bucket.reduce(
-      (max, r) => Math.max(max, r.minPurchase),
+      (max, r) => (r.minPurchase > 0 ? Math.max(max, tierMinQty(r)) : max),
       0
     );
 

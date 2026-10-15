@@ -291,8 +291,8 @@ describe("buildPromoMonthReport", () => {
     );
   });
 
-  it("หารเป็นหีบไม่ลงตัว → บอกเป็นชิ้นตามต้นทาง ไม่ปัดให้ดูสวย", async () => {
-    // BSBSN ของจริง: ล็อต 6 หีบ ได้ 72 ชิ้น = ครึ่งหีบ โชว์ "0.5 หีบ" ไม่มีความหมาย
+  it("ของแถมไม่ครบหีบต่อล็อต → สะสมล็อตจนครบหีบเต็ม (VDA แถมเป็นหีบเท่านั้น)", async () => {
+    // ล็อต 6 หีบ ได้ 72 ชิ้น = ครึ่งหีบ → ต้องครบ 12 หีบ ถึงได้ 144 ชิ้น = 1 หีบ
     packSizes["429001"] = 144;
     const promo = writePromoCsv([
       promoRow({
@@ -315,9 +315,9 @@ describe("buildPromoMonthReport", () => {
 
     const rep = await loadReport(promo, ["vda1"]);
 
-    expect(rep.groups[0].tiers[0].premiumUnit).toBe("P");
+    expect(rep.groups[0].tiers[0].premiumUnit).toBe("B");
     expect(rep.groups[0].promoLabel).toBe(
-      "คละ 6 หีบ ฟรี 429001 สินค้า 429001 72 ชิ้น"
+      "คละ 12 หีบ ฟรี 429001 สินค้า 429001 1 หีบ"
     );
   });
 

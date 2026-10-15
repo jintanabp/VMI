@@ -178,6 +178,9 @@ export function getPromotionCreditDirectory(): PromotionCredit {
     promoCredit = new PromotionCredit();
     if (shouldLoadPromotion()) {
       promoCredit.load(getPromotionCsvPath());
+      // MINIMUMPURCHASE ส่วนใหญ่เป็นชิ้น ต้องรู้ขนาดหีบถึงจะเทียบกับยอดสั่ง (หีบ) ได้
+      const sku = getSkuMasterDirectory();
+      promoCredit.applyPackSizes((c) => sku.packSizeForSku(c));
     }
   }
   return promoCredit;
@@ -224,6 +227,10 @@ export function reloadFabricMasters(): void {
   }
   if (shouldLoadSkuMaster()) {
     skuMaster.load(getSkuMasterCsvPath());
+  }
+  if (promoCredit.isLoaded) {
+    const sku = skuMaster;
+    promoCredit.applyPackSizes((c) => sku.packSizeForSku(c));
   }
   if (shouldLoadSoldHistory()) {
     soldHistory.load(getSoldHistoryCsvPath());

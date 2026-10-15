@@ -77,27 +77,38 @@ export interface PromoTierOptions {
 }
 
 /**
- * ของแถมที่ได้ต่อหนึ่งล็อต แปลงเป็นหีบเมื่อทำได้
+ * ล็อตของแถม: ซื้อครบ lot หีบ ได้ของแถม qty หน่วย
  *
- * ต้นทางเขียนอัตราเป็น "ต่อ from หีบ ได้ premiumQty หน่วย" แต่เงื่อนไขจริงคือต้องครบ
- * ล็อตละ tierMinQty หีบ จึงต้องคูณกลับก่อน (BSWN: 6 ชิ้น/หีบ × 24 หีบ = 144 ชิ้น)
+ * ต้นทางเขียนอัตราเป็น "ต่อ from หีบ ได้ premiumQty หน่วย" ล็อตขั้นต่ำคือ tierMinQty หีบ
+ * (MINIMUMPURCHASE เป็นชิ้น แปลงเป็นหีบมาแล้ว)
  *
- * PREMIUMUNIT เป็น B อยู่แล้ว 26 แถว (เป็นหีบ ห้ามหารซ้ำ) ที่เหลือเป็น P (ชิ้น)
- * แปลงเป็นหีบเฉพาะตอนที่หารลงตัว — มี 32 แถวที่ได้ไม่ถึงหีบเต็ม (เช่น BSBSN
- * ซื้อ 6 หีบ ได้ 72 ชิ้น = ครึ่งหีบ) พวกนั้นคงหน่วยชิ้นไว้ ดีกว่าโชว์ "0.5 หีบ"
+ * VDA ขายเป็นหีบ และแถมเป็นหีบเต็มเท่านั้น (ผู้ใช้ยืนยัน 15 ต.ค. 69) ของแถมที่เป็นชิ้น (P)
+ * จึงต้องสะสมจนครบหีบก่อน — ขยายล็อตจนชิ้นที่ได้หารขนาดหีบของแถมลงตัว
+ * BSWN: หีบละ 6 ชิ้น หีบของแถม 144 ชิ้น → ล็อต 24 หีบ แถม 1 หีบ
+ *
+ * PREMIUMUNIT = B เป็นหีบอยู่แล้ว ห้ามหารซ้ำ · ไม่รู้ขนาดหีบของแถม = คงเป็นชิ้นตามต้นทาง
  */
 export function premiumPerLot(
   row: PromoRow,
   packSizeOf?: PackSizeResolver
-): { qty: number; unit: string } {
+): { qty: number; unit: string; lot: number } {
   const from = row.fromQty > 0 ? row.fromQty : 1;
-  const raw = row.premiumQty * (tierMinQty(row) / from);
+  const lot = tierMinQty(row);
+  const raw = row.premiumQty * (lot / from);
   if ((row.premiumUnit || "").toUpperCase() === "B") {
-    return { qty: raw, unit: "B" };
+    return { qty: raw, unit: "B", lot };
   }
   const pack = packSizeOf?.(row.premiumProduct) ?? 1;
-  if (pack > 1 && raw % pack === 0) return { qty: raw / pack, unit: "B" };
-  return { qty: raw, unit: row.premiumUnit };
+  if (pack > 1 && Number.isInteger(raw) && raw > 0) {
+    // จำนวนล็อตน้อยสุดที่ทำให้ชิ้นรวมเป็นหีบเต็มพอดี
+    const k = pack / gcd(raw, pack);
+    return { qty: (raw * k) / pack, unit: "B", lot: lot * k };
+  }
+  return { qty: raw, unit: row.premiumUnit, lot };
+}
+
+function gcd(a: number, b: number): number {
+  return b === 0 ? a : gcd(b, a % b);
 }
 
 export function activePromoRowAtQty(
@@ -224,9 +235,9 @@ export function lookupC4(
     }
 
     if (isStepTier(active) && hasPremium(active)) {
-      // ล็อตละ tierMinQty หีบ ได้ของแถม perLot ต่อล็อต — เศษที่ไม่ครบล็อตไม่นับ
-      const lot = tierMinQty(active);
+      // ล็อตละ perLot.lot หีบ ได้ของแถม perLot.qty ต่อล็อต — เศษที่ไม่ครบล็อตไม่นับ
       const perLot = premiumPerLot(active, opts.packSizeOf);
+      const lot = perLot.lot;
       const freeQty = calcStepPremiumQty(pooledQty, lot, perLot.qty);
       if (freeQty > 0) {
         const firstItemId = pool.lines[0]?.itemId;
@@ -397,9 +408,11 @@ export function promoRowsToTiers(
     }
   }
   const tiers: PromoTierInput[] = [];
-  for (const [minQty, r] of byMinQty) {
+  for (const [rowMinQty, r] of byMinQty) {
     const kind = tierKind(r);
     const perLot = kind === "premium" ? premiumPerLot(r, opts?.packSizeOf) : null;
+    // ของแถมต้องสะสมครบหีบเต็มก่อน — ขั้นจึงเริ่มที่ล็อตของแถม ไม่ใช่ขั้นต่ำดิบ
+    const minQty = perLot ? perLot.lot : rowMinQty;
     tiers.push({
       minQty,
       discount: formatPromoDiscount(r, opts),

@@ -15,7 +15,7 @@ import {
 } from "@/lib/promo/stock-pooled-promo";
 import { plannerView, blendedNetForStep } from "@/lib/promo/planner-utils";
 import { planPromoGroupStepFix } from "@/lib/promo/promo-step";
-import type { PromoTierInput } from "@/lib/calculations";
+import { formatPremiumUnit, type PromoTierInput } from "@/lib/calculations";
 import { usePromoGroupNames } from "@/hooks/use-promo-group-names";
 import { apiFetch } from "@/lib/api-fetch";
 
@@ -151,12 +151,16 @@ export function C4PromoModal({
   /**
    * บันได C4 → รูปที่ promo-step ใช้ (สนใจเฉพาะ "ขั้นไหนเป็นของแถมและล็อตเท่าไร")
    *
-   * ขั้นต่ำจริงคือ max(from, MINIMUMPURCHASE) แบบเดียวกับ tierMinQty ฝั่ง server —
-   * บางกลุ่มเขียน from = 1 ไว้เฉย ๆ แล้วบอกเงื่อนไขจริงที่ MINIMUMPURCHASE (BSWN = 24)
+   * ขั้นต่ำจริงคือ minCases ที่ server คิดมาให้ (tierMinQty) — MINIMUMPURCHASE เป็นชิ้น
+   * ต้องแปลงเป็นหีบก่อน ห้ามเอามาเทียบกับยอดสั่ง (หีบ) ตรง ๆ · ขั้นของแถมใช้ล็อตของแถม
+   * (premiumLot) เพราะแถมเป็นหีบเต็มเท่านั้น
    */
   const stepTiers = useMemo<PromoTierInput[]>(() => {
     return (data?.ladder ?? []).map((step) => {
-      const minQty = Math.max(step.fromQty, step.minPurchase ?? 0);
+      const minQty =
+        step.premiumLot?.lot ??
+        step.minCases ??
+        Math.max(step.fromQty, step.minPurchase ?? 0);
       const premium =
         step.isStepTier &&
         step.premiumQty > 0 &&
@@ -176,7 +180,7 @@ export function C4PromoModal({
               : ("none" as const),
         premiumProduct: premium ? step.premiumProduct : undefined,
         premiumName: premium ? step.premiumName : undefined,
-        premiumQty: premium ? step.premiumQty : undefined,
+        premiumQty: premium ? (step.premiumLot?.qty ?? step.premiumQty) : undefined,
       };
     });
   }, [data]);
@@ -492,15 +496,18 @@ export function C4PromoModal({
                               {active && "▶ "}
                               {stepRangeLabel(step.fromQty, step.toQty)}{" "}
                               {step.unitLabel}
-                              {/* ไฟล์ C4 ประกาศ MINIMUMPURCHASE แยกจาก from/to และบางกลุ่ม
-                                  ไม่ตรงกัน (BSWN: from/to = 1/1 แต่ขั้นต่ำ 24) — ตัวเลขนี้
-                                  คือเงื่อนไขจริงที่ระบบใช้ทั้งตอนคิดขั้นและตอนนับล็อตของแถม */}
-                              {step.minPurchase > step.fromQty && (
+                              {/* MINIMUMPURCHASE เป็นชิ้นเสมอ — โชว์เฉพาะเมื่อแปลงเป็นหีบแล้วสูงกว่า from
+                                  จริง · ขั้นของแถมใช้ล็อตของแถม (สะสมจนครบหีบเต็ม) ซึ่งอาจสูงกว่าขั้นต่ำ */}
+                              {(step.premiumLot?.lot ?? step.minCases) > step.fromQty && (
                                 <span
                                   className="ml-1 whitespace-nowrap font-normal text-amber-700 dark:text-amber-400"
-                                  title="ยอดสั่งขั้นต่ำจริงของขั้นนี้ — ต้องสั่งครบถึงจะได้สิทธิ์"
+                                  title={
+                                    step.premiumLot
+                                      ? `แถมเป็นหีบเต็ม — ต้องสั่งครบ ${step.premiumLot.lot} หีบ ได้แถม ${step.premiumLot.qty} ${formatPremiumUnit(step.premiumLot.unit)}`
+                                      : `ยอดสั่งขั้นต่ำ ${step.minPurchase} ชิ้น — ต้องสั่งครบถึงจะได้สิทธิ์`
+                                  }
                                 >
-                                  (ขั้นต่ำ {step.minPurchase})
+                                  (ขั้นต่ำ {step.premiumLot?.lot ?? step.minCases} หีบ)
                                 </span>
                               )}
                             </td>

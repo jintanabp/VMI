@@ -9,6 +9,7 @@ import {
   formatPromoDiscount,
   formatPremiumUnit,
   normalizeRegion,
+  premiumPerLot,
   preferInsertedWindow,
 } from "@/lib/fabric/promotion-lookup";
 import {
@@ -16,6 +17,7 @@ import {
   isStepTier,
   promoActiveOn,
   promoServesRegion,
+  tierMinQty,
   type PromoRow,
 } from "@/lib/fabric/promotion-credit";
 
@@ -36,8 +38,15 @@ export interface PromoInspectorTier {
   toDate: string;
   discountLabel: string;
   isStepTier: boolean;
-  /** ยอดสั่งขั้นต่ำที่ประกาศไว้ในไฟล์ — แสดงอย่างเดียว ไม่ได้ใช้คิดส่วนลด */
+  /** MINIMUMPURCHASE ดิบจากไฟล์ เป็นชิ้นเสมอ */
   minPurchase: number;
+  /** จำนวนหีบที่ต้องสั่งจริงถึงจะได้ขั้นนี้ (= tierMinQty) — ใช้ตัวนี้คิดขั้น ไม่ใช่ minPurchase */
+  minCases: number;
+  /**
+   * ของแถม: ซื้อครบ lot หีบ ได้ qty หน่วย (แถมเป็นหีบเต็ม — ดู premiumPerLot)
+   * null = ขั้นนี้ไม่มีของแถม
+   */
+  premiumLot: { lot: number; qty: number; unit: string } | null;
 }
 
 export interface PromoInspectorProduct {
@@ -63,7 +72,11 @@ export interface PromoInspectorResult {
   ladder: PromoInspectorTier[];
 }
 
-function tierFromRow(row: PromoRow, premiumName: (code: string) => string): PromoInspectorTier {
+function tierFromRow(
+  row: PromoRow,
+  premiumName: (code: string) => string,
+  packSizeOf: (code: string) => number
+): PromoInspectorTier {
   return {
     fromQty: row.fromQty,
     toQty: row.toQty,
@@ -79,9 +92,12 @@ function tierFromRow(row: PromoRow, premiumName: (code: string) => string): Prom
     assortedGroup: (row.raw.ASSORTEDPRODUCTGROUP ?? "").trim(),
     fromDate: (row.raw.FROMDATE ?? "").slice(0, 10),
     toDate: (row.raw.TODATE ?? "").slice(0, 10),
-    discountLabel: formatPromoDiscount(row),
+    discountLabel: formatPromoDiscount(row, { packSizeOf, nameOf: premiumName }),
     isStepTier: isStepTier(row) && hasPremium(row),
     minPurchase: row.minPurchase,
+    minCases: tierMinQty(row),
+    premiumLot:
+      isStepTier(row) && hasPremium(row) ? premiumPerLot(row, packSizeOf) : null,
   };
 }
 
@@ -125,6 +141,7 @@ export function buildPromoInspector(input: {
   const day = input.day ?? new Date();
   const promo = getPromotionCreditDirectory();
   const skuDir = fabricSkuMasterReady() ? getSkuMasterDirectory() : null;
+  const packSizeOf = (code: string) => skuDir?.packSizeForSku(code) ?? 1;
   const ctx = resolvePromoContext(input.storeCode, {
     salesRepEmail: input.salesRepEmail,
   });
@@ -174,7 +191,7 @@ export function buildPromoInspector(input: {
         product,
         name: nameFor(product),
         ...pricing(product),
-        rows: rs.map((r) => tierFromRow(r, nameFor)),
+        rows: rs.map((r) => tierFromRow(r, nameFor, packSizeOf)),
       }));
     const ladder = dedupeLadder(products.flatMap((p) => p.rows));
     return {
@@ -194,7 +211,7 @@ export function buildPromoInspector(input: {
     day
   );
   const assorted = promo.assortedGroupFor(ctx.division, ctx.cusgroup, sku);
-  const tierRows = rows.map((r) => tierFromRow(r, nameFor));
+  const tierRows = rows.map((r) => tierFromRow(r, nameFor, packSizeOf));
 
   if (assorted) {
     return buildPromoInspector({

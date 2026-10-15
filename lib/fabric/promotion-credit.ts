@@ -58,6 +58,11 @@ export interface PromoRow {
    * อย่าอ่านค่านี้ตรง ๆ เพื่อตัดสินว่าถึงขั้นหรือยัง ให้ผ่าน tierMinQty() เสมอ
    */
   minPurchase: number;
+  /**
+   * MINIMUMPURCHASE แปลงเป็นหีบแล้ว (ปัดขึ้น) — เติมโดย PromotionCredit.applyPackSizes
+   * ไม่มีค่า = ยังไม่รู้ขนาดหีบ ถอยไปใช้ minPurchase ตรง ๆ (เข้มกว่าของจริง ไม่ให้เกิน)
+   */
+  minPurchaseCases?: number;
   regions: Set<string>;
   fromDate: Date | null;
   toDate: Date | null;
@@ -69,17 +74,26 @@ export function isStepTier(row: PromoRow): boolean {
 }
 
 /**
- * จำนวนที่ต้องซื้อจริงถึงจะได้ขั้นนี้ — และเป็น "ขนาดล็อต" ของการทบของแถมด้วย
+ * จำนวนหีบที่ต้องซื้อจริงถึงจะได้ขั้นนี้ — และเป็นขนาดล็อตของการทบของแถมด้วย
  *
- * ไฟล์ C4 เขียนขั้นแรกเป็น from=1 ไว้เป็นค่าเริ่มต้นเสมอ แล้วบอกเงื่อนไขจริงแยกไว้ที่
- * MINIMUMPURCHASE (ตรวจไฟล์แล้ว: ทุกแถวที่ min > 0 มี from = 1 ทั้งหมด ไม่มีข้อยกเว้น
- * ส่วนขั้นสูงกว่ามี min = 0 เพราะ from ของมันเองคือเงื่อนไขอยู่แล้ว)
+ * MINIMUMPURCHASE เป็น "ชิ้น" เสมอ ทั้งโปรลดราคาและโปรของแถม (PREMIUMUNIT เป็นหน่วยของ
+ * ของแถมอย่างเดียว ไม่เกี่ยวกับขั้นต่ำ — ผู้ใช้ยืนยัน 15 ต.ค. 69) ต้องแปลงเป็นหีบก่อน
+ * ผ่าน PromotionCredit.applyPackSizes ซึ่งเติม minPurchaseCases ให้
  *
- * เดิมระบบอ่านแต่ from จึงคิดว่า BSWN คือ "ซื้อ 1 หีบ แถม 6 ชิ้น" ทั้งที่ของจริงคือ
- * "สั่งคละ 24 หีบในกลุ่ม แถม 1 หีบ" — ให้ของแถมทั้งที่ยังไม่ถึงขั้นต่ำ และให้เกินจริง
+ * เดิมอ่านเป็นหีบตรง ๆ 260927 (ลด 46 ขั้นต่ำ 12 ชิ้น หีบละ 72) จึงต้องสั่งถึง 12 หีบ
+ * ร้านไม่เคยได้ส่วนลด · ยังไม่รู้ขนาดหีบ = ถอยไปใช้ตัวเลขดิบ (เข้มกว่าของจริง ไม่ให้เกิน)
+ *
+ * TOBREAKUP=Y แปลว่าทอนหีบขายแยกชิ้นได้ แต่ VDA สั่งเป็นหีบเต็มเสมอ จึงยังไม่ได้ใช้
  */
 export function tierMinQty(row: PromoRow): number {
-  return Math.max(row.fromQty, row.minPurchase);
+  return Math.max(row.fromQty, row.minPurchaseCases ?? row.minPurchase);
+}
+
+/** ชิ้น → หีบ ปัดขึ้น (VDA สั่งเป็นหีบเต็ม) — ไม่รู้ขนาดหีบ = คงตัวเลขเดิมไว้ */
+export function minPurchaseInCases(minPurchase: number, packSize: number): number {
+  if (minPurchase <= 0) return 0;
+  if (!(packSize > 1)) return minPurchase;
+  return Math.ceil(minPurchase / packSize);
 }
 
 export function hasPremium(row: PromoRow): boolean {
@@ -338,6 +352,32 @@ export class PromotionCredit {
       `[PromotionCredit] Loaded ${rows.length} rows / ${byKey.size} keys / ${byGroup.size} groups / ` +
         `${this.ctxList.length} บริบท (${this.ctxList.map((c) => `${c.division}|${c.cusgroup}`).join(", ")}) from ${csvPath}`
     );
+  }
+
+  /**
+   * แปลง MINIMUMPURCHASE ที่เป็นชิ้นให้เป็นหีบด้วยขนาดหีบจาก SKU master
+   *
+   * แยกจาก load() เพราะไฟล์โปรกับ SKU master โหลดคนละจังหวะ — เรียกซ้ำได้เสมอ
+   * แถวที่ยังไม่รู้ขนาดหีบจะไม่มี minPurchaseCases แล้ว tierMinQty ถอยไปค่าเดิม
+   */
+  applyPackSizes(packSizeOf: (productCode: string) => number): void {
+    let converted = 0;
+    for (const bucket of this.byKey.values()) {
+      for (const r of bucket) {
+        if (r.minPurchase <= 0) {
+          r.minPurchaseCases = 0;
+          continue;
+        }
+        const pack = packSizeOf(r.product);
+        if (pack > 1) {
+          r.minPurchaseCases = minPurchaseInCases(r.minPurchase, pack);
+          converted++;
+        } else {
+          delete r.minPurchaseCases;
+        }
+      }
+    }
+    console.info(`[PromotionCredit] แปลงขั้นต่ำชิ้น→หีบ ${converted} แถว`);
   }
 
   reload(csvPath?: string): void {

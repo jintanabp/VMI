@@ -920,7 +920,7 @@ function PromoGroupCard({
                       <th className="px-2 py-2 font-semibold">ซื้อ (หีบ)</th>
                       <th className="px-2 py-2 font-semibold">สิทธิประโยชน์</th>
                       <th className="px-2 py-2 text-right font-semibold">
-                        ขั้นต่ำ
+                        ขั้นต่ำ (หีบ)
                       </th>
                     </tr>
                   </thead>
@@ -948,8 +948,7 @@ function PromoGroupCard({
                           )}
                         </td>
                         <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums text-slate-500">
-                          {/* ไฟล์ประกาศ MINIMUMPURCHASE แยกจาก from/to และบางกลุ่มไม่ตรงกัน
-                              ระบบยังไม่บังคับใช้ ตัวเลขนี้จึงเป็นข้อมูลให้คนตัดสินใจ */}
+                          {/* MINIMUMPURCHASE แปลงเป็นหีบแล้ว (ชิ้น→หีบ ปัดขึ้น) */}
                           {g.minPurchase > 0 ? g.minPurchase : "—"}
                         </td>
                       </tr>
