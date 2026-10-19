@@ -140,6 +140,19 @@ export function isCaseUnit(unit: string): boolean {
   return u === "หีบ" || u === "ลัง" || u.toUpperCase() === "B";
 }
 
+/**
+ * บรรทัดซื้อที่ส่งเข้า ERP — ตัดบรรทัด 0 หีบทิ้ง
+ *
+ * บรรทัด 0 หีบในกลุ่มโปรถูกคงไว้ในเอกสาร PO โดยตั้งใจ (ให้เห็นว่ากลุ่มนี้มีตัวไหนถูกตัด — ดู
+ * approve-with-split.ts) แต่ ERP รับแต่จำนวนมากกว่า 0 เดิมตัวตรวจความพร้อมตีตกทั้งใบ
+ * (`qty_not_positive_integer`) ใบแบบนี้จึงส่งไม่ได้เลย (ผู้ใช้สั่งแก้ 19 ต.ค. 69)
+ * ตัดเฉพาะ 0 พอดี — จำนวนเศษที่ปัดแล้วเป็น 0 (เช่น 0.4) ยังเป็นข้อมูลผิดที่ต้องกันไว้
+ * ของแถมของกลุ่มยังคิดจากทุกบรรทัดเหมือนเดิม (`collectOwedFreeGoods` จัดการบรรทัด 0 ในกลุ่มเอง)
+ */
+export function erpBuyLines<L extends { qty: number }>(lines: L[]): L[] {
+  return lines.filter((l) => l.qty !== 0);
+}
+
 /** ปัดเป็นจำนวนเต็มหีบ — ปลายทางรับ `quantityCase` เป็นจำนวนเต็มเท่านั้น */
 function toCases(qty: number): number {
   return Math.round(qty);
@@ -157,7 +170,7 @@ export function buildErpPayload(
 ): ErpOrderPayload {
   const isSpecial = doc.priceKind !== "c4";
 
-  const buyLines: ErpOrderDetail[] = doc.lines.map((l) => {
+  const buyLines: ErpOrderDetail[] = erpBuyLines(doc.lines).map((l) => {
     const unitPrice = l.unitPrice ?? 0;
     const net = l.netUnitPrice ?? unitPrice;
     const quantityCase = toCases(l.qty);
@@ -255,9 +268,10 @@ export function checkErpReadiness(
   if (!ctx.divisionCode.trim()) add("missing_division");
   if (!ctx.deliveryDate) add("missing_delivery_date");
 
-  if (doc.lines.length === 0) add("empty_lines");
+  const buy = erpBuyLines(doc.lines);
+  if (buy.length === 0) add("empty_lines");
 
-  for (const l of doc.lines) {
+  for (const l of buy) {
     // VAT ไม่รู้ = กันทั้งใบ ห้ามส่งบางส่วน (กติกาเดียวกับ ocr-po-matching)
     if (l.vatStatus === null) add("vat_unknown", l.skuCode);
     if (!Number.isFinite(l.qty) || toCases(l.qty) <= 0)
@@ -292,7 +306,7 @@ const REASON_LABEL: Record<ErpReason, string> = {
   missing_division: "ไม่รู้รหัส division ของลูกค้ารายนี้",
   missing_delivery_date:
     "ยังไม่ได้กำหนดวันส่งของ — รอทีม ERP ยืนยันว่าต้องใช้วันไหน จึงยังส่งไม่ได้",
-  empty_lines: "ใบนี้ไม่มีรายการสินค้า",
+  empty_lines: "ใบนี้ไม่มีรายการสินค้าที่สั่งมากกว่า 0 หีบ",
   vat_unknown:
     "ไม่รู้ว่าสินค้ามี VAT หรือไม่ (master ไม่ได้ระบุ VatStatus) — ส่งบางส่วนไม่ได้ ต้องกันทั้งใบ",
   qty_not_positive_integer: "จำนวนสั่งไม่ใช่จำนวนหีบที่มากกว่า 0",

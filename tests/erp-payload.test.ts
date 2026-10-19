@@ -268,9 +268,25 @@ describe("checkErpReadiness", () => {
     ).toContain("po_number_invalid");
   });
 
-  it("จำนวน 0 หรือปัดแล้วเป็น 0 = ส่งไม่ได้", () => {
+  it("บรรทัด 0 หีบในกลุ่มโปรไม่ส่งเข้า ERP และไม่ทำให้ทั้งใบส่งไม่ได้ (19 ต.ค. 69)", () => {
+    const d = doc(
+      [
+        line({ skuCode: "SKUA01", qty: 3, promoGroup: "G1", promoGroupMembers: 2 }),
+        line({ skuCode: "SKUB02", qty: 0, promoGroup: "G1", promoGroupMembers: 2 }),
+      ],
+      {}
+    );
+    const r = checkErpReadiness(d, ctx);
+    expect(r.ok).toBe(true);
+    expect(reasonsOf(r)).not.toContain("qty_not_positive_integer");
+    const p = buildErpPayload(d, ctx);
+    expect(p.orderDetail.map((x) => x.productCode)).toEqual(["SKUA01"]);
+    expect(p.countItem).toBe(1);
+  });
+
+  it("ใบที่เหลือแต่บรรทัด 0 หีบ = ไม่มีอะไรให้ส่ง · จำนวนเศษที่ปัดแล้วเป็น 0 = ส่งไม่ได้", () => {
     expect(reasonsOf(checkErpReadiness(doc([line({ qty: 0 })]), ctx))).toContain(
-      "qty_not_positive_integer"
+      "empty_lines"
     );
     expect(reasonsOf(checkErpReadiness(doc([line({ qty: 0.4 })]), ctx))).toContain(
       "qty_not_positive_integer"
