@@ -111,11 +111,27 @@ export async function POST(
     deliveryDate: doc.deliveryDate,
   });
 
-  // ปักสถานะ "กำลังส่ง" ก่อนยิง เพื่อให้หน้าจอของคนอื่นเห็นว่ามีคนกำลังทำอยู่
-  await prisma.purchaseOrder.updateMany({
-    where: { poNumber, erpSentAt: null },
+  // ปักสถานะ "กำลังส่ง" ก่อนยิง = จองสิทธิ์ยิงด้วย compare-and-set — เดิมไม่เช็คจำนวนแถวที่ปักได้
+  // กดพร้อมกันสองคนจึงยิงได้ทั้งคู่ และใบที่ค้าง «กำลังส่ง» (เครื่องดับกลางทาง) กดส่งซ้ำได้ (แก้ 19 ต.ค. 69)
+  const claim = await prisma.purchaseOrder.updateMany({
+    where: {
+      poNumber,
+      erpSentAt: null,
+      erpError: null,
+      replacedByPoNumber: null,
+      status: { not: SENDING_TO_ERP },
+    },
     data: { status: SENDING_TO_ERP, statusAt: new Date(), statusBy: salesActorEmail(session) },
   });
+  if (claim.count !== 1) {
+    return NextResponse.json(
+      {
+        error:
+          "ใบนี้กำลังส่งเข้า ERP อยู่ หรือเพิ่งถูกส่ง — รีเฟรชดูผล · ถ้าค้างเกิน 10 นาทีให้ตรวจกับทีม ERP แล้วบันทึกผลที่กล่องด้านล่าง",
+      },
+      { status: 409 }
+    );
+  }
 
   const outcome = await deliverPoToErp({ doc, ctx: erpCtx, endpoint });
 

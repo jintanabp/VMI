@@ -31,7 +31,7 @@ const ERROR_TEXT: Record<ErpResolveError["code"], [number, string]> = {
  * แก้สถานะ "ERP ไม่ตอบ — รอตรวจ" หลังตรวจกับทีม ERP แล้ว (ดูเหตุผลที่ lib/po/erp-resolve.ts)
  *
  * **ไม่ยิงอะไรออกไปนอกเครื่อง** — แค่บันทึกคำตอบที่คนได้มาจากทีม ERP · สิทธิ์เท่ากับการส่ง ERP
- * (เซลล์ที่ดูแลออเดอร์นั้น / creator) · มุมมองทดสอบห้าม · ต้องมีบันทึกว่าตรวจกับใคร และจดลง audit log
+ * (เซลล์ที่ดูแลออเดอร์นั้น / creator) · ต้องมีบันทึกว่าตรวจกับใคร และจดลง audit log
  */
 export async function POST(
   request: Request,

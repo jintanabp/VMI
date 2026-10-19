@@ -315,7 +315,7 @@ stock          = stockPieces / packSize (ทศนิยม)   ← ที่ใ�
 | กรณี | ผล |
 |---|---|
 | เลือก `sending_erp` / `sent_erp` / `erp_unknown` (`SYSTEM_ONLY_PO_STATUSES`) | 400 — ต้องมาจากการส่ง ERP เท่านั้น |
-| ใบกำลัง `sending_erp` | 409 — รอผลก่อน |
+| ใบกำลัง `sending_erp` | 409 — รอผลก่อน · ค้างเกิน 10 นาที (`ERP_SENDING_STUCK_MS`) ใช้กล่องตรวจกับทีม ERP บนแผงส่ง ERP |
 | ใบ `poMayBeInErp` (ส่งสำเร็จ หรือเคยส่งแล้วผลไม่ชัดเจน) | เปลี่ยนได้แค่เป็น `received` · ยกเลิก = ต้องยกเลิกใน ERP ก่อน แล้วให้ผู้ดูแลปรับ |
 | อื่น ๆ | ได้ · จาก `cancelled` กลับเป็นอย่างอื่น = "เปิดใบใหม่" |
 
@@ -338,7 +338,7 @@ stock          = stockPieces / packSize (ทศนิยม)   ← ที่ใ�
 3. **มี `erpError` ค้าง → 409 ทุกกรณี** — `rejected` ให้ขอเลขใหม่ · ไม่ชัดเจนให้ตรวจกับทีม ERP ก่อน (ห้ามส่งซ้ำเอง)
 4. `erpEndpoint()` คืน `null` → 503
 5. ประกอบเอกสารจาก DB → `checkErpReadiness` (ไม่พร้อม = **ไม่ยิงเลย**)
-6. ปัก `sending_erp` → POST (timeout 15 วิ) → ประทับผลแบบ compare-and-set (`erpSentAt: null`) กดพร้อมกันยิงจริงได้ครั้งเดียว
+6. จอง `sending_erp` ด้วย compare-and-set (ใบที่กำลังส่ง/เคยพลาด/ถูกแทน จองไม่ได้ → 409) → POST (timeout 15 วิ) → ประทับผล — กดพร้อมกันยิงจริงได้ครั้งเดียว
 
 ### ความพร้อม (`checkErpReadiness` ใน `lib/po/erp-payload.ts`)
 

@@ -40,6 +40,7 @@ describe.skipIf(!hasPrisma)("resolveAmbiguousErpResult", () => {
     poNumber: string,
     data: {
       status?: string;
+      statusAt?: Date | null;
       erpError?: string | null;
       erpFailureKind?: string | null;
       erpSentAt?: Date | null;
@@ -119,6 +120,27 @@ describe.skipIf(!hasPrisma)("resolveAmbiguousErpResult", () => {
     expect(await codeOf(resolve("P7A", "in_erp"))).toBe("REPLACED");
     expect(await codeOf(resolve("P8A", "in_erp"))).toBe("SENDING");
     expect(await codeOf(resolve("NOPE", "in_erp"))).toBe("PO_NOT_FOUND");
+  });
+
+  it("ค้าง «กำลังส่ง ERP» เกิน 10 นาที (เครื่องดับกลางการยิง) — ตรวจกับทีม ERP แล้วบันทึกผลได้ (19 ต.ค. 69)", async () => {
+    const old = new Date(Date.now() - 11 * 60 * 1000);
+    await po("PSA", { status: "sending_erp", statusAt: old });
+    const r = await resolve("PSA", "not_in_erp");
+    expect(r.previousError).toContain("ค้างสถานะกำลังส่ง ERP");
+    const a = await prisma.purchaseOrder.findUniqueOrThrow({ where: { poNumber: "PSA" } });
+    expect(a.status).toBe("issued");
+    expect(a.erpSentAt).toBeNull();
+
+    await po("PSB", { status: "sending_erp", statusAt: old });
+    await resolve("PSB", "in_erp");
+    const b = await prisma.purchaseOrder.findUniqueOrThrow({ where: { poNumber: "PSB" } });
+    expect(b.status).toBe("sent_erp");
+    expect(b.erpSentAt).not.toBeNull();
+  });
+
+  it("«กำลังส่ง ERP» ยังไม่ถึง 10 นาที = กำลังยิงอยู่ ห้ามแตะ", async () => {
+    await po("PSC", { status: "sending_erp", statusAt: new Date(Date.now() - 60 * 1000) });
+    await expect(resolve("PSC", "not_in_erp")).rejects.toMatchObject({ code: "SENDING" });
   });
 
   it("กดพร้อมกันสองคน — สำเร็จคนเดียว อีกคนได้ CHANGED", async () => {

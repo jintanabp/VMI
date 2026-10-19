@@ -7,7 +7,13 @@ import { assertOrderAccess } from "@/lib/orders/access";
 import { VAT_RATE, type PoDocument } from "@/lib/po/po-document";
 import { sanitizePoNumber } from "@/lib/po/po-number";
 import { rebuildPoDocumentFromDb } from "@/lib/po/po-from-db";
-import { checkManualPoStatusChange, isPoStatus, poStatusMeta } from "@/lib/po/po-status";
+import {
+  checkManualPoStatusChange,
+  isErpSendStuck,
+  isPoStatus,
+  poStatusMeta,
+  SENDING_TO_ERP,
+} from "@/lib/po/po-status";
 import { notifyStore } from "@/lib/orders/store-notify";
 import { poMayBeInErp } from "@/lib/orders/delete-orders";
 import { collectOwedFreeGoods } from "@/lib/promo/order-free-goods";
@@ -174,6 +180,8 @@ export async function GET(
       orderId: true,
       exportPath: true,
       groupKey: true,
+      status: true,
+      statusAt: true,
       erpSentAt: true,
       erpError: true,
       erpFailureKind: true,
@@ -243,6 +251,9 @@ export async function GET(
       erpReplacesPoNumber: po.erpReplacesPoNumber ?? null,
       // ใบนี้ถูกแทนที่ด้วยเลขใหม่ไปแล้วหรือยัง (มีค่า = ห้ามส่งใบนี้อีก ไปดูเลขใหม่แทน)
       replacedByPoNumber: po.replacedByPoNumber ?? null,
+      // กำลังยิงอยู่ = ปิดปุ่มส่ง · ค้างเกิน 10 นาที = ให้ตรวจกับทีม ERP แล้วบันทึกผล (เหมือน "ERP ไม่ตอบ")
+      erpSending: po.status === SENDING_TO_ERP,
+      erpStuckSending: isErpSendStuck(po),
       // ขาส่งเปิดหรือยัง — ต้องบอกหน้าจอด้วย ไม่งั้นปุ่มจะกดได้แล้วค่อยพังที่ 503
       // ซึ่งเป็นอาการเดียวกับ "ปุ่มบอกอย่าง ทำอีกอย่าง" ที่ไล่แก้มาทั้งโปรเจกต์
       sendEnabled: erpEndpoint() != null,

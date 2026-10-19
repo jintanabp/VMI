@@ -71,6 +71,24 @@ export const SENDING_TO_ERP = "sending_erp";
 export const SENT_TO_ERP = "sent_erp";
 export const ERP_RESULT_UNKNOWN = "erp_unknown";
 
+/**
+ * «กำลังส่ง ERP» ค้างนานเท่านี้ = ถือว่าค้าง (เครื่องดับ/restart กลางการยิง) ไม่ใช่กำลังยิงอยู่
+ *
+ * ยิงจริงใช้เวลาไม่เกิน `ERP_TIMEOUT_MS` (15 วิ) — 10 นาทีเผื่อไว้มากจนไม่มีทางชนกับการยิงที่ยังรออยู่
+ * ใบที่ค้างไม่รู้ว่าเข้า ERP ไปแล้วหรือยัง จึงใช้ทางเดียวกับ "ERP ไม่ตอบ" คือให้คนตรวจกับทีม ERP
+ * แล้วบันทึกผล (lib/po/erp-resolve.ts) — เดิมไม่มีทางออกจากหน้าจอเลย ต้องแก้ใน DB (แก้ 19 ต.ค. 69)
+ */
+export const ERP_SENDING_STUCK_MS = 10 * 60 * 1000;
+
+/** ใบนี้ค้าง «กำลังส่ง ERP» เกิน `ERP_SENDING_STUCK_MS` แล้วหรือยัง · ไม่รู้เวลาเริ่ม = ยังไม่นับว่าค้าง */
+export function isErpSendStuck(
+  po: { status: string; statusAt: Date | string | null },
+  now: Date = new Date()
+): boolean {
+  if (po.status !== SENDING_TO_ERP || po.statusAt == null) return false;
+  return now.getTime() - new Date(po.statusAt).getTime() >= ERP_SENDING_STUCK_MS;
+}
+
 /** สถานะที่ระบบตั้งเองตอนส่ง ERP — คนเลือกเองจาก dropdown ไม่ได้ */
 export const SYSTEM_ONLY_PO_STATUSES: readonly string[] = [
   SENDING_TO_ERP,
@@ -131,8 +149,11 @@ export function poMayBeInErp(po: {
   erpAttemptedAt?: Date | string | null;
   erpError?: string | null;
   erpFailureKind?: string | null;
+  status?: string;
 }): boolean {
   if (po.erpSentAt) return true;
+  // กำลังยิงหรือค้างกลางการยิง — ยังไม่มี erpAttemptedAt แต่อาจเข้าไปแล้ว (ห้ามลบ/ยกเลิก)
+  if (po.status === SENDING_TO_ERP) return true;
   const attempted = po.erpAttemptedAt != null || po.erpError != null;
   return attempted && po.erpFailureKind !== "rejected";
 }
@@ -166,7 +187,7 @@ export function checkManualPoStatusChange(args: {
       ok: false,
       httpStatus: 409,
       error:
-        "ใบนี้กำลังส่งเข้า ERP อยู่ — รอผลก่อน ถ้าค้างนานผิดปกติให้ตรวจกับทีม ERP ก่อนเปลี่ยนสถานะ",
+        "ใบนี้กำลังส่งเข้า ERP อยู่ — รอผลก่อน ถ้าค้างเกิน 10 นาทีให้ตรวจกับทีม ERP แล้วบันทึกผลที่แผงส่งเข้า ERP",
     };
   }
   if (mayBeInErp && to !== from && !PO_STATUSES_AFTER_ERP.includes(to)) {

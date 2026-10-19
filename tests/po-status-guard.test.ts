@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { checkManualPoStatusChange } from "@/lib/po/po-status";
+import {
+  checkManualPoStatusChange,
+  isErpSendStuck,
+  poMayBeInErp,
+  SENDING_TO_ERP,
+} from "@/lib/po/po-status";
 
 /**
  * เปลี่ยนสถานะ PO ด้วยมือ (QA 28 ก.ย. 69): ตั้ง "เข้า ERP แล้ว" เองได้ · ยกเลิกใบที่อยู่ใน ERP ได้ ·
@@ -63,5 +68,22 @@ describe("checkManualPoStatusChange", () => {
     expect(
       checkManualPoStatusChange({ from: "cancelled", to: "cancelled", mayBeInErp: false })
     ).toEqual({ ok: true, reopened: false });
+  });
+});
+
+describe("isErpSendStuck / poMayBeInErp กับสถานะกำลังส่ง (19 ต.ค. 69)", () => {
+  const now = new Date("2026-10-19T10:00:00Z");
+  const ago = (min: number) => new Date(now.getTime() - min * 60 * 1000);
+
+  it("กำลังส่งเกิน 10 นาที = ค้าง · ไม่ถึง = กำลังยิงอยู่ · ไม่รู้เวลาเริ่ม = ไม่นับว่าค้าง", () => {
+    expect(isErpSendStuck({ status: SENDING_TO_ERP, statusAt: ago(10) }, now)).toBe(true);
+    expect(isErpSendStuck({ status: SENDING_TO_ERP, statusAt: ago(9) }, now)).toBe(false);
+    expect(isErpSendStuck({ status: SENDING_TO_ERP, statusAt: null }, now)).toBe(false);
+    expect(isErpSendStuck({ status: "issued", statusAt: ago(60) }, now)).toBe(false);
+  });
+
+  it("ใบที่กำลังส่ง/ค้างกลางการยิง ถือว่าอาจอยู่ใน ERP แล้ว (ห้ามลบ/ยกเลิก)", () => {
+    expect(poMayBeInErp({ erpSentAt: null, status: SENDING_TO_ERP })).toBe(true);
+    expect(poMayBeInErp({ erpSentAt: null, status: "issued" })).toBe(false);
   });
 });

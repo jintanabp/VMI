@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { ERP_RESULT_UNKNOWN, SENT_TO_ERP, SENDING_TO_ERP } from "./po-status";
+import { ERP_RESULT_UNKNOWN, SENT_TO_ERP, SENDING_TO_ERP, isErpSendStuck } from "./po-status";
 
 /**
  * ปิดเรื่อง "ส่งแล้วไม่รู้ผล" หลังคนไปตรวจกับทีม ERP แล้ว (29 ก.ย. 2569)
@@ -13,6 +13,9 @@ import { ERP_RESULT_UNKNOWN, SENT_TO_ERP, SENDING_TO_ERP } from "./po-status";
  * ทำไมไม่ให้ขอเลขใหม่ในกรณี "ไม่มี": ถ้าคำยืนยันผิดและใบเข้าไปแล้วจริง การส่งเลขเดิมซ้ำจะโดน
  * ปลายทางตีกลับเพราะ orderNo+customerCode ซ้ำ (ไม่เกิดออเดอร์ซ้อน) แต่เลขใหม่จะกลายเป็นออเดอร์
  * ที่สองในระบบจริง — เลขเดิมจึงปลอดภัยกว่าเสมอ
+ *
+ * รวมถึงใบที่ค้าง «กำลังส่ง ERP» เกิน `ERP_SENDING_STUCK_MS` (เครื่องดับกลางการยิง) — ไม่รู้ผลเหมือนกัน
+ * แต่ไม่มี erpError เพราะยังไม่ทันประทับผล (19 ต.ค. 69)
  *
  * ถูกปฏิเสธชัดเจน (`rejected`) ไม่ใช่เรื่องของฟังก์ชันนี้ — ใบแบบนั้นมีทางออกอยู่แล้ว (clone-for-erp)
  */
@@ -61,6 +64,7 @@ export async function resolveAmbiguousErpResult(args: {
     select: {
       orderId: true,
       status: true,
+      statusAt: true,
       erpSentAt: true,
       erpError: true,
       erpFailureKind: true,
@@ -71,12 +75,16 @@ export async function resolveAmbiguousErpResult(args: {
   if (!po) throw new ErpResolveError("PO_NOT_FOUND");
   if (po.erpSentAt) throw new ErpResolveError("ALREADY_SENT");
   if (po.replacedByPoNumber) throw new ErpResolveError("REPLACED");
-  if (po.status === SENDING_TO_ERP) throw new ErpResolveError("SENDING");
+  const stuck = isErpSendStuck(po, now);
+  if (po.status === SENDING_TO_ERP && !stuck) throw new ErpResolveError("SENDING");
   // ต้องเคยพลาดแบบไม่รู้ผลจริง — แถวเก่าก่อนมี failureKind (null) นับว่าไม่รู้ผลด้วย
-  // (นิยามเดียวกับ poMayBeInErp)
-  if (!po.erpError || po.erpFailureKind === "rejected") {
+  // (นิยามเดียวกับ poMayBeInErp) · ค้างกลางการยิงก็ไม่รู้ผลเหมือนกัน
+  if (!stuck && (!po.erpError || po.erpFailureKind === "rejected")) {
     throw new ErpResolveError("NOT_AMBIGUOUS");
   }
+  const previousError =
+    po.erpError ??
+    `ค้างสถานะกำลังส่ง ERP ตั้งแต่ ${po.statusAt?.toISOString() ?? "-"} (ไม่ได้รับผลการส่ง)`;
 
   const statusNote =
     args.resolution === "in_erp"
@@ -90,7 +98,10 @@ export async function resolveAmbiguousErpResult(args: {
       erpSentAt: null,
       replacedByPoNumber: null,
       erpError: po.erpError,
-      status: { not: SENDING_TO_ERP },
+      // ค้าง = ต้องยังค้างอยู่ใบเดิม (statusAt เดิม) · ปกติ = ต้องไม่มีใครเริ่มยิงระหว่างนั้น
+      ...(stuck
+        ? { status: SENDING_TO_ERP, statusAt: po.statusAt }
+        : { status: { not: SENDING_TO_ERP } }),
     },
     data:
       args.resolution === "in_erp"
@@ -108,7 +119,7 @@ export async function resolveAmbiguousErpResult(args: {
             erpError: null,
             erpFailureKind: null,
             // ใบที่ตั้ง "ERP ไม่ตอบ" ไว้กลับเป็น "ออกแล้ว" · ใบเก่าที่คนเคยตั้งสถานะอื่นไว้ (เช่น ส่งซัพ) คงเดิม
-            ...(po.status === ERP_RESULT_UNKNOWN ? { status: "issued" } : {}),
+            ...(po.status === ERP_RESULT_UNKNOWN || stuck ? { status: "issued" } : {}),
             statusAt: now,
             statusBy: args.actorEmail,
             statusNote,
@@ -119,7 +130,7 @@ export async function resolveAmbiguousErpResult(args: {
   return {
     poNumber: args.poNumber,
     resolution: args.resolution,
-    previousError: po.erpError,
+    previousError,
     previousFailureKind: po.erpFailureKind,
     orderId: po.orderId,
     storeId: po.order.storeId,

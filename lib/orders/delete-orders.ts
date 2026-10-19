@@ -72,6 +72,7 @@ export async function deleteOrdersForSession(
           erpAttemptedAt: true,
           erpError: true,
           erpFailureKind: true,
+          status: true,
         },
       },
     },

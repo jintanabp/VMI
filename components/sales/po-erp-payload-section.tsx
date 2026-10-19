@@ -47,6 +47,10 @@ interface ErpPreview {
   erpReplacesPoNumber: string | null;
   /** ใบนี้ถูกแทนที่ด้วยเลขใหม่ไปแล้วหรือยัง */
   replacedByPoNumber: string | null;
+  /** สถานะ «กำลังส่ง ERP» อยู่ (ทั้งที่กำลังยิงจริงและที่ค้าง) */
+  erpSending: boolean;
+  /** ค้าง «กำลังส่ง ERP» เกิน 10 นาที — ไม่รู้ผล ต้องตรวจกับทีม ERP */
+  erpStuckSending: boolean;
   /** ขาส่งเปิดหรือยัง — false = ปุ่มต้องปิดแม้ใบจะพร้อมแล้ว */
   sendEnabled: boolean;
   sendDisabledReason: string;
@@ -196,9 +200,10 @@ export function PoErpPayloadSection({
   // แปลว่ายังไม่รู้ว่าเข้าไปแล้วหรือไม่ ขอเลขใหม่ตอนนั้นเสี่ยงส่งซ้ำสองเลข
   const isConfirmedRejection = data?.erpFailureKind === "rejected";
   // failureKind ว่าง = แถวเก่าก่อนมีคอลัมน์นี้ ถือว่าไม่รู้ผลเหมือนกัน (นิยามเดียวกับ poMayBeInErp)
-  const isAmbiguousFailure = Boolean(
-    data?.erpError && data.erpFailureKind !== "rejected"
-  );
+  // ค้างกลางการยิงก็ไม่รู้ผลเหมือนกัน — ใช้กล่องตรวจกับทีม ERP เดียวกัน (19 ต.ค. 69)
+  const isStuckSending = Boolean(data?.erpStuckSending);
+  const isAmbiguousFailure =
+    isStuckSending || Boolean(data?.erpError && data.erpFailureKind !== "rejected");
   const canRequestNewNumber = Boolean(
     isConfirmedRejection && !alreadySent && !replacedBy
   );
@@ -217,7 +222,9 @@ export function PoErpPayloadSection({
       ? `ใบนี้ถูกแทนที่ด้วยเลขใหม่แล้ว (${replacedBy}) — ไปส่งที่ใบใหม่แทน`
       : isConfirmedRejection
         ? "ใบนี้เคยถูก ERP ปฏิเสธ — ส่งซ้ำด้วยเลขเดิมไม่ได้ ต้องขอเลขใหม่ก่อน (ดูกล่องด้านล่าง)"
-        : isAmbiguousFailure
+        : data?.erpSending && !isStuckSending
+          ? "กำลังส่งเข้า ERP อยู่ — รอสักครู่แล้วรีเฟรชดูผล"
+          : isAmbiguousFailure
           ? "ผลการส่งครั้งก่อนไม่ชัดเจน — ห้ามส่งซ้ำจนกว่าจะตรวจกับทีม ERP ก่อน (ดูกล่องด้านล่าง)"
           : !data
             ? "ยังโหลดข้อมูลไม่เสร็จ"
@@ -366,16 +373,20 @@ export function PoErpPayloadSection({
                   <p className="flex items-start gap-1.5 text-[11px] text-red-800 dark:text-red-200">
                     <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                     <span>
-                      ยิงครั้งก่อนไม่ชัดเจนว่าเข้า ERP หรือไม่ (ปลายทางไม่ตอบ/เน็ตมีปัญหา) —{" "}
+                      {isStuckSending
+                        ? "ใบนี้ค้างสถานะ «กำลังส่ง ERP» เกิน 10 นาที (ระบบอาจดับกลางการส่ง) ไม่รู้ว่าเข้า ERP หรือไม่ —"
+                        : "ยิงครั้งก่อนไม่ชัดเจนว่าเข้า ERP หรือไม่ (ปลายทางไม่ตอบ/เน็ตมีปัญหา) —"}{" "}
                       <b>ห้ามขอเลขใหม่หรือส่งซ้ำเอง</b> ต้องให้คนตรวจกับทีม ERP ก่อนว่าใบนี้
                       เข้าไปแล้วหรือยัง
                     </span>
                   </p>
                   {/* ข้อความ error ดิบมีคำเตือนสำคัญปนอยู่ ("ห้ามส่งซ้ำ...") — ห้าม truncate
                       ทิ้ง เดิมตัดจนคำเตือนหายไปทั้งประโยคที่หน้าจอแคบ ให้ขึ้นบรรทัดแทน */}
-                  <p className="mt-0.5 break-words text-[10px] text-red-600 dark:text-red-300/80">
-                    {data.erpError}
-                  </p>
+                  {data.erpError && (
+                    <p className="mt-0.5 break-words text-[10px] text-red-600 dark:text-red-300/80">
+                      {data.erpError}
+                    </p>
+                  )}
 
                   {/* ตรวจกับทีม ERP แล้ว → บอกระบบว่าผลจริงคืออะไร (ไม่ยิงอะไรออกไป แค่บันทึก) */}
                   {resolving ? (
