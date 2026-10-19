@@ -318,15 +318,33 @@ export function PoErpPayloadSection({
               {data.readiness.notices.length > 0 && (
                 <div className="mt-1.5 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 dark:border-sky-900/50 dark:bg-sky-950/20">
                   <ul className="space-y-1">
-                    {data.readiness.notices.map((n) => (
-                      <li
-                        key={n}
-                        className="flex items-start gap-1.5 text-[11px] text-sky-900 dark:text-sky-200/90"
-                      >
-                        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                        {erpReasonLabel(n)}
-                      </li>
-                    ))}
+                    {data.readiness.notices.map((n) => {
+                      const skus = data.readiness.offendingSkus[n];
+                      // ของแถมเป็นชิ้น = ต้องมีคนตรวจก่อนกด ไม่ใช่แค่ข้อมูลประกอบ — ใช้สีเตือน
+                      const mustCheck = n === "free_good_not_case";
+                      return (
+                        <li
+                          key={n}
+                          className={
+                            mustCheck
+                              ? "flex items-start gap-1.5 text-[11px] font-semibold text-amber-800 dark:text-amber-300"
+                              : "flex items-start gap-1.5 text-[11px] text-sky-900 dark:text-sky-200/90"
+                          }
+                        >
+                          {mustCheck ? (
+                            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                          ) : (
+                            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                          )}
+                          <span className="break-words">
+                            {erpReasonLabel(n)}
+                            {skus && skus.length > 0 && (
+                              <span className="ml-1 font-mono">({skus.join(", ")})</span>
+                            )}
+                          </span>
+                        </li>
+                      );
+                    })}
                   </ul>
                 </div>
               )}

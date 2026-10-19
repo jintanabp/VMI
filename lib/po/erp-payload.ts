@@ -111,12 +111,13 @@ export type ErpReason =
   | "qty_not_positive_integer"
   | "missing_unit_price"
   | "unit_price_zero"
-  | "price_off_c4";
+  | "price_off_c4"
+  | "free_good_not_case";
 
 export interface ErpReadiness {
   ok: boolean;
   reasons: ErpReason[];
-  /** สิ่งที่ควรรู้แต่ไม่กันส่ง — ตอนนี้มีแค่ price_off_c4 (ดูหัวไฟล์) */
+  /** สิ่งที่ควรรู้แต่ไม่กันส่ง — price_off_c4 (ดูหัวไฟล์) · free_good_not_case (ดู isCaseUnit) */
   notices: ErpReason[];
   /** รหัสสินค้าที่ทำให้ติดเหตุผลนั้น — เอาไปโชว์บนจอให้คนตามแก้ได้ (รวม notices ด้วย) */
   offendingSkus: Partial<Record<ErpReason, string[]>>;
@@ -124,6 +125,19 @@ export interface ErpReadiness {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+/**
+ * หน่วยของแถมนี้เป็นหีบไหม — บรรทัด F ส่ง `quantityUnit: "B"` เสมอ
+ *
+ * ของแถมชิ้น (P) ปกติถูกสะสมเป็นหีบเต็มแล้วใน `premiumPerLot` แต่ถ้าไม่รู้ขนาดหีบของแถม
+ * จะคงเป็นชิ้นตามต้นทาง ⇒ ส่งไปตรง ๆ ERP จะอ่าน 72 ชิ้นเป็น 72 หีบ · ไม่แปลงหน่วยให้เอง
+ * เพราะยังไม่ได้ยืนยันกับทีม ERP ว่าบรรทัด F รับ "P" ได้ — ขึ้นดอกจันให้พนักงานตรวจแทน
+ * (ผู้ใช้เลือกทางนี้ 19 ต.ค. 69)
+ */
+export function isCaseUnit(unit: string): boolean {
+  const u = unit.trim();
+  return u === "หีบ" || u === "ลัง" || u.toUpperCase() === "B";
 }
 
 /** ปัดเป็นจำนวนเต็มหีบ — ปลายทางรับ `quantityCase` เป็นจำนวนเต็มเท่านั้น */
@@ -217,8 +231,11 @@ export function checkErpReadiness(
       offending[reason] = [...(offending[reason] ?? []), sku];
     }
   };
-  const notice = (reason: ErpReason) => {
+  const notice = (reason: ErpReason, sku?: string) => {
     if (!notices.includes(reason)) notices.push(reason);
+    if (sku) {
+      offending[reason] = [...(offending[reason] ?? []), sku];
+    }
   };
 
   if (!doc.poNumber.trim()) {
@@ -254,7 +271,13 @@ export function checkErpReadiness(
 
   // ราคาที่ไม่ตรง C4 = special deal (isSpecial/isErrorC4 = Y ใน buildErpPayload) — ไม่กันส่ง
   // เพราะเป็นเส้นทางที่ถูกต้องแล้ว แค่เตือนไว้ให้รู้ว่าใบนี้จะเข้ากระบวนการอนุมัติของ marketing
-  if (doc.priceKind !== "c4") notice("price_off_c4");
+  if (doc.priceKind !== "c4") {
+    notice("price_off_c4");
+    // บรรทัด F มีเฉพาะ special deal (ดู buildErpPayload) — ใบปกติไม่ส่งของแถม ไม่ต้องเตือน
+    for (const fg of collectOwedFreeGoods(doc.lines)) {
+      if (!isCaseUnit(fg.unit)) notice("free_good_not_case", fg.code);
+    }
+  }
 
   return { ok: reasons.length === 0, reasons, notices, offendingSkus: offending };
 }
@@ -277,6 +300,8 @@ const REASON_LABEL: Record<ErpReason, string> = {
   unit_price_zero: "ราคา 0 — ราคาต่อหีบต้องมากกว่า 0 (ของแถมให้ส่งผ่านโปร ไม่ใช่ตั้งราคา 0)",
   price_off_c4:
     "ราคาบนใบนี้ไม่ตรง C4 — ส่งเป็น special deal (isSpecial=Y) พร้อมของแถมที่ต้องส่งเอง จะเข้ากระบวนการอนุมัติของ marketing ฝั่ง ERP เพิ่มอีกขั้น",
+  free_good_not_case:
+    "* ของแถมยังเป็นชิ้น ไม่ใช่หีบ — ERP จะอ่านจำนวนนี้เป็นหีบ ให้พนักงานตรวจจำนวนของแถมก่อนกดส่ง",
 };
 
 export function erpReasonLabel(reason: ErpReason): string {

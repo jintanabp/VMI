@@ -297,6 +297,43 @@ describe("checkErpReadiness", () => {
     expect(reasonsOf(r)).not.toContain("missing_unit_price");
   });
 
+  it("ของแถมยังเป็นชิ้นในใบ special deal = ดอกจันให้พนักงานตรวจ ไม่กันส่ง (19 ต.ค. 69)", () => {
+    // บรรทัด F ส่ง quantityUnit "B" เสมอ — 72 ชิ้นจะถูกอ่านเป็น 72 หีบ
+    const r = checkErpReadiness(
+      doc(
+        [
+          line({
+            priceSource: "sales",
+            freeGood: { code: "320259", name: "แปรง", qty: 72, unit: "ชิ้น" },
+          }),
+        ],
+        { priceKind: "override" }
+      ),
+      ctx
+    );
+    expect(r.ok).toBe(true);
+    expect(noticesOf(r)).toContain("free_good_not_case");
+    expect(r.offendingSkus.free_good_not_case).toEqual(["320259"]);
+    expect(erpReasonLabel("free_good_not_case").startsWith("*")).toBe(true);
+  });
+
+  it("ของแถมเป็นหีบ หรือใบราคาตรง C4 (ไม่ส่งบรรทัด F) = ไม่เตือนเรื่องหน่วยของแถม", () => {
+    const caseUnit = checkErpReadiness(
+      doc(
+        [line({ freeGood: { code: "744334", name: "ของแถม", qty: 1, unit: "หีบ" } })],
+        { priceKind: "override" }
+      ),
+      ctx
+    );
+    expect(noticesOf(caseUnit)).not.toContain("free_good_not_case");
+
+    const normal = checkErpReadiness(
+      doc([line({ freeGood: { code: "320259", name: "แปรง", qty: 72, unit: "ชิ้น" } })]),
+      ctx
+    );
+    expect(noticesOf(normal)).not.toContain("free_good_not_case");
+  });
+
   it("ใบเปล่า = ส่งไม่ได้", () => {
     expect(reasonsOf(checkErpReadiness(doc([]), ctx))).toContain("empty_lines");
   });
@@ -315,6 +352,7 @@ describe("checkErpReadiness", () => {
       "missing_unit_price",
       "unit_price_zero",
       "price_off_c4",
+      "free_good_not_case",
     ];
     for (const r of all) {
       expect(erpReasonLabel(r)).toBeTruthy();
