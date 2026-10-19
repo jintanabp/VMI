@@ -250,12 +250,14 @@ Creator (ไม่ใช่ Admin — ทุก route ตรวจ raw `role ===
 | เข้าดูร้าน (VDA) | `POST /api/auth/customer/login` `{ vda }` | ตั้ง `vmi_store_id` `vmi_store_code` `vmi_admin_preview` · 503 ถ้ายังไม่ sync สต็อก |
 | ออกจากโหมดดูร้าน | `POST /api/auth/admin/exit-preview` | ลบ cookie ร้าน → redirect `/admin` |
 
-### มุมมองทดสอบเซลล์ — ดูได้อย่างเดียว
+### มุมมองทดสอบเซลล์ — ทำได้ทุกอย่าง บันทึกเป็น Creator
 - `applySalesPreview()` ซ้อน session **เฉพาะเมื่อ raw session เป็น Creator** — ได้ `role: "sales"`, อีเมล/รหัสของเซลล์นั้น,
   `manualCodes: [รหัสนั้น]` (ไม่งั้นติดคลังของ Creator เอง) และ `previewBy` = อีเมลจริงของ Creator
 - `previewBy` ไม่เคยอยู่ใน cookie ที่เซ็น (verify ไม่อ่านฟิลด์นี้) จึงปลอมไม่ได้
-- **route เขียนทุกตัวฝั่งเซลล์ตอบ 403** ผ่าน `salesPreviewReadOnly(session)` — อนุมัติ/ปฏิเสธ/แก้/ลบ/ส่ง ERP/erp-resolve/
-  clone-for-erp/รับทราบแจ้งเตือน · เดิมเขียนได้และบันทึกเป็นอีเมลของเซลล์ที่ถูกทดสอบ (QA 28 ก.ย. 69)
+- **Creator ทำได้ทุกอย่างเพื่อทดสอบ** (19 ต.ค. 69) — อนุมัติ/ปฏิเสธ/แก้/ลบ/ส่ง ERP (UAT จริง)/erp-resolve/clone-for-erp
+  · ผู้ทำถูกบันทึกผ่าน `salesActorEmail(session)` = `previewBy` (อีเมล Creator) ไม่ใช่เซลล์ที่ดูแทน
+  (ช่วง 28 ก.ย.–19 ต.ค. เคยเป็นดูอย่างเดียว เพราะเดิมบันทึกเป็นอีเมลของเซลล์ที่ถูกทดสอบ)
+- ยกเว้นกดรับทราบแจ้งเตือน: ตอบสำเร็จแต่ไม่บันทึก (สถานะอ่านเป็นของเซลล์รายคน)
 - ตามรหัสอย่างเดียว (รหัสในทะเบียน VDA ที่ยังไม่มีคนผูก) ใช้อีเมลสังเคราะห์ `__code_preview__:SXXX`
 - หน้าตั้งค่า / audit log ใช้ raw session — Creator ที่อยู่ในมุมมองทดสอบยังจัดการบัญชีได้และถูกจดเป็นตัวเอง
 

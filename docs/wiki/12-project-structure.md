@@ -55,7 +55,7 @@ VMI/
 |---|---|---|
 | สิทธิ์ Creator / Admin / เซลล์ | `lib/auth/permissions.ts` | `can()`, `isCreator()`, `hasSalesView()`, `homePathFor()` · ไม่ import Prisma ใช้ได้ทั้ง client/server |
 | บทบาท + ชื่อ cookie | `lib/auth/roles.ts` | `middleware.ts` ประกาศชื่อ cookie ซ้ำเอง (Edge import Prisma ไม่ได้) |
-| session เซลล์/แอดมิน | `lib/auth/sales-session.ts` | `buildSalesSessionWithAccess`, `getSalesSession`, `salesPreviewReadOnly` |
+| session เซลล์/แอดมิน | `lib/auth/sales-session.ts` | `buildSalesSessionWithAccess`, `getSalesSession`, `salesActorEmail` |
 | ตัวตนร้านค้า | `lib/auth/store-context.ts` | `getAuthorizedStore()` — ทางเดียวที่อนุญาต |
 | secret เซ็น cookie | `lib/auth/session-secret.ts` | production ไม่ boot ถ้าไม่ปลอดภัย |
 | Azure App (client/tenant id) | `lib/auth/azure-app.ts` | อยู่ในโค้ด ไม่ใช่ env |
@@ -232,7 +232,7 @@ VMI/
 |---|---|
 | `permissions.ts` | **สิทธิ์หน้าตั้งค่า** (Creator/Admin) — fail-closed |
 | `roles.ts` | `UserRole`, ชื่อ cookie |
-| `sales-session.ts` | เซ็น/ตรวจ session เซลล์, `buildSalesSessionWithAccess`, `salesPreviewReadOnly` (มุมมองทดสอบ = อ่านอย่างเดียว) |
+| `sales-session.ts` | เซ็น/ตรวจ session เซลล์, `buildSalesSessionWithAccess`, `salesActorEmail` (ผู้ทำจริง — มุมมองทดสอบ = อีเมล Creator) |
 | `session-secret.ts` | `NEXTAUTH_SECRET` + `assertSessionSecret()` ตอน boot |
 | `admin-registry.ts` | Creator จาก `ADMIN_EMAILS`/`APP_ADMINS` + Admin จากตาราง `Admin` |
 | `manual-salesman-assignments.ts` | อีเมล → รหัสเซลล์ (`SalesmanEmailAssignment`) |
@@ -411,7 +411,7 @@ components/stock/stock-page-client.tsx  (ตะกร้า → dialog ตรว
 ```
 components/sales/sales-orders-client.tsx (+ po-split-panel: จัดกลุ่ม PO / partialItems)
   → PATCH /vmi/api/orders/ { action: "approve", groups, … }
-      getSalesSession() · salesPreviewReadOnly() · assertOrderAccess()
+      getSalesSession() · assertOrderAccess() · ผู้อนุมัติ = salesActorEmail()
       กันอนุมัติถ้ายังมีรายการรอร้านยืนยัน
       approveSelectedItems()  (ถ้าเลือกบางรายการ)           lib/po/approve-selected.ts
       approveWithPoSplit()                                  lib/po/approve-with-split.ts

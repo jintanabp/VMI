@@ -21,8 +21,6 @@ let current: { email: string; role: "sales"; manualCodes: string[]; previewBy?: 
 
 vi.mock("@/lib/auth/sales-session", () => ({
   getSalesSession: async () => current,
-  salesPreviewReadOnly: (s: { previewBy?: string } | null) =>
-    s?.previewBy ? Response.json({ error: "preview" }, { status: 403 }) : null,
 }));
 vi.mock("@/lib/orders/access", () => ({
   resolveSalesmanCodesForFilter: () => ["S1"],
@@ -93,12 +91,14 @@ describe.skipIf(!hasPrisma)("แจ้งเตือนเซลล์ — อ�
     expect(r.items.map((i) => i.skuCode)).toEqual(["T1"]);
   });
 
-  it("กดซ้ำไม่สร้างแถวซ้ำ · มุมมองทดสอบกดรับทราบไม่ได้", async () => {
+  it("กดซ้ำไม่สร้างแถวซ้ำ · มุมมองทดสอบกดแล้วไม่บันทึกอ่านแทนเซลล์ตัวจริง", async () => {
     current = { email: "a@vmi.test", role: "sales", manualCodes: ["S1"] };
     const again = await (await post({ type: "order" })).json();
     expect(again.count).toBe(0);
     current = { email: "c@vmi.test", role: "sales", manualCodes: ["S1"], previewBy: "dev@vmi.test" };
-    expect((await post({ type: "order" })).status).toBe(403);
+    const res = await post({ type: "order" });
+    expect(res.status).toBe(200);
+    expect((await res.json()).count).toBe(0);
     expect(await prisma.salesNotificationRead.count({ where: { email: "c@vmi.test" } })).toBe(0);
   });
 

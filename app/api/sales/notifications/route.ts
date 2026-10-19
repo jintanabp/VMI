@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { hasSalesView } from "@/lib/auth/permissions";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { getSalesSession, salesPreviewReadOnly } from "@/lib/auth/sales-session";
+import { getSalesSession } from "@/lib/auth/sales-session";
 import {
   resolveAllPersonVdaCodes,
   resolveSalesmanCodesForFilter,
@@ -142,8 +142,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   // creator ในมุมมองทดสอบเปิดกระดิ่ง = ห้ามกดรับทราบแทนเซลล์ตัวจริง
-  const previewBlock = salesPreviewReadOnly(session);
-  if (previewBlock) return previewBlock;
+  // มุมมองทดสอบเขียนได้ทุกอย่าง ยกเว้นตรงนี้: สถานะอ่านแล้วเป็นของเซลล์รายคน กดแทน = เซลล์ตัวจริง
+  // ไม่เห็นแจ้งเตือนนั้นอีก · ตอบสำเร็จเฉย ๆ ไม่ให้หน้าจอขึ้น error
+  if (session?.previewBy) return NextResponse.json({ success: true, count: 0 });
 
   const body = await request.json().catch(() => ({}));
   const ids: string[] = Array.isArray(body.ids)

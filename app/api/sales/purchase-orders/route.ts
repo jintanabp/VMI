@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
-import { getSalesSession, salesPreviewReadOnly } from "@/lib/auth/sales-session";
+import { getSalesSession } from "@/lib/auth/sales-session";
 import { isPoStatus } from "@/lib/po/po-status";
 import { prisma } from "@/lib/prisma";
 import {
@@ -231,8 +231,6 @@ export async function DELETE(request: Request) {
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const previewBlock = salesPreviewReadOnly(session);
-  if (previewBlock) return previewBlock;
 
   const { searchParams } = new URL(request.url);
   const poNumbers = (searchParams.get("poNumbers") ?? "")

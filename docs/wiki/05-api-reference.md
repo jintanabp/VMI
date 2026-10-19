@@ -20,7 +20,7 @@
 | **ร้าน** | `getAuthorizedStore()` / `getAuthorizedStoreId()` (`lib/auth/store-context.ts`) | store session ที่เซ็นแล้ว **หรือ** creator ที่อยู่ในโหมดเข้าดูร้าน (ดู [03](./03-authentication.md)) |
 | **ร้าน (บัญชี)** | `getStoreSession()` | ร้านที่ล็อกอินด้วยอีเมล+รหัสผ่านเท่านั้น (โหมดเข้าดูร้านใช้ไม่ได้) |
 | **เซลล์** | `getSalesSession()` | sales session ใดก็ได้ (creator / admin / เซลล์) · ถ้า creator อยู่ในมุมมองทดสอบเซลล์ จะเห็นเป็นเซลล์คนนั้น · ขอบเขตข้อมูลตาม รหัสเซลล์ → VDA |
-| **เซลล์ (เขียน)** | `getSalesSession()` + `salesPreviewReadOnly()` | เหมือน "เซลล์" แต่ **มุมมองทดสอบเซลล์ได้ 403** เสมอ |
+| **เซลล์ (เขียน)** | `getSalesSession()` + `salesActorEmail()` | เหมือน "เซลล์" · มุมมองทดสอบเซลล์เขียนได้ บันทึกผู้ทำเป็นอีเมล Creator |
 | **+SalesView** | `hasSalesView()` | admin ที่ไม่ได้ผูกรหัสเซลล์ได้ 403 "บัญชีนี้ไม่ได้ผูกกับรหัสเซลล์ — ใช้ได้เฉพาะหน้าตั้งค่า" |
 | **Creator** | `getRawSalesSession()` + `role === "admin"` หรือ `isCreator()` | อีเมลใน `ADMIN_EMAILS` เท่านั้น · ใช้ raw session จึงทำได้แม้อยู่ในมุมมองทดสอบ |
 | **`can(x)`** | `getRawSalesSession()` + `can(session, "x")` (`lib/auth/permissions.ts`) | Creator ผ่านเสมอ · Admin ผ่านเฉพาะสิทธิ์ใน `ADMIN_PERMISSIONS` |

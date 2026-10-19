@@ -33,26 +33,20 @@ export interface SalesSession {
   /**
    * มีค่า = creator กำลังอยู่ในมุมมองทดสอบเซลล์ (อีเมลจริงของ creator) — ใส่โดย applySalesPreview เท่านั้น
    * ไม่เคยอยู่ใน cookie ที่เซ็น (verifySalesSessionToken ไม่อ่านฟิลด์นี้) จึงปลอมไม่ได้
-   * route ที่เขียนข้อมูลต้องปฏิเสธเมื่อมีค่านี้ — ดู `salesPreviewReadOnly()`
+   * route ที่เขียนข้อมูลต้องบันทึกผู้ทำด้วย `salesActorEmail()` ไม่ใช่ `email`
    */
   previewBy?: string;
 }
 
 /**
- * มุมมองทดสอบเซลล์ = ดูได้อย่างเดียว · คืน 403 เมื่อกำลังทดสอบ, null เมื่อเขียนได้
+ * อีเมลของคนที่กดจริง — ใช้บันทึก statusBy / actorEmail / อนุมัติโดย ฯลฯ
  *
- * เดิมเขียนได้ทุกอย่าง และบันทึกเป็นอีเมลของเซลล์ที่ถูกทดสอบ (หรือ `__code_preview__:SXXX`) —
- * อนุมัติ/ปฏิเสธ/แก้ราคา/ลบ/ส่ง ERP ในโหมดทดสอบจึงดูเหมือนเซลล์คนนั้นทำเอง (QA 28 ก.ย. 69)
+ * มุมมองทดสอบเซลล์ creator ทำได้ทุกอย่างเพื่อทดสอบ (ผู้ใช้สั่ง 19 ต.ค. 69 รวมส่ง ERP) แต่ต้องบันทึกเป็น
+ * อีเมลของ creator ไม่ใช่เซลล์ที่ดูแทน — เดิม (ก่อน 28 ก.ย.) บันทึกเป็นเซลล์ จึงเคยปิดเป็นดูอย่างเดียว
+ * `session.email` ในมุมมองทดสอบเป็นของเซลล์ ใช้ได้เฉพาะเรื่องขอบเขตการมองเห็นเท่านั้น
  */
-export function salesPreviewReadOnly(session: SalesSession | null): Response | null {
-  if (!session?.previewBy) return null;
-  return Response.json(
-    {
-      error:
-        "มุมมองทดสอบดูได้อย่างเดียว — ออกจากมุมมองเซลล์ก่อน แล้วค่อยแก้ไขในบัญชีของคุณเอง",
-    },
-    { status: 403 }
-  );
+export function salesActorEmail(session: SalesSession): string {
+  return session.previewBy ?? session.email;
 }
 
 interface SessionPayload extends SalesSession {

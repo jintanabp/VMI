@@ -27,7 +27,7 @@ import {
   type OrderPromoLineResult,
 } from "@/lib/promo/lookup-order-lines";
 import type { OrderItemInput } from "@/lib/repositories/types";
-import { getSalesSession, salesPreviewReadOnly } from "@/lib/auth/sales-session";
+import { getSalesSession, salesActorEmail } from "@/lib/auth/sales-session";
 import { prisma } from "@/lib/prisma";
 import { getVdaAosBillRegistry } from "@/lib/fabric/vda-aos-bill";
 import { getSkuMasterDirectory } from "@/lib/fabric";
@@ -463,8 +463,6 @@ export async function PATCH(request: Request) {
   if (!salesSession) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const previewBlock = salesPreviewReadOnly(salesSession);
-  if (previewBlock) return previewBlock;
 
   const parsed = patchOrderSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
@@ -534,7 +532,7 @@ export async function PATCH(request: Request) {
       if (body.itemIds) {
         const partial = await approveSelectedItems(
           orderId,
-          salesSession.email,
+          salesActorEmail(salesSession),
           body.itemIds,
           body.poNumbers ?? {}
         );
@@ -543,7 +541,7 @@ export async function PATCH(request: Request) {
       } else {
         result = await approveWithPoSplit(
           orderId,
-          salesSession.email,
+          salesActorEmail(salesSession),
           body.poNumbers ?? {}
         );
       }
@@ -571,7 +569,7 @@ export async function PATCH(request: Request) {
             : `${totalItems} รายการ · ${totalQty} หีบ`,
         poNumbers: pos.map((po) => po.poNumber),
         orderId,
-        actorEmail: salesSession.email,
+        actorEmail: salesActorEmail(salesSession),
       });
       if (remainderOrderId) {
         // ร้านต้องรู้ว่าของที่เหลือไม่ได้หาย แต่ยังรออนุมัติอยู่ในอีกใบ
@@ -581,7 +579,7 @@ export async function PATCH(request: Request) {
           title: "อนุมัติบางส่วน — ที่เหลือแยกเป็นอีกใบรออนุมัติ",
           detail: `${remainderCount} รายการที่ยังไม่อนุมัติ ย้ายไปออเดอร์ใบใหม่`,
           orderId: remainderOrderId,
-          actorEmail: salesSession.email,
+          actorEmail: salesActorEmail(salesSession),
         });
       }
       return NextResponse.json({ ...result, remainderOrderId, remainderCount });
@@ -628,7 +626,7 @@ export async function PATCH(request: Request) {
       rejected = await orders.rejectOrder(
         orderId,
         body.reason,
-        salesSession.email
+        salesActorEmail(salesSession)
       );
     } catch (err) {
       // อีกคนชิงอนุมัติ/ปฏิเสธไปก่อน — compare-and-set ใน rejectOrder กันไว้
@@ -646,7 +644,7 @@ export async function PATCH(request: Request) {
       title: "ออเดอร์ถูกปฏิเสธ",
       detail: body.reason?.trim() || "ไม่ได้ระบุเหตุผล",
       orderId,
-      actorEmail: salesSession.email,
+      actorEmail: salesActorEmail(salesSession),
     });
     return NextResponse.json(rejected);
   }
@@ -664,7 +662,7 @@ export async function PATCH(request: Request) {
         orderId,
         body.itemId,
         body.unitPriceOverride,
-        salesSession.email
+        salesActorEmail(salesSession)
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : "";
@@ -697,7 +695,7 @@ export async function PATCH(request: Request) {
               oldPrice != null ? `${oldPrice} → ` : ""
             }${body.unitPriceOverride} บาท/หีบ`,
       orderId,
-      actorEmail: salesSession.email,
+      actorEmail: salesActorEmail(salesSession),
     });
     return NextResponse.json(await orders.getOrderById(orderId));
   }
@@ -740,7 +738,7 @@ export async function PATCH(request: Request) {
         (before ? `${before.skuCode} ${before.skuName}` : "รายการนี้") +
         (body.reason ? ` · ${body.reason}` : ""),
       orderId,
-      actorEmail: salesSession.email,
+      actorEmail: salesActorEmail(salesSession),
     });
     return NextResponse.json(await orders.getOrderById(orderId));
   }
@@ -790,7 +788,7 @@ export async function PATCH(request: Request) {
       title: "พนักงานเพิ่มสินค้าใหม่ — รอร้านยืนยัน",
       detail: `${skuCode} ${skuName} · ${body.finalQty} หีบ`,
       orderId,
-      actorEmail: salesSession.email,
+      actorEmail: salesActorEmail(salesSession),
     });
     return NextResponse.json(await orders.getOrderById(orderId));
   }
@@ -842,7 +840,7 @@ export async function PATCH(request: Request) {
         ? `${skuLabel} · ${before.finalQty} → ${body.finalQty} หีบ`
         : `ปรับเป็น ${body.finalQty} หีบ`,
       orderId,
-      actorEmail: salesSession.email,
+      actorEmail: salesActorEmail(salesSession),
     });
     return NextResponse.json(await orders.getOrderById(orderId));
   }
@@ -864,8 +862,6 @@ export async function DELETE(request: Request) {
   if (!salesSession) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const previewBlock = salesPreviewReadOnly(salesSession);
-  if (previewBlock) return previewBlock;
 
   const { searchParams } = new URL(request.url);
   const single = searchParams.get("orderId")?.trim() ?? "";

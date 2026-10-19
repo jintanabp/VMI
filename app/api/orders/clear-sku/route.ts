@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getSalesSession, salesPreviewReadOnly } from "@/lib/auth/sales-session";
+import { getSalesSession, salesActorEmail } from "@/lib/auth/sales-session";
 import { resolveOrderStoreScope } from "@/lib/orders/access";
 import { deleteOrdersForSession } from "@/lib/orders/delete-orders";
 import { notifyStore } from "@/lib/orders/store-notify";
@@ -20,8 +20,6 @@ export async function DELETE(request: Request) {
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const previewBlock = salesPreviewReadOnly(session);
-  if (previewBlock) return previewBlock;
 
   const params = new URL(request.url).searchParams;
   const skuCode = params.get("skuCode")?.trim();
@@ -124,7 +122,7 @@ export async function DELETE(request: Request) {
         title: "เคลียร์รายการสิ้นเดือน",
         detail: `${skuCode} ${lines[0]!.sku.name} · นำออกจากออเดอร์แล้ว`,
         orderId,
-        actorEmail: session.email,
+        actorEmail: salesActorEmail(session),
       });
     }
   }

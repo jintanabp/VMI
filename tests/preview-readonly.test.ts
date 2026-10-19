@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { SalesSession } from "@/lib/auth/sales-session";
 
 /**
- * มุมมองทดสอบเซลล์ของ creator = ดูได้อย่างเดียว (QA 28 ก.ย. 69 P1-5)
- * เดิมเขียนได้ทุกอย่างและบันทึกเป็นอีเมลของเซลล์ที่ถูกทดสอบ
+ * มุมมองทดสอบเซลล์ของ creator = ทำได้ทุกอย่าง แต่บันทึกผู้ทำเป็นอีเมล creator (19 ต.ค. 69)
+ * ปัญหาเดิม (QA 28 ก.ย. 69 P1-5) คือบันทึกเป็นอีเมลของเซลล์ที่ถูกทดสอบ จึงเคยปิดเป็นดูอย่างเดียว
  */
 
 vi.mock("next/headers", () => ({ cookies: async () => ({ get: () => undefined }) }));
@@ -25,32 +25,30 @@ const preview = {
   exp: Date.now() + 60_000,
 };
 
-describe("applySalesPreview + salesPreviewReadOnly", () => {
-  it("creator ในมุมมองทดสอบ → session ติด previewBy (อีเมลจริง) และเขียนไม่ได้ (403)", async () => {
+describe("applySalesPreview + salesActorEmail", () => {
+  it("creator ในมุมมองทดสอบ → เห็นแบบเซลล์ แต่บันทึกผู้ทำเป็นอีเมล creator", async () => {
     const { applySalesPreview } = await import("@/lib/auth/sales-preview");
-    const { salesPreviewReadOnly } = await import("@/lib/auth/sales-session");
+    const { salesActorEmail } = await import("@/lib/auth/sales-session");
     const s = applySalesPreview(creator, preview);
     expect(s.email).toBe("sales@x");
     expect(s.previewBy).toBe("dev@x");
     expect(s.manualCodes).toEqual(["S555"]);
-    const res = salesPreviewReadOnly(s);
-    expect(res?.status).toBe(403);
+    expect(salesActorEmail(s)).toBe("dev@x");
   });
 
-  it("ไม่ได้อยู่ในมุมมองทดสอบ → เขียนได้", async () => {
-    const { salesPreviewReadOnly } = await import("@/lib/auth/sales-session");
-    expect(salesPreviewReadOnly(creator)).toBeNull();
-    expect(salesPreviewReadOnly({ email: "s@x", role: "sales", salesmanCode: "S1" })).toBeNull();
-    expect(salesPreviewReadOnly(null)).toBeNull();
+  it("ไม่ได้อยู่ในมุมมองทดสอบ → ผู้ทำคืออีเมลของตัวเอง", async () => {
+    const { salesActorEmail } = await import("@/lib/auth/sales-session");
+    expect(salesActorEmail(creator)).toBe("dev@x");
+    expect(salesActorEmail({ email: "s@x", role: "sales", salesmanCode: "S1" })).toBe("s@x");
   });
 
-  it("เซลล์ที่มี cookie มุมมองทดสอบค้าง (ไม่ใช่ creator) → ไม่ถูกสวม และไม่ถูกบล็อก", async () => {
+  it("เซลล์ที่มี cookie มุมมองทดสอบค้าง (ไม่ใช่ creator) → ไม่ถูกสวม", async () => {
     const { applySalesPreview } = await import("@/lib/auth/sales-preview");
-    const { salesPreviewReadOnly } = await import("@/lib/auth/sales-session");
+    const { salesActorEmail } = await import("@/lib/auth/sales-session");
     const sales: SalesSession = { email: "s@x", role: "sales", salesmanCode: "S1" };
     const s = applySalesPreview(sales, preview);
     expect(s).toBe(sales);
-    expect(salesPreviewReadOnly(s)).toBeNull();
+    expect(salesActorEmail(s)).toBe("s@x");
   });
 
   it("previewBy อ่านจาก cookie ที่เซ็นไม่ได้ — verifySalesSessionToken ไม่ประกอบฟิลด์นี้กลับ", async () => {

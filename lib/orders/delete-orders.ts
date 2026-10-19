@@ -1,6 +1,6 @@
 import { unlink } from "fs/promises";
 import { prisma } from "@/lib/prisma";
-import type { SalesSession } from "@/lib/auth/sales-session";
+import { salesActorEmail, type SalesSession } from "@/lib/auth/sales-session";
 import { assertOrderAccess } from "@/lib/orders/access";
 import { notifyStore } from "@/lib/orders/store-notify";
 import { recordAudit } from "@/lib/admin/audit-log";
@@ -138,7 +138,7 @@ export async function deleteOrdersForSession(
 
   // บันทึกไว้ใน log ของเซิร์ฟเวอร์ทุกครั้ง — ลบแล้วแถวหายหมด ไม่เหลือหลักฐานว่าใครลบอะไร
   console.info(
-    `[orders:delete] by=${session.email} role=${session.role} notify=${opts.notifyStores} ` +
+    `[orders:delete] by=${salesActorEmail(session)} role=${session.role} notify=${opts.notifyStores} ` +
       `orders=${ids.join(",")} po=${deletedPoNumbers.join(",") || "-"}`
   );
   // เก็บลงตารางด้วย — log ของ container หายเมื่อสร้างใหม่ (เดิมมีแค่บรรทัดข้างบน)
@@ -170,7 +170,7 @@ export async function deleteOrdersForSession(
           (pos.length > 0 ? ` · PO ${pos.join(", ")} ถูกยกเลิกด้วย` : ""),
         poNumbers: pos,
         orderId: o.id,
-        actorEmail: session.email,
+        actorEmail: salesActorEmail(session),
       });
     }
   }

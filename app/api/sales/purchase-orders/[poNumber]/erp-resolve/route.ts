@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { getSalesSession, salesPreviewReadOnly } from "@/lib/auth/sales-session";
+import { getSalesSession, salesActorEmail } from "@/lib/auth/sales-session";
 import { assertOrderAccess } from "@/lib/orders/access";
 import { sanitizePoNumber } from "@/lib/po/po-number";
 import {
@@ -41,8 +41,6 @@ export async function POST(
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const previewBlock = salesPreviewReadOnly(session);
-  if (previewBlock) return previewBlock;
 
   const { poNumber: raw } = await ctx.params;
   const poNumber = sanitizePoNumber(decodeURIComponent(raw));
@@ -76,7 +74,7 @@ export async function POST(
       poNumber,
       resolution: parsed.data.resolution,
       note: parsed.data.note,
-      actorEmail: session.email,
+      actorEmail: salesActorEmail(session),
     });
     await recordAudit(session, "po.erpResolve", poNumber, {
       resolution: result.resolution === "in_erp" ? "เข้า ERP แล้ว" : "ไม่เข้า ERP — ส่งใหม่ได้",
@@ -90,7 +88,7 @@ export async function POST(
         poNumber,
         orderId: result.orderId,
         storeId: result.storeId,
-        actorEmail: session.email,
+        actorEmail: salesActorEmail(session),
       });
     }
     return NextResponse.json({ success: true, resolution: result.resolution });

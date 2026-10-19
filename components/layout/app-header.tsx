@@ -288,7 +288,7 @@ export function AppHeader({
               โหมดทดสอบ Admin
               {adminPreview && " · มุมมอง VDA"}
               {salesPreview &&
-                ` · มุมมองเซลล์ ${salesPreview.asCode} (${salesPreview.asName}) · ดูอย่างเดียว แก้ไขไม่ได้`}
+                ` · มุมมองเซลล์ ${salesPreview.asCode} (${salesPreview.asName}) · ทำได้ทุกอย่าง บันทึกเป็นชื่อคุณ`}
             </span>
             <Button
               type="button"

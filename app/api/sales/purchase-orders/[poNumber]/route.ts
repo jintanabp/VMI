@@ -1,7 +1,7 @@
 import { readFile } from "fs/promises";
 import { NextResponse } from "next/server";
 import ExcelJS from "exceljs";
-import { getSalesSession, salesPreviewReadOnly } from "@/lib/auth/sales-session";
+import { getSalesSession, salesActorEmail } from "@/lib/auth/sales-session";
 import { prisma } from "@/lib/prisma";
 import { assertOrderAccess } from "@/lib/orders/access";
 import { VAT_RATE, type PoDocument } from "@/lib/po/po-document";
@@ -34,8 +34,6 @@ export async function PATCH(
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const previewBlock = salesPreviewReadOnly(session);
-  if (previewBlock) return previewBlock;
 
   const { poNumber: raw } = await ctx.params;
   const poNumber = sanitizePoNumber(decodeURIComponent(raw));
@@ -90,7 +88,7 @@ export async function PATCH(
     data: {
       status: body.status,
       statusAt: new Date(),
-      statusBy: session.email,
+      statusBy: salesActorEmail(session),
       statusNote: note,
     },
   });
@@ -140,7 +138,7 @@ export async function PATCH(
         detail: notify.detail,
         poNumbers: [poNumber],
         orderId: po.orderId,
-        actorEmail: session.email,
+        actorEmail: salesActorEmail(session),
       });
     }
   }

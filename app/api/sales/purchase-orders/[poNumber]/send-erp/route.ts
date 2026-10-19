@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getSalesSession, salesPreviewReadOnly } from "@/lib/auth/sales-session";
+import { getSalesSession, salesActorEmail } from "@/lib/auth/sales-session";
 import { assertOrderAccess } from "@/lib/orders/access";
 import { sanitizePoNumber } from "@/lib/po/po-number";
 import { rebuildPoDocumentFromDb } from "@/lib/po/po-from-db";
@@ -34,9 +34,6 @@ export async function POST(
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  // มุมมองทดสอบห้ามยิง ERP เด็ดขาด — ไม่งั้นบันทึกว่าเซลล์ที่ถูกทดสอบเป็นคนส่ง
-  const previewBlock = salesPreviewReadOnly(session);
-  if (previewBlock) return previewBlock;
 
   const { poNumber: raw } = await ctx.params;
   const poNumber = sanitizePoNumber(decodeURIComponent(raw));
@@ -117,7 +114,7 @@ export async function POST(
   // ปักสถานะ "กำลังส่ง" ก่อนยิง เพื่อให้หน้าจอของคนอื่นเห็นว่ามีคนกำลังทำอยู่
   await prisma.purchaseOrder.updateMany({
     where: { poNumber, erpSentAt: null },
-    data: { status: SENDING_TO_ERP, statusAt: new Date(), statusBy: session.email },
+    data: { status: SENDING_TO_ERP, statusAt: new Date(), statusBy: salesActorEmail(session) },
   });
 
   const outcome = await deliverPoToErp({ doc, ctx: erpCtx, endpoint });
@@ -134,7 +131,7 @@ export async function POST(
       data: {
         status: definitelyNotIn ? "issued" : ERP_RESULT_UNKNOWN,
         statusAt: new Date(),
-        statusBy: session.email,
+        statusBy: salesActorEmail(session),
       },
     });
     // หลังรู้ผลแล้วเท่านั้น — ให้เซลล์คนอื่นของคลังเห็นด้วย ไม่ใช่แค่คนที่กดแล้วอาจปิดจอไป
@@ -143,7 +140,7 @@ export async function POST(
       poNumber,
       orderId: po.orderId,
       storeId: po.order.storeId,
-      actorEmail: session.email,
+      actorEmail: salesActorEmail(session),
       failure: outcome.failure,
       message: outcome.message,
     });
@@ -159,7 +156,7 @@ export async function POST(
     data: {
       status: SENT_TO_ERP,
       statusAt: new Date(),
-      statusBy: session.email,
+      statusBy: salesActorEmail(session),
       statusNote: "",
     },
   });
@@ -169,7 +166,7 @@ export async function POST(
     poNumber,
     orderId: po.orderId,
     storeId: po.order.storeId,
-    actorEmail: session.email,
+    actorEmail: salesActorEmail(session),
   });
 
   return NextResponse.json({

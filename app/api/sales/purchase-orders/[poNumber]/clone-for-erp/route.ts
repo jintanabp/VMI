@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getSalesSession, salesPreviewReadOnly } from "@/lib/auth/sales-session";
+import { getSalesSession, salesActorEmail } from "@/lib/auth/sales-session";
 import { assertOrderAccess } from "@/lib/orders/access";
 import { sanitizePoNumber } from "@/lib/po/po-number";
 import { cloneRejectedPoForErp } from "@/lib/po/clone-for-erp";
@@ -18,8 +18,6 @@ export async function POST(
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const previewBlock = salesPreviewReadOnly(session);
-  if (previewBlock) return previewBlock;
 
   const { poNumber: raw } = await ctx.params;
   const poNumber = sanitizePoNumber(decodeURIComponent(raw));
@@ -41,7 +39,7 @@ export async function POST(
   }
 
   try {
-    const result = await cloneRejectedPoForErp(poNumber, session.email);
+    const result = await cloneRejectedPoForErp(poNumber, salesActorEmail(session));
     return NextResponse.json({ success: true, ...result });
   } catch (err) {
     const message = (err as Error)?.message ?? "";

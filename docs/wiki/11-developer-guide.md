@@ -187,7 +187,8 @@ fetch("/api/stock");               // ผิด — จะได้ 404 บน p
   `ADMIN_PERMISSIONS` · จุดที่ลืมตรวจต้องกลายเป็น "ทำไม่ได้" ไม่ใช่ "ได้สิทธิ์เกิน"
 - หมวดหน้าแอดมินที่ creator เท่านั้นกันด้วย `components/admin/creator-only-layout.tsx` ใน `layout.tsx` **และ**
   API ต้องตรวจซ้ำเอง (อย่าพึ่งการซ่อนเมนู)
-- มุมมองทดสอบเซลล์ = อ่านอย่างเดียว — route ที่เขียนข้อมูลต้องเรียก `salesPreviewReadOnly(session)`
+- มุมมองทดสอบเซลล์ = Creator เขียนได้ทุกอย่าง — route ที่เขียนข้อมูลต้องบันทึกผู้ทำด้วย `salesActorEmail(session)`
+  ห้ามใช้ `session.email` (ในมุมมองทดสอบเป็นอีเมลของเซลล์ที่ดูแทน ใช้ได้แค่เรื่องขอบเขต)
 - เซลล์เห็นออเดอร์เฉพาะ VDA ที่ดูแล — ตรวจด้วย `assertOrderAccess()` / `resolveOrderStoreScope()` (`lib/orders/access.ts`)
 - ไม่มี VDA ในความดูแล = ไม่เห็นอะไร (ห้ามถอยไปใช้ค่าอื่น เช่น `Store.salesRep` เดิม)
 
@@ -475,7 +476,7 @@ ERP_SEND_DISABLED=1                      # เบรก — ห้ามยิ�
 1. สร้างไฟล์ `app/api/<ชื่อ>/route.ts`
 2. **ตรวจสอบสิทธิ์เป็นลำดับแรกเสมอ** — `getAuthorizedStore()` ฝั่งร้านค้า, `getSalesSession()` /
    `getRawSalesSession()` ฝั่งเซลล์/แอดมิน แล้ว `can(session, …)` สำหรับสิทธิ์หน้าตั้งค่า
-3. route ที่เขียนข้อมูลฝั่งเซลล์ต้องเรียก `salesPreviewReadOnly(session)` · route ที่แตะออเดอร์ต้อง `assertOrderAccess()`
+3. route ที่เขียนข้อมูลฝั่งเซลล์บันทึกผู้ทำด้วย `salesActorEmail(session)` · route ที่แตะออเดอร์ต้อง `assertOrderAccess()`
 4. ใช้ zod ตรวจสอบข้อมูลที่รับจากผู้ใช้ ตอบ error เป็นภาษาไทย
 5. ถ้าเป็นการกระทำของผู้ดูแล → `recordAudit()` หลังสำเร็จ (เพิ่ม action ใน `AUDIT_ACTION_LABELS` — มีเทสต์ `audit-log-labels.test.ts`)
 6. เพิ่มรายการใน [05 — API Reference](./05-api-reference.md) และ [12](./12-project-structure.md) §4
