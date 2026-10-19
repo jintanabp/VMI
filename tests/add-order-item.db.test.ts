@@ -23,6 +23,22 @@ const hasPrisma = prismaCliAvailable();
 const HEADER =
   "FROMDATE,TODATE,DIVISIONSALE,PRODUCTCODE,PURCHASEQUANTITYFROM,PURCHASEQUANTITYTO,PURCHASEUNIT,TOBREAKUP,COUNTRY,BANGKOK,CENTRAL,NORTHEAST,NORTH,SOUTH,CUSTOMERGROUP,DISCOUNTAMOUNT,DISCOUNTPERCENT,SPECIALUNITPRICE,MARKETINGUSER,PREMIUMPRODUCT,PREMIUMQUANTITY,PREMIUMUNIT,ASSORTEDPRODUCTGROUP,RECORDSTATUS,USERCODE,CREATEDATE,UpdateDate,MINIMUMPURCHASE";
 
+/**
+ * ช่วงโปร = เดือนปัจจุบัน (เวลาไทย) — เดิมฝังเป็น ก.ย. 69 ตายตัว พอขึ้น ต.ค. โปรหมดอายุ
+ * กลุ่มไม่รวมยอด เทสต์พังเองทั้งที่โค้ดไม่ได้เปลี่ยน (พบ 19 ต.ค. 69)
+ */
+function currentPromoWindow(): { from: string; to: string } {
+  const bkk = new Date(Date.now() + 7 * 60 * 60 * 1000);
+  const y = bkk.getUTCFullYear();
+  const m = bkk.getUTCMonth();
+  const lastDay = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+  const ym = `${y}-${String(m + 1).padStart(2, "0")}`;
+  return {
+    from: `${ym}-01T07:00:00.000+07:00`,
+    to: `${ym}-${String(lastDay).padStart(2, "0")}T07:00:00.000+07:00`,
+  };
+}
+
 function row(o: {
   product: string;
   group: string;
@@ -30,9 +46,10 @@ function row(o: {
   toQty: number;
   discAmt: number;
 }): string {
+  const win = currentPromoWindow();
   return [
-    "2026-09-01T07:00:00.000+07:00",
-    "2026-09-30T07:00:00.000+07:00",
+    win.from,
+    win.to,
     "E",
     o.product,
     o.fromQty.toFixed(1),
