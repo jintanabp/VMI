@@ -313,7 +313,7 @@ describe("checkErpReadiness", () => {
     expect(reasonsOf(r)).not.toContain("missing_unit_price");
   });
 
-  it("ของแถมยังเป็นชิ้นในใบ special deal = ดอกจันให้พนักงานตรวจ ไม่กันส่ง (19 ต.ค. 69)", () => {
+  it("ของแถมยังเป็นชิ้น (ไม่รู้ขนาดหีบของแถม — VDA แถมเป็นหีบเท่านั้น) ในใบ special deal = ดอกจันให้พนักงานตรวจ ไม่กันส่ง (19 ต.ค. 69)", () => {
     // บรรทัด F ส่ง quantityUnit "B" เสมอ — 72 ชิ้นจะถูกอ่านเป็น 72 หีบ
     const r = checkErpReadiness(
       doc(
