@@ -114,7 +114,7 @@ npm run sync:masters          # CLI (อ่าน .env)
 
 | env | ค่าเริ่มต้น | หมายเหตุ |
 |---|---|---|
-| `MASTER_REFRESH_ENABLED` | เปิด (ทุก environment) | ปิดด้วยค่า `false` เท่านั้น · ⚠️ **ใน Docker ค่านี้ฮาร์ดโค้ด `"true"` ใน `docker-compose.yml` (`environment:` ชนะ `env_file:`)** — จะปิดต้องแก้ compose |
+| `MASTER_REFRESH_ENABLED` | เปิด (ทุก environment) | ปิดด้วยค่า `false` เท่านั้น · ใน Docker ตั้งใน `.env` ได้ (compose ใช้ `${MASTER_REFRESH_ENABLED:-true}` ตั้งแต่ 19 ต.ค. 69) |
 | `MASTER_REFRESH_HOUR` / `_MINUTE` | `3` / `30` | เวลา **Asia/Bangkok** ค่าผิดช่วงถอยเป็น 03:30 |
 | `MASTER_REFRESH_MAX_AGE_HOURS` | `20` | เกินนี้ = ข้อมูลค้าง: boot ไล่ตาม · ปุ่มร้านสั่งดึงจริง · ป้าย "ข้อมูล ณ" เปลี่ยนสี |
 | `ALERT_EMAIL` | — | ผู้รับ (คั่น `,` หรือ `;`) · ไม่ตั้ง = ส่งถึง `SENDER_EMAIL` เอง |

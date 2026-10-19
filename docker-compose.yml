@@ -12,8 +12,9 @@ services:
       DATABASE_URL: "file:/app/data/vmi.db"
       FABRIC_CACHE_DIR: /app/data/cache
       BACKUP_DIR: /app/backups
-      MASTER_REFRESH_ENABLED: "true"
-      VMI_BACKUP_ON_START: "true"
+      # ตั้ง false ใน .env ได้ (เดิมฝัง "true" ตายตัว ใส่ใน .env แล้วไม่มีผล)
+      MASTER_REFRESH_ENABLED: "${MASTER_REFRESH_ENABLED:-true}"
+      VMI_BACKUP_ON_START: "${VMI_BACKUP_ON_START:-true}"
     ports:
       - "127.0.0.1:3002:3000"
     volumes:

@@ -43,8 +43,9 @@ VDA_CUSTOMER_MAP=           # seed ทะเบียนคลังครั้
 
 > ⚠️ **ค่าที่ `docker-compose.yml` ฮาร์ดโค้ดไว้ใน `environment:` ชนะ `.env` เสมอ** (`environment:` > `env_file:`):
 > `NODE_ENV=production` · `DATABASE_URL=file:/app/data/vmi.db` · `FABRIC_CACHE_DIR=/app/data/cache` · `BACKUP_DIR=/app/backups` ·
-> **`MASTER_REFRESH_ENABLED="true"`** · **`VMI_BACKUP_ON_START="true"`** —
-> ตั้งสองตัวหลังใน `.env` เป็น `false` **ไม่มีผล** ต้องแก้ใน compose แล้ว `docker compose up -d`
+> ส่วน `MASTER_REFRESH_ENABLED` · `VMI_BACKUP_ON_START` (default `true`) **ตั้งใน `.env` ได้แล้ว** (19 ต.ค. 69 — เดิมฝังตายตัว)
+> · backup ก่อน migrate ล้ม + มี migration รอ = container ไม่ migrate และหยุด ดู log `[VMI]` แก้ดิสก์/สิทธิ์ BACKUP_DIR
+> (จำเป็นจริงข้ามได้ด้วย `VMI_ALLOW_MIGRATE_WITHOUT_BACKUP=true` ครั้งเดียวแล้วเอาออก)
 
 > ⚠️ **`NEXT_PUBLIC_*` ตั้งใน `.env` บน server ไม่ได้ — ตั้งไปก็ไม่มีผล**
 > ค่าพวกนี้ถูกฝังลง JS ตอน `next build` ไม่ได้อ่านตอนรัน และ `.dockerignore`
@@ -81,7 +82,7 @@ curl -fsSL http://127.0.0.1:3002/vmi/api/health/         # ต้องมี -L
 ### ลำดับตอน container start (`docker/entrypoint.sh`)
 
 1. สร้างโฟลเดอร์ `/app/data/cache`, `/app/data/logs`, `/app/backups`, `/app/logs/po-export`
-2. **backup ฐานข้อมูล** (`node scripts/backup-db.mjs` · ปิดได้ด้วย `VMI_BACKUP_ON_START=false` — แก้ใน compose)
+2. **backup ฐานข้อมูล** (`node scripts/backup-db.mjs` · ปิดได้ด้วย `VMI_BACKUP_ON_START=false` ใน `.env`)
 3. `npx prisma migrate deploy`
 4. `exec npx next start -p 3000` → `instrumentation.ts` (ตรวจ secret · bootstrap admin · ทะเบียนคลัง · scheduler · preload master · catch-up)
 

@@ -45,7 +45,8 @@ npm run dev                  # ต้องใช้ port 3000 เท่าน�
 | ข้อมูล master | ต้องมีไฟล์ใน `data/cache/` — ได้จาก `npm run sync:masters` (ต้องมี credential OneLake) หรือคัดลอกจากเครื่องที่ sync แล้ว |
 
 > ⚠️ `prisma/seed.ts` **ลบออเดอร์ `pending_approval` ทุกใบ** และร้าน/SKU demo (`ST*`) — `db:setup`,
-> `db:seed` และ `prisma migrate reset` เรียกตัวนี้ อย่ารันกับฐานข้อมูลที่มีออเดอร์จริงรออยู่
+> `db:seed` และ `prisma migrate reset` เรียกตัวนี้ อย่ารันกับฐานข้อมูลที่มีออเดอร์จริงรออยู่ · ตัว seed ปฏิเสธเองเมื่อ
+> `NODE_ENV=production` หรือ `DATABASE_URL` อยู่ใน `/app/data/` (19 ต.ค. 69)
 
 ### 1.1 เหตุผลที่ต้องใช้ port 3000
 

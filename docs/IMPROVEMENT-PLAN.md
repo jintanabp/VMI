@@ -23,18 +23,22 @@
 ต่างแค่ระหว่างทาง · โปรอื่นในไฟล์ ต.ค. หารลงตัวหมด ไม่กระทบ · จุดแก้: `premiumPerLot` ใน
 `lib/fabric/promotion-lookup.ts` + `calcStepPremiumQty` และหน้าตรวจปัดของแถม (`lib/promo/promo-step.ts`) ต้องรู้ขั้นที่ไม่เท่ากัน
 
-### [ ] เจอระหว่างตรวจเอกสารทั้งชุด 29 ก.ย. 2569 — รอเจ้าของงานตัดสินใจ (ยังไม่แก้)
+### [ ] เจอระหว่างตรวจเอกสารทั้งชุด 29 ก.ย. 2569 — ข้อใหญ่ปิดครบแล้ว 19 ต.ค. 69 เหลือข้อเล็ก
 ไม่มีข้อไหนเป็นบั๊กที่ทำข้อมูลเสีย แต่เป็นช่องที่ควรเลือกทางไว้ก่อนใช้งานจริงเต็มรูปแบบ:
-- [ ] **PO ค้าง «กำลังส่ง ERP»** ถ้า container ดับกลางการยิง — ไม่มีทางออกจากหน้าจอ (erp-resolve กับการแก้สถานะเองไม่รับ
-  `sending_erp`) ต้องแก้ใน DB · ทางเลือก: ให้ erp-resolve รับใบที่ค้าง `sending_erp` นานเกิน N นาทีด้วย
+- [x] **PO ค้าง «กำลังส่ง ERP»** ถ้า container ดับกลางการยิง — ✅ 19 ต.ค. 69 ค้างเกิน 10 นาที (`ERP_SENDING_STUCK_MS`)
+  ขึ้นกล่อง «ตรวจกับทีม ERP แล้ว?» บนแผงส่ง ERP (erp-resolve รับแล้ว) · ระหว่างกำลังส่ง ปุ่มส่งปิด · send-erp จองสิทธิ์ยิงด้วย
+  compare-and-set (เดิมกดพร้อมกันยิงได้ทั้งคู่ และกดส่งใบที่ค้างซ้ำได้) · ลบ/ยกเลิกใบที่กำลังส่งไม่ได้ (`poMayBeInErp`)
 - [x] **บรรทัด 0 หีบในกลุ่มโปร** ถูกคงไว้ใน PO โดยตั้งใจ แต่ `checkErpReadiness` ตีตกทั้งใบ — ✅ 19 ต.ค. 69 ตัดบรรทัด
   0 หีบออกจาก payload ERP แล้ว (`erpBuyLines`) · เอกสาร PO ยังเห็นบรรทัดนั้นเหมือนเดิม · ของแถมกลุ่มยังคิดครบ
-- [ ] **backup ก่อน migrate ล้มแล้วยัง migrate ต่อ** (`docker/entrypoint.sh` ใช้ `|| true`) — เห็นแค่ใน log
-- [ ] **`docker-compose.yml` ตั้ง `MASTER_REFRESH_ENABLED` / `VMI_BACKUP_ON_START` เป็น "true" ตายตัว** — ใส่ false ใน .env ไม่มีผล
+- [x] **backup ก่อน migrate ล้มแล้วยัง migrate ต่อ** — ✅ 19 ต.ค. 69 มี migration รอ = หยุดไม่ migrate (ข้ามได้ด้วย
+  `VMI_ALLOW_MIGRATE_WITHOUT_BACKUP=true` ครั้งเดียว) · ไม่มี migration รอ = เตือนแล้วเปิดต่อ (กัน container วน restart)
+- [x] **`docker-compose.yml` ตั้ง `MASTER_REFRESH_ENABLED` / `VMI_BACKUP_ON_START` เป็น "true" ตายตัว** — ✅ 19 ต.ค. 69
+  เป็น `${...:-true}` แล้ว ใส่ false ใน .env มีผล (ยืนยันด้วย `docker compose config`)
 - [x] **มุมมองทดสอบ (Creator ดูแทนร้าน/เซลล์)** — ✅ 19 ต.ค. 69 ผู้ใช้เลือก **ให้ creator ทำได้ทุกอย่างเพื่อทดสอบ**
   (รวมอนุมัติและส่ง ERP จริงไป UAT) · มุมเซลล์บันทึกผู้ทำเป็นอีเมล creator ผ่าน `salesActorEmail()` ไม่ใช่เซลล์ที่ดูแทน ·
   ยกเว้นกดอ่านแจ้งเตือน (ไม่บันทึกอ่านแทนเซลล์ตัวจริง) · มุมร้านเขียนได้อยู่แล้ว คงไว้
-- [ ] **`prisma/seed.ts` ลบออเดอร์ `pending_approval` ทั้งหมด** — รันผ่าน `db:setup` / `db:seed` / `migrate reset` ·
+- [x] **`prisma/seed.ts` ลบออเดอร์ `pending_approval` ทั้งหมด** — ✅ 19 ต.ค. 69 ปฏิเสธเมื่อ NODE_ENV=production หรือ
+  DATABASE_URL อยู่ใน `/app/data/` · เดิม: — รันผ่าน `db:setup` / `db:seed` / `migrate reset` ·
   ห้ามรันกับฐานข้อมูลจริง (เตือนไว้ในเอกสารแล้ว) · ทางเลือก: ให้ seed ปฏิเสธเมื่อ NODE_ENV=production
 - [ ] เล็ก ๆ: เซลล์เข้าจาก `/` ไป `/sales` แต่ login เสร็จไป `/sales/orders` · ตาราง `AllowedSalesCode` ไม่ถูกใช้ ·
   มุมมองทดสอบเซลล์แบบรหัสอย่างเดียวสลับรหัสไม่ได้

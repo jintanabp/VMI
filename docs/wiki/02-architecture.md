@@ -138,7 +138,7 @@ flowchart TB
 
 | เรื่อง | พฤติกรรม |
 |---|---|
-| เวลา | ทุกวัน `MASTER_REFRESH_HOUR:MINUTE` (default **03:30**) เวลา Asia/Bangkok · ปิดด้วย `MASTER_REFRESH_ENABLED=false` (compose ตั้ง `true`) |
+| เวลา | ทุกวัน `MASTER_REFRESH_HOUR:MINUTE` (default **03:30**) เวลา Asia/Bangkok · ปิดด้วย `MASTER_REFRESH_ENABLED=false` (compose default `true` ตั้งใน `.env` ได้) |
 | retry | ล้มแล้วลองใหม่ 3 ครั้ง ห่าง 5 / 15 / 30 นาที · ล้มครบ → อีเมลผ่าน Microsoft Graph ถึง `ALERT_EMAIL` (ต้องมี `SENDER_EMAIL` ด้วย ไม่งั้นแค่ log) |
 | backup | รอบประจำวันสำรอง DB ทุกครั้ง (`scripts/backup-db.mjs`) **ไม่ขึ้นกับผล sync** · ปุ่มที่คนกดไม่สำรอง |
 | C4 เดือนใหม่ | ทุกชั่วโมง: ไฟล์ C4 ไม่มีแถวที่ทับเดือนปัจจุบัน (ปฏิทินไทย) → ดึงเฉพาะ `promotion_c4` (trigger `promo_month`) จนกว่าจะเจอ · Fabric โหลดตาราง C4 ใหม่ราว 14:30 ทุกวัน รอบ 03:30 ของวันที่ 1 จึงได้ไฟล์ของเดือนก่อน หน้าโปรจึงเคยว่างทั้งวัน (1 ต.ค. 2569) · ไม่ backup · ไม่มี env ให้ตั้ง |

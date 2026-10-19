@@ -2,8 +2,25 @@ import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
+/**
+ * seed ลบออเดอร์รออนุมัติทั้งหมด — ห้ามรันกับฐานข้อมูลจริงเด็ดขาด (19 ต.ค. 69)
+ * เดิมมีแค่คำเตือนในเอกสาร · `npm run db:seed` / `db:setup` ใน container จะลบออเดอร์ร้านจริงทิ้ง
+ * กันทั้ง NODE_ENV=production และ path ฐานข้อมูลของ docker (`/app/data/`) เผื่อมีคนตั้ง NODE_ENV ผิด
+ */
+function refuseOnProduction(): void {
+  const url = process.env.DATABASE_URL ?? "";
+  if (process.env.NODE_ENV === "production" || url.includes("/app/data/")) {
+    console.error(
+      "[seed] ปฏิเสธ: ดูเหมือนเป็นฐานข้อมูลจริง (NODE_ENV=production หรือ DATABASE_URL อยู่ใน /app/data/) — " +
+        "seed จะลบออเดอร์รออนุมัติทั้งหมด จึงไม่รันให้"
+    );
+    process.exit(1);
+  }
+}
+
 /** ลบข้อมูล demo เก่า — ระบบใช้ Fabric/VDA จริง */
 async function main() {
+  refuseOnProduction();
   const pendingOrders = await prisma.order.findMany({
     where: { status: "pending_approval" },
     select: { id: true },
