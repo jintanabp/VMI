@@ -1,4 +1,5 @@
 import { ArrowRight } from "lucide-react";
+import { appPath } from "@/lib/paths";
 
 /** หน้าแจ้งระบบย้าย — แสดงแทนทุกหน้าเมื่อตั้ง `MOVED_TO_URL` (lib/moved.ts) */
 export function MovedNotice({ url }: { url: string }) {
@@ -19,6 +20,13 @@ export function MovedNotice({ url }: { url: string }) {
           <ArrowRight className="h-4 w-4" />
         </a>
         <p className="mt-3 break-all text-xs text-slate-500 dark:text-slate-400">{url}</p>
+        {/* ผู้ดูแลระบบยังดูข้อมูลระบบเก่าได้ — ปลดหน้า login เท่านั้น สิทธิ์จริงตัดสินตอน login */}
+        <a
+          href={appPath("/api/legacy-access/")}
+          className="mt-6 inline-block text-xs text-slate-400 underline-offset-2 hover:text-slate-600 hover:underline dark:text-slate-500 dark:hover:text-slate-300"
+        >
+          สำหรับผู้ดูแลระบบ: เข้าดูข้อมูลระบบเก่า
+        </a>
       </div>
     </main>
   );
