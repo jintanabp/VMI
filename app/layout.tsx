@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Noto_Sans_Thai, Inter } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/providers";
+import { MovedNotice } from "@/components/layout/moved-notice";
+import { MOVED_TO_URL } from "@/lib/moved";
 
 const notoSansThai = Noto_Sans_Thai({
   subsets: ["thai", "latin"],
@@ -33,7 +35,8 @@ export default function RootLayout({
         />
       </head>
       <body className={`${notoSansThai.variable} ${inter.variable} antialiased`}>
-        <Providers>{children}</Providers>
+        {/* ระบบย้ายแล้ว = ทุกหน้าขึ้นปุ่มไปลิงก์ใหม่แทนเนื้อหาเดิม (lib/moved.ts) */}
+        {MOVED_TO_URL ? <MovedNotice url={MOVED_TO_URL} /> : <Providers>{children}</Providers>}
       </body>
     </html>
   );
