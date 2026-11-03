@@ -29,3 +29,19 @@ export function legacySiteAllowed(args: {
   if (args.isAdmin) return true;
   return args.hasLegacyCookie && !args.hasAnySession;
 }
+
+/**
+ * ลิงก์บนเว็บใหม่ที่ตรงกับหน้าเก่า — `/vmi/sales/orders/?page=2` → `{MOVED_TO_URL}sales/orders/?page=2`
+ * (ผู้ใช้ขอ 3 พ.ย. 69: ปุ่มต้องพาไปหน้าเดียวกัน ไม่ใช่หน้าแรกเสมอ) · path ที่ไม่อยู่ใต้ basePath = หน้าแรกเว็บใหม่
+ */
+export function movedTargetUrl(
+  movedTo: string,
+  basePath: string,
+  pathname: string,
+  search = ""
+): string {
+  const base = movedTo.endsWith("/") ? movedTo : `${movedTo}/`;
+  if (pathname !== basePath && !pathname.startsWith(`${basePath}/`)) return base;
+  const rest = pathname.slice(basePath.length).replace(/^\/+/, "");
+  return `${base}${rest}${search}`;
+}

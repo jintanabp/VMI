@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { appPath } from "@/lib/paths";
+import { LEGACY_ACCESS_COOKIE, MOVED_TO_URL } from "@/lib/moved";
 
 /** Keep cookie names here — do not import from roles.ts (pulls Prisma into Edge). */
 const CUSTOMER_STORE_COOKIE = "vmi_store_id";
@@ -49,6 +50,15 @@ export async function middleware(request: NextRequest) {
   const isAdminRoute = adminRoutes.some(
     (r) => pathname === r || pathname.startsWith(`${r}/`)
   );
+
+  // ระบบย้ายแล้ว + ยังไม่ได้ login + ไม่ได้มาทางลิงก์ผู้ดูแลระบบ = ไม่ต้องพาไปหน้า login
+  // ปล่อยให้ root layout ขึ้นหน้าแจ้งย้ายที่ path เดิม ปุ่มจะได้พาไปหน้าเดียวกันบนเว็บใหม่ (3 พ.ย. 69)
+  // ไม่เปิดช่องอะไร: layout ไม่ render หน้าจริงให้คนที่ไม่ใช่แอดมินอยู่แล้ว (lib/moved.ts)
+  if (MOVED_TO_URL && !request.cookies.get(LEGACY_ACCESS_COOKIE)?.value) {
+    if ((isCustomerRoute && !storeId) || ((isSalesRoute || isAdminRoute) && !hasSalesSessionCookie(salesToken))) {
+      return NextResponse.next();
+    }
+  }
 
   // appPath() ต้องมี — `new URL(path, request.url)` แทนที่ path ทั้งเส้น
   // basePath /vmi เลยหลุด แล้ว Location ที่ส่งกลับไปกลายเป็น 404
